@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+aiofiles
+python-dotenv
+httpx
+pymupdf
+sqlalchemy
+asyncpg
+aiosqlite
+
+# 확정되면 주석 해제
+# chromadb
+# openai
+
+# pip install -r requirements.txt
