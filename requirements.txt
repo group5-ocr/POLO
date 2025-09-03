@@ -1,0 +1,39 @@
+fastapi
+uvicorn
+aiofiles
+python-dotenv
+httpx
+pymupdf
+sqlalchemy
+asyncpg
+aiosqlite
+
+# --- Deep Learning Core ---
+torch>=2.1.0
+torchvision>=0.16.0
+transformers>=4.42.0
+accelerate>=0.30.0
+peft>=0.11.0
+bitsandbytes>=0.43.1
+
+# --- Data Processing ---
+datasets>=2.20.0
+scikit-learn>=1.5.0
+pandas>=2.2.0
+numpy>=1.26.0
+
+# --- Utilities ---
+tqdm
+pyyaml
+regex
+
+# --- (Optional) Training/Logging ---
+tensorboard
+sentencepiece        # 일부 토크나이저 필요
+
+# 확정되면 주석 해제
+# chromadb
+# openai
+
+# pip install -r requirements.txt
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
