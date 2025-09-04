@@ -1,9 +1,28 @@
-FROM python:3.10-slim
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 python3.10-venv python3-pip git build-essential \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY app.py .
+# Install PyTorch (CUDA 12.4)
+RUN python3 -m pip install --upgrade pip \
+ && python3 -m pip install --index-url https://download.pytorch.org/whl/cu124 \
+    torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124
 
-RUN pip install fastapi uvicorn pydantic
+# Install remaining dependencies
+COPY requirements.txt ./requirements.txt
+RUN python3 -m pip install -r requirements.txt \
+ && python3 -m pip install fastapi==0.114.1 uvicorn==0.30.6 pydantic==2.9.2
 
+# App
+COPY app.py ./app.py
+
+EXPOSE 5003
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5003"]

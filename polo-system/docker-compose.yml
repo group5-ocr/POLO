@@ -2,14 +2,14 @@ version: "3.9"
 
 services:
   backend:
-    build: ./backend
+    build: ./sever
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app                   
-      - ./backend/results:/app/results   
+      - ./sever:/app                   
+      - ./sever/results:/app/results   
     env_file:
-      - ./backend/.env
+      - ./sever/.env
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload 
 
   math-llm:
@@ -18,13 +18,6 @@ services:
       - "5001:5001"
     volumes:
       - ./models/math:/app               
-
-  summary-llm:
-    build: ./models/summary
-    ports:
-      - "5002:5002"
-    volumes:
-      - ./models/summary:/app
 
   easy-llm:
     build: ./models/easy
