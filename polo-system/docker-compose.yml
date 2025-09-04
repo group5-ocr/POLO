@@ -25,3 +25,26 @@ services:
       - "5003:5003"
     volumes:
       - ./models/easy:/app
+
+  easy-train:
+    build: ./models/easy
+    container_name: easy-train
+    command: >
+      bash -lc "python3 training/qlora.py \
+        --model_name_or_path Qwen/Qwen2.5-3B-Instruct \
+        --train_file /app/training/train.jsonl \
+        --output_dir /app/outputs/qwen25-3b-qlora \
+        --report_to_tensorboard \
+        --train_fraction 0.3 \
+        --num_train_epochs 5 \
+        --save_every_steps 1000 \
+        --bf16 True --bnb_4bit True --bnb_4bit_quant_type nf4 \
+        --per_device_train_batch_size 2 --gradient_accumulation_steps 8 --max_seq_length 1024"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    volumes:
+      - ./models/easy:/app
+      - ./models/easy/outputs:/app/outputs
