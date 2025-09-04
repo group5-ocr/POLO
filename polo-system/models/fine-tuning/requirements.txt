@@ -31,4 +31,4 @@ safetensors==0.4.4  # faster weights IO
 # Install PyTorch CUDA 12.4 beforehand (example):
 # pip install --index-url https://download.pytorch.org/whl/cu124 ^
 #   torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124
-# ------------------------------------------
+# -----------------------------------------e

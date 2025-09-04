@@ -20,14 +20,14 @@ services:
       - ./models/math:/app               
 
   easy-llm:
-    build: ./models/easy
+    build: ./models/fine-tuning
     ports:
       - "5003:5003"
     volumes:
-      - ./models/easy:/app
+      - ./models/fine-tuning:/app
 
   easy-train:
-    build: ./models/easy
+    build: ./models/fine-tuning
     container_name: easy-train
     command: >
       bash -lc "python3 training/qlora.py \
@@ -47,5 +47,5 @@ services:
           devices:
             - capabilities: [gpu]
     volumes:
-      - ./models/easy:/app
-      - ./models/easy/outputs:/app/outputs
+      - ./models/fine-tuning:/app
+      - ./models/fine-tuning/outputs:/app/outputs

@@ -144,7 +144,6 @@ def train(args):
         " version=", torch.version.cuda,
         " device=", (torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"),
     )
-
     model, tokenizer = prepare_model_and_tokenizer(
         args.model_name_or_path,
         use_bf16=args.bf16,
@@ -256,12 +255,16 @@ def build_parser():
     # 학습 하이퍼파라미터
     p.add_argument("--num_train_epochs", type=float, default=5.0)
     p.add_argument("--per_device_train_batch_size", type=int, default=1)
-    p.add_argument("--gradient_accumulation_steps", type=int, default=16)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=8)
     p.add_argument("--learning_rate", type=float, default=2e-4)
     p.add_argument("--lr_scheduler_type", type=str, default="cosine")
     p.add_argument("--warmup_ratio", type=float, default=0.03)
-    p.add_argument("--max_seq_length", type=int, default=512)
+    p.add_argument("--max_seq_length", type=int, default=1024)
     p.add_argument("--packing", action="store_true")
+
+    # 데이터 사용 비율 및 시드
+    p.add_argument("--train_fraction", type=float, default=0.3, help="0~1 사이 비율, 예: 0.3는 30% 사용")
+    p.add_argument("--seed", type=int, default=42)
 
     # QLoRA/bitsandbytes
     p.add_argument("--bnb_4bit", type=bool, default=True)
@@ -275,10 +278,6 @@ def build_parser():
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.05)
     p.add_argument("--target_modules", type=str, default="", help="콤마로 구분된 모듈 목록(Qwen은 보통 자동탐지)")
-
-    # 데이터 사용 비율 및 시드
-    p.add_argument("--train_fraction", type=float, default=0.1, help="0~1 사이 비율, 예: 0.1는 10% 사용")
-    p.add_argument("--seed", type=int, default=42)
 
     # 병합 전용
     p.add_argument("--merge_adapters", action="store_true", help="LoRA 병합만 수행")
