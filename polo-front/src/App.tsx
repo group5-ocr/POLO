@@ -10,9 +10,12 @@ export default function App() {
       <header className="header">
         <div className="header-inner small">
           <div className="brand-wrap">
-            <Link to="/">
+            <Link to="/" className="brand-link">
               <img className="brand-logo" src="/img/head_logo.png" onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/img/logo.png' }} alt="A!POLO" />
             </Link>
+          </div>
+          <div className="brand-center">
+            <span className="brand-text">A!POLO</span>
           </div>
           <nav className="nav-auth">
             <Link className="link" to="/login">로그인</Link>

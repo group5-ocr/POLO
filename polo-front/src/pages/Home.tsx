@@ -176,20 +176,43 @@ export default function Home() {
         <div className="cta-inner">
           <div className="pipeline-demo">
             <div className="demo-left">
-              <div className="upload-demo">
-                <div className="upload-area">
-                  <img className="upload-icon" src="/img/upload.png" alt="upload" />
-                  <div className="pdf-icon">📄</div>
+              <div className="workflow-demo">
+                <div className="workflow-step step-1">
+                  <div className="step-icon">📄</div>
+                  <div className="step-label">논문 업로드</div>
+                  <div className="step-desc">PDF 파일</div>
                 </div>
-                <div className="result-pages">
-                  <img className="result-page" src="/img/easy_page.png" alt="easy version" />
-                  <img className="result-page" src="/img/math_page.png" alt="math guide" />
+                
+                <div className="workflow-arrow">➡️</div>
+                
+                <div className="workflow-step step-2">
+                  <div className="step-icon">🤖</div>
+                  <div className="step-label">AI 처리</div>
+                  <div className="step-desc">분석 & 변환</div>
+                </div>
+                
+                <div className="workflow-arrow">➡️</div>
+                
+                <div className="workflow-results">
+                  <div className="result-item">
+                    <img className="result-preview" src="/img/easy_page.png" alt="쉬운 설명" />
+                    <div className="result-label">쉬운 설명</div>
+                    <div className="result-desc">직관적 이해</div>
+                  </div>
+                  <div className="result-item">
+                    <img className="result-preview" src="/img/math_page.png" alt="수학 설명서" />
+                    <div className="result-label">수학 설명서</div>
+                    <div className="result-desc">개념 시각화</div>
+                  </div>
                 </div>
               </div>
             </div>
             <div className="demo-right">
-              <h3>수학 보조 설명서입니다</h3>
-              <p>논문의 어려운 수학 개념과 공식을<br />직관적으로 이해할 수 있도록<br />시각화와 쉬운 설명을 제공합니다.</p>
+              <h3>AI 논문 변환 서비스</h3>
+              <p>복잡한 AI 연구 논문을 누구나 이해할 수 있도록<br />AI가 쉽게 풀어서 설명해드립니다.<br /><br />
+              <strong>📚 쉬운 설명서:</strong> AI 전문 용어를 일상 언어로 변환<br />
+              <strong>📐 수학 설명서:</strong> AI 알고리즘과 수식을 시각화<br /><br />
+              AI 연구자부터 입문자까지, 모든 AI 논문을<br />직관적으로 이해할 수 있습니다.</p>
               <button className="cta-button" onClick={() => navigate('/upload')}>논문 변환하러 가기</button>
             </div>
           </div>

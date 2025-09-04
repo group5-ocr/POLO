@@ -2,14 +2,14 @@ version: "3.9"
 
 services:
   backend:
-    build: ./sever
+    build: ./server
     ports:
       - "8000:8000"
     volumes:
-      - ./sever:/app                   
-      - ./sever/results:/app/results   
+      - ./server:/app                   
+      - ./server/results:/app/results   
     env_file:
-      - ./sever/.env
+      - ./server/.env
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload 
 
   math-llm:
@@ -35,11 +35,12 @@ services:
         --train_file /app/training/train.jsonl \
         --output_dir /app/outputs/qwen25-3b-qlora \
         --report_to_tensorboard \
-        --train_fraction 0.3 \
+        --train_fraction 0.1 \
         --num_train_epochs 5 \
         --save_every_steps 1000 \
         --bf16 True --bnb_4bit True --bnb_4bit_quant_type nf4 \
-        --per_device_train_batch_size 2 --gradient_accumulation_steps 8 --max_seq_length 1024"
+        --per_device_train_batch_size 1 --gradient_accumulation_steps 16 --max_seq_length 512 \
+        --gradient_checkpointing True --dataloader_num_workers 0"
     deploy:
       resources:
         reservations:
