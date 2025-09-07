@@ -237,16 +237,16 @@ def merge_adapters(args):
 # =============================
 
 def build_parser():
-    p = argparse.ArgumentParser(description="Qwen2.5 QLoRA fine-tuning (VSCode-ready)")
+    p = argparse.ArgumentParser(description="Llama-3.2-3B QLoRA fine-tuning")
 
     # 데이터/모델
-    p.add_argument("--model_name_or_path", type=str, default="Qwen/Qwen2.5-3B-Instruct",
-                   help="기본값: Qwen/Qwen2.5-3B-Instruct")
+    p.add_argument("--model_name_or_path", type=str, default="meta-llama/Llama-3.2-3B-Instruct",
+                   help="기본값: meta-llama/Llama-3.2-3B-Instruct")
     p.add_argument("--dataset_name", type=str, default=None, help="🤗 datasets 이름")
     p.add_argument("--train_file", type=str, default=None, help="로컬 JSON/JSONL 파일")
 
     # 저장/로그
-    p.add_argument("--output_dir", type=str, default="./outputs/qwen-qlora")
+    p.add_argument("--output_dir", type=str, default="./outputs/llama32-qlora")
     p.add_argument("--logging_steps", type=int, default=10)
     p.add_argument("--save_every_steps", type=int, default=1000)
     p.add_argument("--save_total_limit", type=int, default=3)
@@ -282,7 +282,7 @@ def build_parser():
     # 병합 전용
     p.add_argument("--merge_adapters", action="store_true", help="LoRA 병합만 수행")
     p.add_argument("--adapter_path", type=str, default=None)
-    p.add_argument("--merge_save_dir", type=str, default="./outputs/qwen-merged")
+    p.add_argument("--merge_save_dir", type=str, default="./outputs/llama32-merged")
 
     return p
 

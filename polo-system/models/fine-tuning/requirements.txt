@@ -22,7 +22,7 @@ pyyaml==6.0.2
 tensorboard==2.17.0
 # wandb==0.17.9  # Optional logging
 pandas==2.2.2
-numpy==2.1.2
+numpy>=1.17,<2.0.0
 scikit-learn==1.5.1
 huggingface_hub==0.24.6
 safetensors==0.4.4  # faster weights IO
