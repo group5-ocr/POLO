@@ -26,7 +26,7 @@ from trl import SFTTrainer
 # =============================
 
 SYS_PROMPT = (
-    "당신은 어려운 논문을 쉽게 풀어 설명하는 과학 커뮤니케이터입니다. "
+    "당신은 어려운 논문을 쉽게 풀어 설명하는 수학 및 과학 커뮤니케이터입니다. "
     "핵심만 정확히, 쉬운 한국어로 단계적으로 설명하세요."
 )
 
@@ -144,6 +144,13 @@ def train(args):
         " version=", torch.version.cuda,
         " device=", (torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"),
     )
+    
+    if torch.cuda.is_available():
+        torch.cuda.set_device(0)
+        print(f"[device] cuda_available=True | device_map=cuda | name={torch.cuda.get_device_name(0)}")
+    else:
+        print("[device] cuda_available=False | device_map=cpu")
+
     model, tokenizer = prepare_model_and_tokenizer(
         args.model_name_or_path,
         use_bf16=args.bf16,
@@ -164,14 +171,12 @@ def train(args):
 
     dataset = load_training_dataset(args.dataset_name, args.train_file)
 
-    # 데이터 샘플링: train_fraction 비율로 사용 (셔플 후 앞부분 선택)
     if args.train_fraction is not None and 0.0 < args.train_fraction < 1.0:
         dataset = dataset.shuffle(seed=args.seed)
         target_size = max(1, int(len(dataset) * args.train_fraction))
         dataset = dataset.select(range(target_size))
-        print(f"[info] Using train_fraction={args.train_fraction:.2f} => {target_size} samples out of {len(dataset)}")
+        print(f"[info] Using train_fraction={args.train_fraction:.2f} => {target_size} samples")
 
-    # 패킹: 여러 샘플을 하나의 긴 시퀀스로 이어붙여 효율 상승
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         per_device_train_batch_size=args.per_device_train_batch_size,
@@ -185,8 +190,14 @@ def train(args):
         fp16=(not args.bf16),
         lr_scheduler_type=args.lr_scheduler_type,
         warmup_ratio=args.warmup_ratio,
-        optim="paged_adamw_8bit",  # 4bit와 궁합 좋음
+        optim="paged_adamw_8bit",
         report_to=["tensorboard"] if args.report_to_tensorboard else [],
+        remove_unused_columns=True,
+        logging_dir=f"{args.output_dir}/logs",
+        logging_strategy="steps",
+        logging_first_step=True,
+        overwrite_output_dir=False,  # resume 시 중요!
+        ddp_find_unused_parameters=False,
     )
 
     trainer = SFTTrainer(
@@ -200,10 +211,14 @@ def train(args):
         args=training_args,
     )
 
-    trainer.train()
+    # ✅ 체크포인트 이어받기
+    checkpoint_path = args.resume_from_checkpoint if args.resume_from_checkpoint else None
+    if checkpoint_path:
+        print(f"[resume] Resuming training from checkpoint: {checkpoint_path}")
+    trainer.train(resume_from_checkpoint=checkpoint_path)
+
     trainer.model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
-
     print(f"\n[완료] LoRA 어댑터가 '{args.output_dir}'에 저장되었습니다.")
 
 
@@ -270,7 +285,7 @@ def build_parser():
     p.add_argument("--bnb_4bit", type=bool, default=True)
     p.add_argument("--bnb_4bit_quant_type", type=str, default="nf4", choices=["nf4", "fp4"]) 
     p.add_argument("--bnb_4bit_compute_dtype", type=str, default="bfloat16", choices=["bfloat16", "float16"]) 
-    p.add_argument("--bf16", type=bool, default=True)
+    p.add_argument("--bf16", action="store_true")
     p.add_argument("--gradient_checkpointing", type=bool, default=True)
 
     # LoRA 설정

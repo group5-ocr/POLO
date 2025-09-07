@@ -7,25 +7,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 python3.10-venv python3-pip python3.10-dev git build-essential \
+ && ln -s /usr/bin/python3 /usr/bin/python \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install PyTorch (CUDA 12.4)
+# Install PyTorch (CUDA 12.1)
 RUN python3 -m pip install --upgrade pip \
- && python3 -m pip install --index-url https://download.pytorch.org/whl/cu124 \
-    torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124
+ && python3 -m pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
 
-# Install remaining dependencies
-COPY requirements.txt ./requirements.txt
-RUN python3 -m pip install -r requirements.txt \
- && python3 -m pip install fastapi==0.114.1 uvicorn==0.30.6 pydantic==2.9.2
+# Install training dependencies
+COPY requirements.txt ./requirements.train.txt
+RUN python3 -m pip install -r requirements.train.txt
 
 # Training code
 COPY training ./training
-COPY outputs ./outputs
-ENV HF_HOME=/app/.cache/huggingface \
-    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
 
-EXPOSE 5003
-CMD ["bash", "-c", "python3 training/qlora.py --model_name_or_path meta-llama/Llama-3.2-3B-Instruct --train_file /app/training/train.jsonl --output_dir /app/outputs/llama32-3b-qlora --report_to_tensorboard --train_fraction 0.3 --num_train_epochs 3 --save_every_steps 500 --logging_steps 10 --bf16 True --bnb_4bit True --bnb_4bit_quant_type nf4 --per_device_train_batch_size 1 --gradient_accumulation_steps 4 --max_seq_length 256 --gradient_checkpointing True --learning_rate 2e-4 --warmup_ratio 0.03"]
+# Environment variables
+ENV HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
