@@ -36,3 +36,92 @@ __pycache__/
 *.log
 *.ckpt
 *.safetensors
+
+# ----------------------------
+# Hugging Face 캐시 디렉토리 무시
+# ----------------------------
+.cache/
+**/.cache/
+**/huggingface/
+**/transformers/
+**/models--*/
+**/snapshots/
+**/blobs/
+**/.locks/
+
+# ----------------------------
+# Node.js 관련 파일 무시
+# ----------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+package-lock.json
+
+# ----------------------------
+# Docker 관련 파일 무시
+# ----------------------------
+.dockerignore
+docker-compose.override.yml
+
+# ----------------------------
+# IDE 및 에디터 설정 파일 무시
+# ----------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ----------------------------
+# OS 관련 파일 무시
+# ----------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ----------------------------
+# 로그 및 임시 파일 무시
+# ----------------------------
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# ----------------------------
+# 모델 파일 및 체크포인트 무시
+# ----------------------------
+*.bin
+*.pt
+*.pth
+*.h5
+*.onnx
+*.tflite
+*.pb
+
+# ----------------------------
+# 데이터셋 및 결과 파일 무시
+# ----------------------------
+data/
+datasets/
+results/
+experiments/
+logs/
+tensorboard/
+wandb/
+
+# ----------------------------
+# 기타 빌드 및 배포 파일 무시
+# ----------------------------
+dist/
+build/
+*.egg-info/
+.coverage
+.pytest_cache/
