@@ -1,7 +1,6 @@
 """
 POLO Easy Model - 논문을 쉽게 풀어 설명하는 LLM 서비스
 """
-
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -9,11 +8,28 @@ from pydantic import BaseModel
 from typing import Optional
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
 from googletrans import Translator
+from dotenv import load_dotenv
 
 # --- 환경 변수 ---
 BASE_MODEL = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
-ADAPTER_DIR = os.getenv("EASY_ADAPTER_DIR", "")
+
+# 기본 어댑터 경로: fine-tuning 결과물(checkpoint-600)을 참조
+_DEFAULT_ADAPTER_DIR = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..", "fine-tuning", "outputs", "llama32-3b-qlora", "checkpoint-600",
+    )
+)
+ADAPTER_DIR = os.getenv("EASY_ADAPTER_DIR", _DEFAULT_ADAPTER_DIR)
+
+# polo-system 루트의 .env 로드 (모델을 easy 디렉토리에서 실행해도 인식되도록)
+_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_dotenv(_ENV_PATH)
+
+# Hugging Face 토큰 (가드 리포 접근용)
+HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
 app = FastAPI(title="POLO Easy Model", version="1.0.0")
 
@@ -37,12 +53,12 @@ def load_model():
     print(f"🔄 모델 로딩 중: {BASE_MODEL}")
     
     # 토크나이저 로드
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # 모델 로드
-    safe_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    # 모델 로드: 로컬 서빙은 bitsandbytes 미사용 → bfloat16로 고정 (GPU), CPU는 float32
+    safe_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     
     model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL,
@@ -50,12 +66,15 @@ def load_model():
         device_map="auto",
         low_cpu_mem_usage=True,
         trust_remote_code=True,  # Llama 모델용
+        token=HF_TOKEN,
     )
     
-    # 어댑터가 있으면 로드
+    # 어댑터가 있으면 로드 (QLoRA 가중치)
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
         print(f"🔄 어댑터 로딩 중: {ADAPTER_DIR}")
         model = PeftModel.from_pretrained(model, ADAPTER_DIR)
+    else:
+        print("⚠️ 어댑터 디렉토리를 찾지 못했습니다. 순수 베이스 모델로 동작합니다.")
     
     model.eval()
     print("✅ 모델 로딩 완료!")

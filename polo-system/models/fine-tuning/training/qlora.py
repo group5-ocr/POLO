@@ -316,7 +316,12 @@ def build_parser():
     p.add_argument("--gradient_checkpointing", action="store_true")
 
     # 재개/타깃/LoRA
-    p.add_argument("--resume_from_checkpoint", type=str, default=None)
+    p.add_argument(
+    "--resume_from_checkpoint",
+    type=str,
+    default=None,
+    help="Fine-tuning을 중단한 시점의 체크포인트 경로를 지정합니다."
+    )   
     p.add_argument("--lora_r", type=int, default=64)
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.05)

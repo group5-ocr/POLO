@@ -1,31 +1,62 @@
-import os
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import PeftModel
+import requests
+import logging
+from typing import Optional
 
-MODEL_BASE = os.getenv("MODEL_BASE", "meta-llama/Llama-3.2-3B-Instruct")
-ADAPTER_PATH = os.getenv("ADAPTER_PATH", "/models/fine-tuning/outputs/llama32-3b-qlora/checkpoint-600")
+logger = logging.getLogger(__name__)
 
-class EasyLLM:
-    def __init__(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_BASE, use_fast=True)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            MODEL_BASE,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-        )
-        self.model = PeftModel.from_pretrained(self.model, ADAPTER_PATH)
-        self.model.eval()
-
-    def generate(self, text: str, max_new_tokens: int = 512):
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=0.3,
-                do_sample=True
+class EasyLLMClient:
+    """파인튜닝된 Easy LLM 서비스 클라이언트"""
+    
+    def __init__(self, base_url: str = "http://localhost:5003"):
+        self.base_url = base_url
+        self.session = requests.Session()
+    
+    def health_check(self) -> bool:
+        """모델 서비스 상태 확인"""
+        try:
+            response = self.session.get(f"{self.base_url}/health", timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Easy LLM 서비스 연결 실패: {e}")
+            return False
+    
+    def generate(self, text: str, max_length: int = 512, temperature: float = 0.7) -> Optional[str]:
+        """텍스트 생성"""
+        try:
+            payload = {
+                "text": text,
+                "max_length": max_length,
+                "temperature": temperature,
+                "top_p": 0.9
+            }
+            
+            response = self.session.post(
+                f"{self.base_url}/generate",
+                json=payload,
+                timeout=30
             )
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("generated_text", "")
+            else:
+                logger.error(f"텍스트 생성 실패: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"텍스트 생성 요청 실패: {e}")
+            return None
+    
+    def get_model_info(self) -> Optional[dict]:
+        """모델 정보 조회"""
+        try:
+            response = self.session.get(f"{self.base_url}/model_info", timeout=5)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"모델 정보 조회 실패: {e}")
+            return None
 
-easy_llm = EasyLLM()
+# 전역 클라이언트 인스턴스
+easy_llm = EasyLLMClient()
