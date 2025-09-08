@@ -14,4 +14,4 @@ RUN pip3 install --no-cache-dir -r /app/requirements.api.txt
 
 # 앱 복사
 COPY . /app/server
-ENV PYTHONPATH=/app
+ENV PYTHONPATH="/app"
