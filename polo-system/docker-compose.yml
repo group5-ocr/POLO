@@ -1,86 +1,53 @@
 version: "3.9"
 
 services:
+  # 모델 파인튜닝만 도커로 구성
   easy-train:
     build: ./models/fine-tuning
     container_name: easy-train
     environment:
-      - HF_TOKEN=${HUGGINGFACE_TOKEN}
-      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
-      - CUDA_VISIBLE_DEVICES=0
-    working_dir: /app
-    command:
-      [
-        "python3", "training/qlora.py",
-        "--model_name_or_path", "meta-llama/Llama-3.2-3B-Instruct",
-        "--train_file", "/app/training/train.jsonl",
-        "--output_dir", "/app/outputs/llama32-3b-qlora",
-        "--report_to_tensorboard",
-        "--train_fraction", "0.3",
-        "--num_train_epochs", "3",
-        "--save_every_steps", "300",
-        "--logging_steps", "10",
-        "--bf16",
-        "--bnb_4bit",
-        "--bnb_4bit_quant_type", "nf4",
-        "--per_device_train_batch_size", "1",
-        "--gradient_accumulation_steps", "4",
-        "--max_seq_length", "256",
-        "--gradient_checkpointing",
-        "--learning_rate", "2e-4",
-        "--warmup_ratio", "0.03"
-      ]
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+    command: >
+      python /app/training/qlora.py
+      --model_name_or_path meta-llama/Llama-3.2-3B-Instruct
+      --train_file /app/training/train.jsonl
+      --output_dir /app/outputs/llama32-3b-qlora
+      --report_to_tensorboard
+      --train_fraction 0.3
+      --num_train_epochs 3
+      --save_every_steps 500
+      --logging_steps 10
+      --bf16
+      --bnb_4bit
+      --bnb_4bit_quant_type nf4
+      --per_device_train_batch_size 1
+      --gradient_accumulation_steps 4
+      --max_seq_length 256
+      --gradient_checkpointing
+      --learning_rate 2e-4
+      --warmup_ratio 0.03
+      --target_modules q_proj,k_proj,v_proj,o_proj
     deploy:
       resources:
+        limits:
+          memory: 8G
         reservations:
           devices:
-            - capabilities: ["gpu"]
+            - capabilities: [gpu]
     volumes:
       - ./models/fine-tuning:/app
       - ./models/fine-tuning/outputs:/app/outputs
-      - ~/.cache/huggingface:/root/.cache/huggingface:rw
-    shm_size: "8g"
-    ipc: host
 
-  tensorboard:
-    image: tensorflow/tensorflow:latest
-    container_name: tensorboard
-    working_dir: /app
-    command: >
-      tensorboard --logdir /app/outputs/llama32-3b-qlora/logs
-                  --host 0.0.0.0
-                  --port 6006
+  # 파인튜닝된 모델을 서빙하는 서비스 (선택사항)
+  easy-llm:
+    build: ./models/fine-tuning
+    ports:
+      - "5003:5003"
+    environment:
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
     volumes:
       - ./models/fine-tuning:/app
-    ports:
-      - "6006:6006"
-    restart: unless-stopped
-
-
-  # 💤 나중에 활성화할 서비스들
-  # backend:
-  #   build: ./server
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - ./server:/app
-  #     - ./server/results:/app/results
-  #   env_file:
-  #     - ./server/.env
-  #   command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload 
-
-  # math-llm:
-  #   build: ./models/math
-  #   ports:
-  #     - "5001:5001"
-  #   volumes:
-  #     - ./models/math:/app
-
-  # easy-llm:
-  #   build: ./models/fine-tuning
-  #   ports:
-  #     - "5003:5003"
-  #   environment:
-  #     - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
-  #   volumes:
-  #     - ./models/fine-tuning:/app
+      - ./models/fine-tuning/outputs:/app/outputs
+    command: python /app/app.py
+    depends_on:
+      - easy-train
