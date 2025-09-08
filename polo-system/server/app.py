@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from server.routes import convert
+from routes import convert
 
 app = FastAPI(title="POLO Inference API")
 
