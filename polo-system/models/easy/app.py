@@ -12,6 +12,8 @@ from peft import PeftModel
 from googletrans import Translator
 from dotenv import load_dotenv
 import json
+import time
+import logging
 
 # --- 환경 변수 ---
 BASE_MODEL = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
@@ -34,10 +36,15 @@ HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
 app = FastAPI(title="POLO Easy Model", version="1.0.0")
 
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # 전역 변수
 model = None
 tokenizer = None
 translator = Translator()
+gpu_available = False
 
 class TextRequest(BaseModel):
     text: str
@@ -49,18 +56,27 @@ class TextResponse(BaseModel):
 
 def load_model():
     """모델과 토크나이저 로드"""
-    global model, tokenizer
+    global model, tokenizer, gpu_available
     
-    print(f"🔄 모델 로딩 중: {BASE_MODEL}")
+    logger.info(f"🔄 모델 로딩 중: {BASE_MODEL}")
+    
+    # GPU 상태 확인
+    gpu_available = torch.cuda.is_available()
+    if gpu_available:
+        logger.info(f"🚀 GPU 사용 가능: {torch.cuda.get_device_name(0)}")
+        logger.info(f"💾 GPU 메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
+    else:
+        logger.warning("⚠️ GPU를 사용할 수 없습니다. CPU로 실행됩니다.")
     
     # 토크나이저 로드
+    logger.info("📝 토크나이저 로딩 중...")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
     # 모델 로드: 로컬 서빙은 bitsandbytes 미사용 → bfloat16 고정(GPU), CPU는 float32
-    use_cuda = torch.cuda.is_available()
-    safe_dtype = torch.bfloat16 if use_cuda else torch.float32
+    safe_dtype = torch.bfloat16 if gpu_available else torch.float32
+    logger.info(f"🧠 모델 로딩 중... (dtype: {safe_dtype})")
     
     # accelerate/meta 텐서 경로를 피하기 위해 device_map/low_cpu_mem_usage 비활성화
     base = AutoModelForCausalLM.from_pretrained(
@@ -70,20 +86,23 @@ def load_model():
         attn_implementation="eager",
         token=HF_TOKEN,
     )
-    if use_cuda:
+    if gpu_available:
         base.to("cuda")
+        logger.info("🎯 모델을 GPU로 이동 완료")
     
     # 어댑터가 있으면 로드 (QLoRA 가중치)
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
-        print(f"🔄 어댑터 로딩 중: {ADAPTER_DIR}")
+        logger.info(f"🔄 어댑터 로딩 중: {ADAPTER_DIR}")
         model = PeftModel.from_pretrained(base, ADAPTER_DIR, is_trainable=False)
-        if use_cuda:
+        if gpu_available:
             model.to("cuda")
+        logger.info("✅ 어댑터 로딩 완료")
     else:
-        print("⚠️ 어댑터 디렉토리를 찾지 못했습니다. 순수 베이스 모델로 동작합니다.")
+        logger.warning("⚠️ 어댑터 디렉토리를 찾지 못했습니다. 순수 베이스 모델로 동작합니다.")
+        model = base
     
     model.eval()
-    print("✅ 모델 로딩 완료!")
+    logger.info("✅ 모델 로딩 완료!")
 
 @app.on_event("startup")
 async def startup_event():
@@ -149,9 +168,14 @@ async def simplify_text(request: TextRequest):
 @app.post("/generate")
 async def generate_json(request: TextRequest):
     """논문 텍스트를 받아 섹션별로 쉽게 재해석한 JSON 생성"""
+    start_time = time.time()
     try:
         if model is None or tokenizer is None:
             raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다")
+
+        logger.info("🚀 JSON 생성 시작")
+        logger.info(f"📊 입력 텍스트 길이: {len(request.text)} 문자")
+        logger.info(f"🎯 GPU 사용: {gpu_available}")
 
         json_schema = {
             "title": "",  # 논문 제목(원문 추출 불가 시 요약 기반 생성)
@@ -188,6 +212,7 @@ async def generate_json(request: TextRequest):
 아래는 사용자가 제공한 논문 텍스트다:
 """
 
+        logger.info("📝 토크나이징 시작...")
         # 토크나이징
         inputs = tokenizer(
             prompt + request.text,
@@ -196,9 +221,13 @@ async def generate_json(request: TextRequest):
             max_length=2048,
         )
 
-        if torch.cuda.is_available():
+        if gpu_available:
             inputs = {k: v.cuda() for k, v in inputs.items()}
+            logger.info("🎯 입력을 GPU로 이동 완료")
 
+        logger.info("🧠 모델 추론 시작...")
+        inference_start = time.time()
+        
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
@@ -208,6 +237,10 @@ async def generate_json(request: TextRequest):
                 pad_token_id=tokenizer.eos_token_id,
             )
 
+        inference_time = time.time() - inference_start
+        logger.info(f"⚡ 추론 완료: {inference_time:.2f}초")
+
+        logger.info("📄 디코딩 시작...")
         generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
         raw = generated[len(prompt):].strip()
 
@@ -221,15 +254,30 @@ async def generate_json(request: TextRequest):
 
         try:
             data = coerce_json(raw)
-        except Exception:
+            logger.info("✅ JSON 파싱 성공")
+        except Exception as e:
+            logger.warning(f"⚠️ JSON 파싱 실패: {e}")
             # 파싱 실패 시, 안전한 최소 구조 반환
             data = json_schema
             data["plain_summary"] = raw[:1000]
+
+        total_time = time.time() - start_time
+        logger.info(f"🎉 전체 처리 완료: {total_time:.2f}초")
+        
+        # 메타데이터 추가
+        data["processing_info"] = {
+            "gpu_used": gpu_available,
+            "inference_time": inference_time,
+            "total_time": total_time,
+            "input_length": len(request.text),
+            "output_length": len(str(data))
+        }
 
         return data
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"❌ JSON 생성 중 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=f"JSON 생성 중 오류: {str(e)}")
 
 @app.get("/health")
@@ -238,7 +286,10 @@ async def health_check():
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "tokenizer_loaded": tokenizer is not None
+        "tokenizer_loaded": tokenizer is not None,
+        "gpu_available": gpu_available,
+        "gpu_device": torch.cuda.get_device_name(0) if gpu_available else None,
+        "model_name": BASE_MODEL
     }
 
 if __name__ == "__main__":

@@ -5,24 +5,31 @@ interface UploadResult {
   file_size: number
   extracted_text_length: number
   extracted_text_preview: string
-  easy_text: string
+  easy_json: any
   status: string
+  raw_file_path?: string
+  json_file_path?: string
+  processing_info?: any
 }
 
 export default function Upload() {
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState<UploadResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string>('')
 
   const uploadFile = async (file: File) => {
     setUploading(true)
     setError(null)
     setResult(null)
+    setProgress('파일 업로드 중...')
 
     try {
       const formData = new FormData()
       formData.append('file', file)
 
+      setProgress('PDF 텍스트 추출 중...')
+      
       const response = await fetch('http://localhost:8000/api/convert', {
         method: 'POST',
         body: formData,
@@ -33,10 +40,14 @@ export default function Upload() {
         throw new Error(errorData.detail || '업로드 실패')
       }
 
+      setProgress('AI 모델로 변환 중... (시간이 걸릴 수 있습니다)')
+      
       const data = await response.json()
       setResult(data)
+      setProgress('완료!')
     } catch (err) {
       setError(err instanceof Error ? err.message : '업로드 중 오류가 발생했습니다.')
+      setProgress('')
     } finally {
       setUploading(false)
     }
@@ -108,6 +119,40 @@ export default function Upload() {
         </div>
       </label>
 
+      {uploading && (
+        <div style={{
+          marginTop: '20px',
+          padding: '15px',
+          backgroundColor: '#e3f2fd',
+          border: '1px solid #90caf9',
+          borderRadius: '5px',
+          textAlign: 'center'
+        }}>
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{
+              width: '100%',
+              height: '20px',
+              backgroundColor: '#e0e0e0',
+              borderRadius: '10px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#2196f3',
+                animation: 'pulse 1.5s ease-in-out infinite'
+              }}></div>
+            </div>
+          </div>
+          <p style={{ margin: 0, fontWeight: 'bold', color: '#1976d2' }}>
+            {progress}
+          </p>
+          <p style={{ margin: '5px 0 0 0', fontSize: '14px', color: '#666' }}>
+            GPU 가속으로 처리 중입니다. 잠시만 기다려주세요...
+          </p>
+        </div>
+      )}
+
       {error && (
         <div style={{
           marginTop: '20px',
@@ -154,18 +199,40 @@ export default function Upload() {
           </div>
 
           <div>
-            <h4>AI 변환 결과:</h4>
+            <h4>AI 변환 결과 (JSON):</h4>
             <div style={{
               padding: '15px',
               backgroundColor: '#e7f3ff',
               border: '1px solid #b3d9ff',
               borderRadius: '5px',
-              whiteSpace: 'pre-wrap',
-              lineHeight: '1.6'
+              maxHeight: '400px',
+              overflowY: 'auto',
+              fontSize: '14px'
             }}>
-              {result.easy_text}
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                {JSON.stringify(result.easy_json, null, 2)}
+              </pre>
             </div>
           </div>
+
+          {result.processing_info && (
+            <div style={{ marginTop: '15px' }}>
+              <h4>처리 정보:</h4>
+              <div style={{
+                padding: '10px',
+                backgroundColor: '#f8f9fa',
+                border: '1px solid #dee2e6',
+                borderRadius: '5px',
+                fontSize: '14px'
+              }}>
+                <p><strong>GPU 사용:</strong> {result.easy_json.processing_info?.gpu_used ? '✅ 예' : '❌ 아니오'}</p>
+                <p><strong>추론 시간:</strong> {result.easy_json.processing_info?.inference_time?.toFixed(2)}초</p>
+                <p><strong>전체 처리 시간:</strong> {result.easy_json.processing_info?.total_time?.toFixed(2)}초</p>
+                <p><strong>입력 길이:</strong> {result.easy_json.processing_info?.input_length} 문자</p>
+                <p><strong>출력 길이:</strong> {result.easy_json.processing_info?.output_length} 문자</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

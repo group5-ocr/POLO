@@ -1,12 +1,24 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 import fitz  # PyMuPDF
 import os
 import tempfile
 import logging
+import json
+from datetime import datetime
+from pathlib import Path
 from services.llm_client import easy_llm
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# 데이터 디렉토리 경로 설정
+BASE_DIR = Path(__file__).parent.parent.parent  # polo-system 루트
+RAW_DIR = BASE_DIR / "data" / "raw"
+OUTPUTS_DIR = BASE_DIR / "data" / "outputs"
+
+# 디렉토리 생성
+RAW_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
 def extract_text_from_pdf(pdf_path: str) -> str:
     """PDF에서 텍스트 추출"""
@@ -36,9 +48,22 @@ async def convert_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=503, detail="AI 모델 서비스가 사용 불가능합니다.")
     
     try:
-        # 임시 파일로 저장
+        # 파일 내용 읽기
+        content = await file.read()
+        
+        # 타임스탬프로 고유한 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = Path(file.filename).stem
+        safe_filename = f"{timestamp}_{base_name}.pdf"
+        
+        # data/raw에 원본 PDF 저장
+        raw_file_path = RAW_DIR / safe_filename
+        with open(raw_file_path, "wb") as f:
+            f.write(content)
+        logger.info(f"원본 PDF 저장: {raw_file_path}")
+        
+        # 임시 파일로 텍스트 추출용 복사본 생성
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            content = await file.read()
             tmp_file.write(content)
             tmp_path = tmp_file.name
         
@@ -57,8 +82,25 @@ async def convert_pdf(file: UploadFile = File(...)):
             if easy_json is None:
                 raise HTTPException(status_code=500, detail="AI 모델 처리 중 오류가 발생했습니다.")
             
+            # JSON에 메타데이터 추가
+            easy_json["metadata"] = {
+                "original_filename": file.filename,
+                "processed_at": datetime.now().isoformat(),
+                "file_size": len(content),
+                "extracted_text_length": len(extracted_text)
+            }
+            
+            # data/outputs에 JSON 저장
+            json_filename = f"{timestamp}_{base_name}.json"
+            json_file_path = OUTPUTS_DIR / json_filename
+            with open(json_file_path, "w", encoding="utf-8") as f:
+                json.dump(easy_json, f, ensure_ascii=False, indent=2)
+            logger.info(f"변환된 JSON 저장: {json_file_path}")
+            
             return {
                 "filename": file.filename,
+                "raw_file_path": str(raw_file_path),
+                "json_file_path": str(json_file_path),
                 "file_size": len(content),
                 "extracted_text_length": len(extracted_text),
                 "extracted_text_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text,
