@@ -1,9 +1,17 @@
-FROM python:3.10-slim
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
+RUN apt-get update && apt-get install -y python3 python3-pip && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+RUN pip3 install --upgrade pip
 
-COPY requirements.txt ./
+# CUDA 12.1용 PyTorch
+RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 \
+    torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1
 
-RUN pip install --no-cache-dir -r requirements.txt
+# 🔑 build context가 ./server 이므로 파일명만 COPY
+COPY requirements.api.txt /app/requirements.api.txt
+RUN pip3 install --no-cache-dir -r /app/requirements.api.txt
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# 앱 복사
+COPY . /app/server
+ENV PYTHONPATH=/app

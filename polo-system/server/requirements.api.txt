@@ -4,35 +4,15 @@ uvicorn==0.30.6
 aiofiles==23.2.1
 python-dotenv==1.0.1
 httpx==0.27.2
+pymupdf==1.24.9
 
-# --- DB ---
-SQLAlchemy==2.0.34
-asyncpg==0.29.0
-aiosqlite==0.20.0
-
-# --- DL stack (no torch here) ---
+# --- Inference stack ---
 transformers==4.44.2
 accelerate==0.33.0
 peft==0.11.1
-trl==0.9.6
-datasets==2.20.0
 bitsandbytes==0.43.1
-
-# --- Data / ML utils ---
-pandas==2.2.2
-numpy==2.1.2
-scikit-learn==1.5.1
-tqdm==4.66.4
-pyyaml==6.0.2
-regex==2024.7.24
 sentencepiece==0.1.99
 einops==0.8.0
-evaluate==0.4.2
-scipy==1.13.1
-
-# --- Optional logging ---
-tensorboard==2.17.0
-# wandb==0.17.9
-
-# --- Optional extras ---
-pymupdf==1.24.9
+safetensors==0.4.4
+regex==2024.7.24
+numpy==1.26.4
