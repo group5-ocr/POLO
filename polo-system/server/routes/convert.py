@@ -1,6 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import fitz  # PyMuPDF
-from services.llm_client import easy_llm
+
+# ❌ from services.llm_client import easy_llm
+from server.services.llm_client import easy_llm 
 
 router = APIRouter()
 
@@ -13,18 +15,11 @@ def extract_text_from_pdf(pdf_path: str):
 
 @router.post("/convert")
 async def convert_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
+    if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
-
-    pdf_path = f"/tmp/{file.filename}"
-    with open(pdf_path, "wb") as f:
+    tmp = f"/tmp/{file.filename}"
+    with open(tmp, "wb") as f:
         f.write(await file.read())
-
-    text = extract_text_from_pdf(pdf_path)
+    text = extract_text_from_pdf(tmp)
     result = easy_llm.generate(text)
-
-    return {
-        "filename": file.filename,
-        "extracted_text": text[:500] + "...",
-        "easy_text": result
-    }
+    return {"filename": file.filename, "extracted_text": text[:500] + "...", "easy_text": result}
