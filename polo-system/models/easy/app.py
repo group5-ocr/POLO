@@ -57,22 +57,27 @@ def load_model():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # 모델 로드: 로컬 서빙은 bitsandbytes 미사용 → bfloat16로 고정 (GPU), CPU는 float32
-    safe_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    # 모델 로드: 로컬 서빙은 bitsandbytes 미사용 → bfloat16 고정(GPU), CPU는 float32
+    use_cuda = torch.cuda.is_available()
+    safe_dtype = torch.bfloat16 if use_cuda else torch.float32
     
-    model = AutoModelForCausalLM.from_pretrained(
+    # accelerate/meta 텐서 경로를 피하기 위해 device_map/low_cpu_mem_usage 비활성화
+    base = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL,
         torch_dtype=safe_dtype,
-        device_map="auto",
-        low_cpu_mem_usage=True,
-        trust_remote_code=True,  # Llama 모델용
+        trust_remote_code=True,
+        attn_implementation="eager",
         token=HF_TOKEN,
     )
+    if use_cuda:
+        base.to("cuda")
     
     # 어댑터가 있으면 로드 (QLoRA 가중치)
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
         print(f"🔄 어댑터 로딩 중: {ADAPTER_DIR}")
-        model = PeftModel.from_pretrained(model, ADAPTER_DIR)
+        model = PeftModel.from_pretrained(base, ADAPTER_DIR, is_trainable=False)
+        if use_cuda:
+            model.to("cuda")
     else:
         print("⚠️ 어댑터 디렉토리를 찾지 못했습니다. 순수 베이스 모델로 동작합니다.")
     
