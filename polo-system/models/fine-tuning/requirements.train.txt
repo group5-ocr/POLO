@@ -1,0 +1,38 @@
+# =============================
+# POLO easy-model (QLoRA) stack
+# Target: CUDA 12.1 (PyTorch cu121)
+# =============================
+
+# PyTorch (CUDA 12.1 전용 wheel)
+-f https://download.pytorch.org/whl/cu121
+
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+torchaudio==2.5.1+cu121
+
+# Core LLM / fine-tuning stack
+transformers==4.44.2         # 최신 + 안정
+accelerate==0.33.0           # transformers 4.44.2와 호환
+peft==0.11.1                 # QLoRA-compatible
+trl==0.9.6                   # SFTTrainer 안정 버전
+datasets==2.20.0             # 데이터셋 로딩
+bitsandbytes==0.42.0         # CUDA 12.1 정상 작동 확인됨
+
+# Utilities / training
+sentencepiece==0.1.99        # Tokenizer (LLaMA 등)
+einops==0.8.0                # tensor 조작
+evaluate==0.4.2              # metrics (BLEU, accuracy 등)
+scipy==1.13.1                # 수치 계산
+tqdm==4.66.4                 # 진행바
+pyyaml==6.0.2                # config 처리
+tensorboard==2.17.0          # 시각화
+# wandb==0.17.9              # Optional: logging
+
+# Data / numerical
+pandas==2.2.2
+numpy==1.26.4                # ✅ 핵심! 모든 huggingface lib 호환 최고 버전
+scikit-learn==1.5.1
+
+# Hugging Face ecosystem
+huggingface_hub==0.24.6
+safetensors==0.4.4
