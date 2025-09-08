@@ -1,51 +1,52 @@
 # POLO 시스템 테스트 가이드
 
-## 🚀 빠른 시작
+## 🚀 빠른 시작 (Windows 기준)
 
-### 1. 시스템 실행
-```bash
-# Windows (PowerShell)
-.\run_system.ps1
+한번에 모두 다 키기기
+C:\POLO\POLO\polo-system\run_system.bat 
 
-# Windows (CMD)
-run_system.bat
+### 0. 사전 준비
+- Docker Desktop이 Paused면 Unpause
+- NVIDIA GPU 드라이버 설치 필요
+
+### 1) 백엔드 API (8000)
+```powershell
+cd C:\POLO\POLO\polo-system\server
+python -m venv venv    # 최초 1회만
+venv\Scripts\Activate.ps1
+(venv) pip install -r requirements.api.txt
+(venv) uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. 수동 실행 (단계별)
-```bash
-# 1. 도커 서비스 시작
-docker compose up -d easy-llm
+정상 시 콘솔에 다음과 같은 로그가 보입니다:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Application startup complete.
+```
 
-# 2. 백엔드 서버 시작 (새 터미널)
-cd server
-venv\Scripts\activate  # Windows
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+### 2) Easy 모델 로컬 서빙 (5003)
+```powershell
+cd C:\POLO\POLO\polo-system\models\easy
+python -m venv venv    # 최초 1회만
+venv\Scripts\Activate.ps1
+(venv) pip install -r requirements.easy.txt
+(venv) uvicorn app:app --host 0.0.0.0 --port 5003
+```
+기본 어댑터 경로: `fine-tuning/outputs/llama32-3b-qlora/checkpoint-600`
 
-# 3. 프론트엔드 시작 (새 터미널)
-cd polo-front
+### 3) 프론트엔드 (5173)
+```powershell
+cd C:\POLO\POLO\polo-system\polo-front
+npm install
 npm run dev
 ```
 
 ## 🔍 서비스 상태 확인
 
-### 도커 서비스 확인
-```bash
-# 컨테이너 상태 확인
-docker ps
-
-# Easy LLM 로그 확인
-docker compose logs easy-llm
-
-# 모델 로딩 상태 확인
-curl http://localhost:5003/health
-```
-
-### 백엔드 API 확인
-```bash
-# API 상태 확인
+### 상태 확인
+```powershell
 curl http://localhost:8000/health
-
-# 모델 연결 상태 확인
+curl http://localhost:5003/health
 curl http://localhost:8000/api/model-status
 ```
 
@@ -65,25 +66,14 @@ curl -X POST "http://localhost:8000/api/convert" \
   -F "file=@your_test_file.pdf"
 ```
 
-## 🐛 문제 해결
-
-### 도커 관련 문제
-```bash
-# 컨테이너 재시작
-docker compose restart easy-llm
-
-# 컨테이너 재빌드
-docker compose build --no-cache easy-llm
-docker compose up -d easy-llm
-
-# 컨테이너 내부 접속
-docker exec -it polo-system-easy-llm-1 bash
-```
 
 ### 모델 로딩 문제
 - GPU 메모리 부족: `docker compose logs easy-llm`으로 확인
 - 모델 파일 경로: `outputs/llama32-3b-qlora/checkpoint-600/` 확인
 - Hugging Face 토큰: `.env` 파일에 `HUGGINGFACE_TOKEN` 설정
+
+### 참고
+- `EASY_ADAPTER_DIR`로 다른 체크포인트 경로 지정 가능
 
 ### 백엔드 연결 문제
 ```bash
