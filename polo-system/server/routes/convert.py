@@ -3,7 +3,7 @@ import fitz  # PyMuPDF
 import os
 import tempfile
 import logging
-from server.services.llm_client import easy_llm
+from services.llm_client import easy_llm
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
