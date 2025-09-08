@@ -11,6 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from googletrans import Translator
 from dotenv import load_dotenv
+import json
 
 # --- 환경 변수 ---
 BASE_MODEL = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
@@ -144,6 +145,92 @@ async def simplify_text(request: TextRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"처리 중 오류 발생: {str(e)}")
+
+@app.post("/generate")
+async def generate_json(request: TextRequest):
+    """논문 텍스트를 받아 섹션별로 쉽게 재해석한 JSON 생성"""
+    try:
+        if model is None or tokenizer is None:
+            raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다")
+
+        json_schema = {
+            "title": "",  # 논문 제목(원문 추출 불가 시 요약 기반 생성)
+            "authors": [],  # 저자 목록(알 수 없으면 빈 배열)
+            "abstract": {"original": "", "easy": ""},
+            "introduction": {"original": "", "easy": ""},
+            "methods": {"original": "", "easy": ""},
+            "results": {"original": "", "easy": ""},
+            "discussion": {"original": "", "easy": ""},
+            "conclusion": {"original": "", "easy": ""},
+            "keywords": [],
+            "figures_tables": [],  # {label, caption, easy}
+            "references": [],
+            "contributions": [],  # 핵심 기여 포인트를 쉬운 문장으로
+            "limitations": [],
+            "glossary": [],  # 중요 용어 {term, definition}
+            "plain_summary": ""  # 전체를 일반인도 이해할 수 있게 5-7문장 요약
+        }
+
+        instruction = (
+            "너는 과학 커뮤니케이터다. 사용자가 제공한 논문 텍스트를 기반으로, 누구나 이해할 수 있게 쉽게 재해석한 JSON을 만들어라. "
+            "반드시 유효한 JSON만 출력하고, 마크다운이나 추가 설명은 절대 넣지 마라. "
+            "각 섹션의 'original'에는 원문에서 해당되는 핵심 문장을 2-4문장으로 뽑거나 요약하고, 'easy'에는 중학생도 이해할 수 있게 풀어써라. "
+            "원문에 특정 섹션이 없으면 빈 문자열이나 빈 배열을 사용하라. 키 이름은 스키마와 정확히 같아야 한다."
+        )
+
+        schema_str = json.dumps(json_schema, ensure_ascii=False, indent=2)
+
+        prompt = f"""{instruction}
+
+다음은 출력해야 할 JSON 스키마 예시다. 키 이름과 구조를 그대로 따르되, 값을 채워라:
+{schema_str}
+
+아래는 사용자가 제공한 논문 텍스트다:
+"""
+
+        # 토크나이징
+        inputs = tokenizer(
+            prompt + request.text,
+            return_tensors="pt",
+            truncation=True,
+            max_length=2048,
+        )
+
+        if torch.cuda.is_available():
+            inputs = {k: v.cuda() for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=768,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+
+        generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        raw = generated[len(prompt):].strip()
+
+        # JSON 강제 파싱: 첫 { 부터 마지막 } 까지 자르고 파싱 시도
+        def coerce_json(text: str):
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                text = text[start:end+1]
+            return json.loads(text)
+
+        try:
+            data = coerce_json(raw)
+        except Exception:
+            # 파싱 실패 시, 안전한 최소 구조 반환
+            data = json_schema
+            data["plain_summary"] = raw[:1000]
+
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"JSON 생성 중 오류: {str(e)}")
 
 @app.get("/health")
 async def health_check():

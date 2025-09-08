@@ -50,11 +50,11 @@ async def convert_pdf(file: UploadFile = File(...)):
             if not extracted_text.strip():
                 raise HTTPException(status_code=400, detail="PDF에서 텍스트를 추출할 수 없습니다.")
             
-            # AI 모델로 텍스트 변환
-            logger.info("AI 모델로 텍스트 변환 시작")
-            easy_text = easy_llm.generate(extracted_text)
+            # AI 모델로 JSON 변환
+            logger.info("AI 모델로 JSON 변환 시작")
+            easy_json = easy_llm.generate(extracted_text)
             
-            if easy_text is None:
+            if easy_json is None:
                 raise HTTPException(status_code=500, detail="AI 모델 처리 중 오류가 발생했습니다.")
             
             return {
@@ -62,7 +62,7 @@ async def convert_pdf(file: UploadFile = File(...)):
                 "file_size": len(content),
                 "extracted_text_length": len(extracted_text),
                 "extracted_text_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text,
-                "easy_text": easy_text,
+                "easy_json": easy_json,
                 "status": "success"
             }
             

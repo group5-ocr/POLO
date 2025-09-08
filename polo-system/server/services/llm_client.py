@@ -20,37 +20,39 @@ class EasyLLMClient:
             logger.error(f"Easy LLM 서비스 연결 실패: {e}")
             return False
     
-    def generate(self, text: str, max_length: int = 512, temperature: float = 0.7) -> Optional[str]:
-        """텍스트 생성"""
+    def generate(self, text: str, max_length: int = 512, temperature: float = 0.7) -> Optional[dict]:
+        """논문 텍스트를 /generate로 보내 JSON 변환 결과를 받는다"""
         try:
             payload = {
-                "text": text,
-                "max_length": max_length,
-                "temperature": temperature,
-                "top_p": 0.9
+                "text": text
             }
-            
+
             response = self.session.post(
                 f"{self.base_url}/generate",
                 json=payload,
-                timeout=30
+                timeout=120,
             )
-            
+
             if response.status_code == 200:
-                result = response.json()
-                return result.get("generated_text", "")
+                return response.json()
             else:
                 logger.error(f"텍스트 생성 실패: {response.status_code} - {response.text}")
                 return None
-                
+
         except Exception as e:
             logger.error(f"텍스트 생성 요청 실패: {e}")
             return None
     
     def get_model_info(self) -> Optional[dict]:
-        """모델 정보 조회"""
+        """모델 정보 조회: 루트(/) 또는 헬스(/health)에서 정보 수집"""
         try:
-            response = self.session.get(f"{self.base_url}/model_info", timeout=5)
+            # 우선 루트 엔드포인트 시도 ("POLO Easy Model API", model 등)
+            response = self.session.get(f"{self.base_url}/", timeout=5)
+            if response.status_code == 200:
+                return response.json()
+
+            # 실패 시 /health로 대체
+            response = self.session.get(f"{self.base_url}/health", timeout=5)
             if response.status_code == 200:
                 return response.json()
             return None
