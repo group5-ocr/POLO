@@ -1,0 +1,14 @@
+matplotlib>=3.7
+Pillow>=9.5
+numpy>=1.23
+
+pip install -r viz/requirements.viz.txt
+
+.gitignore (추천)
+# viz outputs
+viz/charts/*
+# caches
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
