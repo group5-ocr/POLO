@@ -60,12 +60,33 @@ def load_model():
     
     logger.info(f"🔄 모델 로딩 중: {BASE_MODEL}")
     
-    # GPU 상태 확인
-    gpu_available = torch.cuda.is_available()
-    if gpu_available:
-        logger.info(f"🚀 GPU 사용 가능: {torch.cuda.get_device_name(0)}")
-        logger.info(f"💾 GPU 메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
-    else:
+    # GPU 상태 확인 - 강제로 GPU 사용 시도
+    gpu_available = False
+    try:
+        # CUDA 사용 가능 여부 확인
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0)
+            device_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            logger.info(f"🚀 GPU 사용 가능: {device_name}")
+            logger.info(f"💾 GPU 메모리: {device_memory:.1f}GB")
+            logger.info(f"🎯 GPU 디바이스: cuda:0")
+            gpu_available = True
+        else:
+            # CUDA가 감지되지 않아도 강제로 GPU 사용 시도
+            logger.info("🚀 CUDA 감지 실패, GPU 강제 사용 시도...")
+            try:
+                # 간단한 텐서로 GPU 테스트
+                test_tensor = torch.tensor([1.0]).cuda()
+                logger.info("✅ GPU 강제 사용 성공!")
+                gpu_available = True
+            except Exception as e:
+                logger.warning(f"⚠️ GPU 강제 사용 실패: {e}")
+                gpu_available = False
+    except Exception as e:
+        logger.warning(f"⚠️ GPU 확인 중 오류: {e}")
+        gpu_available = False
+    
+    if not gpu_available:
         logger.warning("⚠️ GPU를 사용할 수 없습니다. CPU로 실행됩니다.")
     
     # 토크나이저 로드
@@ -78,24 +99,36 @@ def load_model():
     safe_dtype = torch.bfloat16 if gpu_available else torch.float32
     logger.info(f"🧠 모델 로딩 중... (dtype: {safe_dtype})")
     
-    # accelerate/meta 텐서 경로를 피하기 위해 device_map/low_cpu_mem_usage 비활성화
-    base = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL,
-        torch_dtype=safe_dtype,
-        trust_remote_code=True,
-        attn_implementation="eager",
-        token=HF_TOKEN,
-    )
+    # GPU 사용 시 device_map 설정
     if gpu_available:
-        base.to("cuda")
-        logger.info("🎯 모델을 GPU로 이동 완료")
+        logger.info("🎯 GPU device_map으로 모델 로딩...")
+        base = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL,
+            torch_dtype=safe_dtype,
+            trust_remote_code=True,
+            attn_implementation="eager",
+            device_map="auto",
+            token=HF_TOKEN,
+        )
+        logger.info("✅ GPU에 모델 로딩 완료")
+    else:
+        logger.info("💻 CPU로 모델 로딩...")
+        base = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL,
+            torch_dtype=safe_dtype,
+            trust_remote_code=True,
+            attn_implementation="eager",
+            token=HF_TOKEN,
+        )
+        logger.info("✅ CPU에 모델 로딩 완료")
     
     # 어댑터가 있으면 로드 (QLoRA 가중치)
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
         logger.info(f"🔄 어댑터 로딩 중: {ADAPTER_DIR}")
         model = PeftModel.from_pretrained(base, ADAPTER_DIR, is_trainable=False)
         if gpu_available:
-            model.to("cuda")
+            logger.info("🎯 어댑터를 GPU로 이동...")
+            model = model.to("cuda")
         logger.info("✅ 어댑터 로딩 완료")
     else:
         logger.warning("⚠️ 어댑터 디렉토리를 찾지 못했습니다. 순수 베이스 모델로 동작합니다.")
