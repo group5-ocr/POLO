@@ -16,7 +16,6 @@ venv/
 **/.venv/
 **/venv/
 
-outputs/
 runs/
 wandb/
 
