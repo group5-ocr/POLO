@@ -1,2 +1,0 @@
-# git branch --set-upstream-to=origin/main main
-# git checkout <브렌치명>
