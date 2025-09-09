@@ -25,7 +25,7 @@ from typing import Any
 # IO / TeX
 from texprep.io.discover import guess_main
 from texprep.tex.expander import expand_file
-from texprep.tex.strip import clean_text
+from texprep.tex.strip import preclean_for_body, clean_text, drop_after_markers
 from texprep.tex.blocks import extract_assets
 from texprep.tex.math import extract_math_with_promotion
 from texprep.tex.chunk import choose_chunking
@@ -74,8 +74,20 @@ def run_pipeline(cfg: dict[str, Any], main_tex: str | None = None, *, sink: str 
     # 2) \input 확장
     expanded_text, deps = expand_file(str(main_path))
 
+    # 2.5) 프리앰블/잡설 제거 + 본문만 추출
+    body_only = preclean_for_body(expanded_text)
+
+    # 2.6) 뒷부분 컷(선택)
+    cut_patterns = cfg.get("filters", {}).get("cut_after", [
+        r"\\appendix\b",
+        r"\\section\*?\{Generations\}",
+        r"\\section\*?\{Bias\}",
+    ])
+    body_only = drop_after_markers(body_only, cut_patterns)
+
     # 3) 정리(코멘트/불필요 환경 제거)
-    stripped = clean_text(expanded_text, drop_env_list=drop_envs, also_drop_inline_todos=True)
+    # 3) 코멘트/불필요 환경 제거(여기서 framed류도 드랍)
+    stripped = clean_text(body_only, drop_env_list=cfg.get("drop_envs") or ["tikzpicture","minted","lstlisting","verbatim","Verbatim","framed","mdframed","tcolorbox"])
 
     # 4) figure/table 블록 추출(본문 치환)
     text_no_floats, assets = extract_assets(stripped)

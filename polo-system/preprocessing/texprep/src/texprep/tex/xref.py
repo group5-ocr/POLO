@@ -44,10 +44,6 @@ def find_refs(text: str) -> list[dict[str, str]]:
     return [{"cmd": m.group("cmd"), "label": m.group("label")} for m in _REF_RE.finditer(text)]
 
 def build_mentions_map(plain_text: str, with_sentences: bool = True, max_snippet_len: int = 600) -> dict[str, list[dict[str, Any]]]:
-    """
-    문단을 훑어 라벨 → 언급 리스트 생성.
-    언급에는 문단/문장 인덱스, 스니펫 텍스트 포함.
-    """
     mentions: dict[str, list[dict[str, Any]]] = {}
     paras = split_paragraphs(plain_text)
 
@@ -55,19 +51,17 @@ def build_mentions_map(plain_text: str, with_sentences: bool = True, max_snippet
         refs = find_refs(para)
         if not refs:
             continue
+        sens = split_sentences(para) if with_sentences else [para]
 
-        # 스니펫: 문장 단위로 줄여서 저장
-        if with_sentences:
-            sens = split_sentences(para)
-        else:
-            sens = [para]
-
-        # 라벨별로 등장 문장 나눠 담기
         for r in refs:
             label = r["label"]
-            # 해당 라벨이 들어간 문장만 추출
-            matched_sents = [s for s in sens if f"\\{r['cmd']}{"{" + label + "}"}" in para and label in s] or sens
-            for s_idx, s in enumerate(matched_sents[:3]):  # 과한 중복 방지로 최대 3개
+            # f-string에서 리터럴 중괄호는 {{ }} 로. \cmd{label} 패턴을 직접 만든다.
+            pattern = f"\\{r['cmd']}{{{label}}}"
+
+            # 우선 패턴이 들어간 문장만, 없으면 라벨만이라도 포함된 문장
+            matched = [s for s in sens if pattern in s] or [s for s in sens if label in s] or sens
+
+            for s_idx, s in enumerate(matched[:3]):
                 snippet = re.sub(r"\s+", " ", s).strip()
                 if len(snippet) > max_snippet_len:
                     snippet = snippet[:max_snippet_len] + "…"
@@ -78,6 +72,7 @@ def build_mentions_map(plain_text: str, with_sentences: bool = True, max_snippet
                     "text": snippet,
                 })
     return mentions
+
 
 # ---- 플레이스홀더 인덱싱 ----
 

@@ -22,6 +22,29 @@ def _split_paragraphs(text: str) -> list[str]:
 def _split_sentences(para: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<!\b(?:e|i)\.g)(?<!\bvs)\.(?:\s+|$)|[!?](?:\s+|$)", para) if s.strip()]
 
+# -------- 연산자/포맷/알리아스 --------
+RELATION_CMDS = {
+    "in","sim","propto","approx","triangleq","le","ge","neq","cdot","times","nabla","partial"
+}
+CMD_TO_UNI = {
+    "in":"∈","sim":"∼","propto":"∝","approx":"≈","triangleq":"≜",
+    "le":"≤","ge":"≥","neq":"≠","cdot":"·","times":"×","nabla":"∇","partial":"∂"
+}
+OP_UNI = set(CMD_TO_UNI.values()) | {"∇","∂"}
+
+STOP_CMDS = {
+    "scriptsize", "normalsize", "text", "textrm", "textsc", "rm", "bf", "it",
+    "small", "large", "emph",  # 전부 포맷/텍스트
+}
+ALIASES = {
+    r"\Pr": "P",
+    r"\mathbb{P}": "P",
+}
+CMD_NAME_RE = re.compile(r"^\\([A-Za-z]+)")
+def _is_stopped_cmd(tok: str) -> bool:
+    m = CMD_NAME_RE.match(tok)
+    return bool(m and m.group(1) in STOP_CMDS)
+
 # -------- 기호 토큰 추출 --------
 CMD_TOKEN     = r"\\[A-Za-z]+(?:\s*\{[^{}]*\})?"
 GREEK_OR_WORD = r"[A-Za-z](?:_[A-Za-z0-9]+|\^{[^}]+}|\^[A-Za-z0-9])?"
@@ -43,6 +66,15 @@ def normalize_symbol(sym: str) -> str:
     s = NORM_WRAP_CMDS.sub(r"\1", s)
     s = NORM_MATHBB.sub(r"\1", s)
     s = NORM_MATHCAL.sub(r"\1", s)
+    m = CMD_NAME_RE.match(s)
+    if m and "{" not in s:
+        name = m.group(1)
+        if name in RELATION_CMDS:
+            return CMD_TO_UNI.get(name, "\\" + name)  # 연산자는 보존/유니코드화
+        s = name
+    # 원본 토큰 기준 알리아스
+    if sym in ALIASES:
+        s = ALIASES[sym]
     return s.replace(" ", "")
 
 # -------- 정의/설명 문장 패턴 --------
@@ -52,18 +84,27 @@ CUE_PHRASES = (
     r"(?:[Aa]ssume\b|[Ww]e\s+assume)", r"(?:[Pp]reliminaries\b|[Nn]otation\b)",
 )
 CUES_RE = re.compile("|".join(CUE_PHRASES))
-REL_PATTERNS = (r"\\in", r"\\sim", r"=", r"\\propto", r"\\approx", r"\\triangleq",
-                r"\\mathbb\{[RZNEP]\}", r"\\mathrm\{KL\}", r"\\mathcal\{L\}", r"\\nabla", r"\\partial")
+
+REL_PATTERNS = (
+    r"\\in", r"\\sim", r"=", r"\\propto", r"\\approx", r"\\triangleq",
+    r"\\mathbb\{[RZNEP]\}", r"\\mathrm\{KL\}", r"\\mathcal\{L\}", r"\\nabla", r"\\partial",
+    r"∈", r"∼", r"∝", r"≈", r"≜", r"≤", r"≥", r"≠", r"·", r"×", r"∇", r"∂"
+)
 
 # -------- 심볼/정의 빌드 --------
 def extract_symbols_from_equation(eq_tex: str, max_symbols: int = 50) -> list[str]:
     syms: list[str] = []
     for m in SYMBOL_RE.finditer(eq_tex):
         tok = m.group(0)
-        if tok.startswith("\\begin") or tok.startswith("\\end"):  # 잡음
+        if tok.startswith("\\begin") or tok.startswith("\\end"):
+            continue
+        if _is_stopped_cmd(tok):
             continue
         n = normalize_symbol(tok)
         if not n or len(n) > 20:
+            continue
+        # 전부 대문자 3자 이상(예: IOU, CLASS) → 라벨로 보고 제외
+        if n.isupper() and len(n) >= 3:
             continue
         if n not in syms:
             syms.append(n)
@@ -82,54 +123,133 @@ def _sent_score_for_symbol(sent: str, sym: str) -> float:
     if L > 320: score -= 0.8
     return score
 
+EQ_MARKER_RE = re.compile(r"⟨EQ:(eq_\d+)⟩")
+
+def _eq_positions_by_para(paragraphs: list[str]) -> dict[str, list[int]]:
+    pos = defaultdict(list)
+    for p_idx, p in enumerate(paragraphs):
+        for eq_id in EQ_MARKER_RE.findall(p):
+            pos[eq_id].append(p_idx)
+    return pos
+
+# 단문자 라틴 변수 경계 매칭 (i, j, x 같은 오탐 방지)
+def _has_boundary_match(txt: str, sym: str) -> bool:
+    if len(sym) == 1 and sym.isalpha() and sym.isascii():
+        return bool(re.search(rf"(?<![A-Za-z]){re.escape(sym)}(?![A-Za-z])", txt))
+    return sym in txt
+
 def build_symbol_table(
     paragraphs: list[str],
     equations: list[dict[str, Any]],
     window_sentences: int = 2,
     max_defs_per_symbol: int = 2,
 ) -> list[dict[str, Any]]:
-    """
-    반환: [{symbol, defs:[{text, para_index, sent_index, score}], freq_eq, first_eq_id, eq_ids, tags}]
-    """
     sym_freq: Counter[str] = Counter()
     sym_eqs: dict[str, list[str]] = defaultdict(list)
+    eq_map = {e.get("id"): e.get("tex", "") for e in equations}
+
     for eq in equations:
         eq_id = eq.get("id", "")
+        seen = set()
         for s in extract_symbols_from_equation(eq.get("tex", "")):
+            if s in seen:
+                continue
+            seen.add(s)
             sym_freq[s] += 1
-            if eq_id: sym_eqs[s].append(eq_id)
+            if eq_id:
+                sym_eqs[s].append(eq_id)
+
+    # 방정식 → 문단 인덱스
+    eq_pos = _eq_positions_by_para(paragraphs)
 
     symbol_defs: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for p_idx, para in enumerate(paragraphs):
-        sents = _split_sentences(para)
-        for s_idx, sent in enumerate(sents):
-            txt = _norm_space(sent)
-            if not txt: continue
-            for sym in list(sym_freq.keys()):
-                if sym not in txt: continue
+
+    for sym, eq_ids in sym_eqs.items():
+        # 이 심볼이 등장한 방정식이 있는 문단 주변만 후보
+        para_candidates: set[int] = set()
+        for eid in set(eq_ids):
+            for p_idx in eq_pos.get(eid, []):
+                para_candidates.update({p_idx - 1, p_idx, p_idx + 1})
+        para_candidates = {i for i in para_candidates if 0 <= i < len(paragraphs)}
+
+        for p_idx in sorted(para_candidates):
+            sents = _split_sentences(paragraphs[p_idx])
+            for s_idx, _ in enumerate(sents):
                 lo = max(0, s_idx - window_sentences)
                 hi = min(len(sents), s_idx + window_sentences + 1)
                 snippet = _norm_space(". ".join(sents[lo:hi]))
+                if not snippet:
+                    continue
+
+                # 단문자 라틴 변수는 경계 일치 없으면 컷
+                if len(sym) == 1 and sym.isalpha() and sym.isascii():
+                    if not _has_boundary_match(snippet, sym):
+                        continue
+
                 sc = _sent_score_for_symbol(snippet, sym)
-                if sc <= 0: continue
+                # 경계 일치 가점
+                if len(sym) == 1 and sym.isalpha() and sym.isascii():
+                    sc += 0.6
+
+                if sc <= 0:
+                    continue
                 symbol_defs[sym].append({
-                    "text": snippet, "para_index": p_idx, "sent_index": s_idx, "score": round(sc, 3),
+                    "text": snippet, "para_index": p_idx, "sent_index": s_idx,
+                    "score": round(sc, 3),
                 })
 
     records: list[dict[str, Any]] = []
-    for sym, freq in sym_freq.most_common():
+    for sym, _ in sym_freq.most_common():
         defs = sorted(symbol_defs.get(sym, []), key=lambda d: d["score"], reverse=True)[:max_defs_per_symbol]
+
+        # 태그 분류
+        # records 만들 때 태깅 부분 교체/추가
         tags: list[str] = []
-        if sym in {"R","N","Z","E","P"}: tags.append("set")
-        if sym in {"L","J"}: tags.append("loss")
-        if sym in {"θ","phi","ϕ","β","α"}: tags.append("param")
-        if sym in {"x","y","z","s","t"}: tags.append("var")
+        # 집합 기호: 표준만 남김
+        if sym in {"R","N","Z","Q","C"}: 
+            tags.append("set")
+
+        # 그리스/파라미터
+        if sym in {"theta","phi","varphi","beta","alpha","sigma","lambda","mu","gamma","delta","epsilon","eta","kappa","rho","tau","psi","omega"}:
+            tags.append("param")
+
+        # 일반 변수
+        if sym in {"x","y","z","s","t"}:
+            tags.append("var")
+
+        # 연산자(유니코드)
+        if sym in OP_UNI:
+            tags.append("operator")
+
+        # 인덱스 후보: 소문자만
+        if len(sym) == 1 and sym.isalpha() and sym.islower():
+            tags.append("maybe_index")
+
+        # 확률 연산자(P) 힌트
+        if sym == "P":
+            texs = [eq_map.get(eid, "") for eid in ids]
+            if any(re.search(r"(\\Pr|\\mathbb\{P\}|(?<![A-Za-z])P\s*\()", t) for t in texs):
+                tags.append("operator")
+                tags.append("prob")
+
+
+        # eq_ids 정리
+        ids = list(dict.fromkeys(sym_eqs.get(sym, [])))[:5]
+
+        # 클래스 인덱스 힌트: \sum_{...c...} 또는 (...c...) 패턴
+        if sym == "c":
+            texs = [eq_map.get(eid, "") for eid in ids]
+            if any(re.search(r"\\sum_\{[^}]*c[^}]*\}", t) or re.search(r"\([^\)]*c[^\)]*\)", t) for t in texs):
+                tags.append("class_index")
+                if "maybe_index" in tags:
+                    tags.remove("maybe_index")
+
         records.append({
             "symbol": sym,
             "defs": defs,
-            "freq_eq": int(freq),
-            "first_eq_id": sym_eqs[sym][0] if sym_eqs.get(sym) else None,
-            "eq_ids": sym_eqs[sym][:5],
+            "freq_eq": int(len(ids)),                 # 등장 eq 개수
+            "first_eq_id": ids[0] if ids else None,
+            "eq_ids": ids,
             "tags": tags,
         })
     return records
@@ -180,6 +300,8 @@ def build_qwen_math_payload(
     sym_sorted = sorted(symbol_table, key=lambda r: (-r["freq_eq"], r["symbol"]))
     gloss = []
     for rec in sym_sorted[:20]:
+        if "operator" in rec.get("tags", []) or "format" in rec.get("tags", []) or "label" in rec.get("tags", []):
+            continue  # 연산자/포맷/라벨 제외
         gloss.append({
             "symbol": rec["symbol"],
             "defs": [d["text"] for d in rec["defs"][:max_defs_per_symbol]],
