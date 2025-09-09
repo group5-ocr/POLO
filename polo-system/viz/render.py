@@ -52,12 +52,18 @@ def _prepare_outdir(outdir, clear=False, patterns=("*.png", "*.json")):
 _GRAMMARS_LOADED = False
 def _ensure_grammars_loaded():
     global _GRAMMARS_LOADED
-    if _GRAMMARS_LOADED: return
-    here = Path(__file__).parent
-    pkg_path = here / "templates" / "grammars" 
-    if pkg_path.exists():
-        for m in pkgutil.iter_modules([str(pkg_path)]):
-            importlib.import_module(f"templates.grammars.{m.name}")
+    if _GRAMMARS_LOADED:
+        return
+    pkg_dir = Path(__file__).parent / "templates" / "grammars"
+
+    # 안전: 현재 폴더(viz)를 sys.path에 보장
+    import sys
+    viz_dir = str(Path(__file__).parent.resolve())
+    if viz_dir not in sys.path:
+        sys.path.insert(0, viz_dir)
+
+    for m in pkgutil.iter_modules([str(pkg_dir)]):
+        importlib.import_module(f"templates.grammars.{m.name}")
     _GRAMMARS_LOADED = True
 
 def _localize_value(v, opts):

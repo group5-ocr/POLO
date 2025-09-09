@@ -1,12 +1,23 @@
-# -*- coding: utf-8 -*-
-import re, json, math, random
+import re, json, math, random, hashlib
 from pathlib import Path
 from typing import List, Dict, Any
-from statistics import mean
-# 5개 범용 도식 트리거
+# 개념/예시 도식 트리거
 from templates.generic_rules import build_concept_specs
 
-# Glossary 로드
+# 유틸
+def _label(en, ko): return {"en": en, "ko": ko}
+
+def _stable_seed(text: str, salt: str = "") -> int:
+    h = hashlib.sha256((salt + "|" + (text or "")).encode("utf-8")).hexdigest()
+    return int(h[:8], 16)
+
+def _rng_from(text: str, salt: str = "") -> random.Random:
+    return random.Random(_stable_seed(text, salt))
+
+def _clip(v, lo=0.05, hi=0.95):
+    return max(lo, min(hi, v))
+
+# glossary
 def _find_glossary_path():
     here = Path(__file__).parent
     for p in (here/"glossary_hybrid.json", here/"glossary.json"):
@@ -18,8 +29,6 @@ def load_glossary_any(path: str | None = None) -> List[Dict[str, Any]]:
     if not gp: return []
     return json.loads(Path(gp).read_text(encoding="utf-8"))
 
-
-# Glossary 인덱스/패턴
 def _compile_patterns(entry: Dict[str, Any]):
     pats = []
     for lang in ("en","ko"):
@@ -45,8 +54,7 @@ def build_concept_index(glossary):
         }
     return idx
 
-
-# 숫자/지표 추출
+# 숫자 파싱
 _NUM     = r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 _PERCENT = rf"{_NUM}\s*%"
 _EQ      = r"(=|:)"
@@ -55,14 +63,11 @@ def find_numbers_near(text: str, start: int, window: int = 120):
     s, e = max(0, start-window), min(len(text), start+window)
     chunk = text[s:e]
     res = []
-    # % 숫자
     for m in re.finditer(_PERCENT, chunk):
         res.append((m.group(0), s+m.start()))
-    # "= 0.93" / ": 0.93"
     for m in re.finditer(rf"{_EQ}\s*({_NUM})(%?)", chunk):
         g = m.group(2) + (m.group(3) or "")
         res.append((g.strip() or m.group(0), s+m.start()))
-    # 일반 숫자
     for m in re.finditer(_NUM, chunk):
         res.append((m.group(0), s+m.start()))
     res.sort(key=lambda x: abs(x[1]-start))
@@ -76,8 +81,7 @@ def parse_number(raw: str):
     try: return (float(raw.replace(",","")), False)
     except: return (math.nan, False)
 
-
-# 지표 정규화 범위
+# 정규화
 METRIC_RANGES = {
     "metric.accuracy": (0.0,1.0), "metric.top5_accuracy": (0.0,1.0),
     "metric.precision": (0.0,1.0), "metric.recall": (0.0,1.0),
@@ -101,8 +105,7 @@ def normalize_value(cid: str, value: float, is_percent: bool) -> float:
     n = 0.0 if b==a else (v - a)/(b - a)
     return 1.0 - n if reverse else n
 
-
-# 메서드명 추정
+# 메서드 토큰
 def _metric_stopwords(concept_idx):
     sw = set()
     for _, meta in concept_idx.items():
@@ -112,11 +115,10 @@ def _metric_stopwords(concept_idx):
         for a in (e.get("aliases") or []):
             sw.add(str(a).lower())
     sw.update({"accuracy","acc","iou","miou","map","f1","precision","recall",
-               "score","top-1","top1","top-5","baseline(s)","results","table",
+               "score","top-1","top1","top-5","baselines","baseline","results","table",
                "figure"})
     return sw
 
-MODEL_TOKEN   = r"(?:[A-Z][A-Za-z0-9+./-]{1,20}(?:\s?\d{0,3})?)"
 METHOD_CAND_RX = re.compile(
     r"(?:Ours?|Baseline|Prev(?:ious)?\s*SOTA|"
     r"(?:[A-Z][A-Za-z0-9+/.-]{1,24}(?:-\d{1,3})?(?:/[A-Za-z0-9.-]+)?)"
@@ -136,17 +138,21 @@ def _pick_method_token(chunk: str, stopwords: set[str]) -> str | None:
     return None
 
 def _looks_like_grid_or_range(text: str, pos: int) -> bool:
-    around = text[max(0, pos-6): pos+6]
-    if re.search(r"\d+\s*[×x]\s*\d+", around):
+    around = text[max(0, pos-8): pos+8]
+    if re.search(r"\d+\s*[×x]\s*\d+", around):   # 13x13 같은 해상도 표기
         return True
-    if re.search(r"\b0\s*~\s*1\b", around):
+    if re.search(r"\b0\s*~\s*1\b", around):      # 0~1 범위
         return True
     return False
 
 def _coerce_metric_value(cid: str, meta: dict, val: float, is_pct: bool):
+    # 극단 노이즈 제거 + 스케일 확인
     vtype = meta.get("value_type", "scalar")
     lo, hi = METRIC_RANGES.get(cid, (0.0, 1.0))
     a, b = min(lo, hi), max(lo, hi)
+
+    if is_pct and (val >= 99.9 or val <= 0.1):
+        return None
 
     if vtype == "percent":
         if is_pct and 0 <= val <= 100:
@@ -163,13 +169,23 @@ def _coerce_metric_value(cid: str, meta: dict, val: float, is_pct: bool):
         return None
     return None
 
+def _is_confident_raw(raw: str, is_pct: bool) -> bool:
+    r = (raw or "").strip()
+    if is_pct:                     # 95%, 73.4% 같이 %가 있으면 확실
+        return True
+    # 소수점 포함 + 0/1이 아닌 값만 허용 (0, 1, 0.0, 1.0은 범위 표기/개념문장일 가능성 큼)
+    if "." in r and r not in {"0", "1", "0.0", "1.0"}:
+        return True
+    return False
+
 def extract_metric_mentions(text: str, concept_idx):
     stopwords = _metric_stopwords(concept_idx)
-    results = {}
+    results: Dict[str, Dict[str, float]] = {}
+    numeric_cids: set[str] = set()  # ← 텍스트에 '실제 숫자'가 있었던 지표 id
+
     for cid, meta in concept_idx.items():
         for pat in meta["patterns"]:
             for m in pat.finditer(text):
-                # 가장 합리적인 수치 1개 선택
                 picked = None
                 for raw, pos in find_numbers_near(text, m.start(), window=120):
                     if _looks_like_grid_or_range(text, pos):
@@ -191,12 +207,14 @@ def extract_metric_mentions(text: str, concept_idx):
                 results.setdefault(cid, {})
                 if meth not in results[cid]:
                     results[cid][meth] = nval
-    return results
+                    numeric_cids.add(cid)     # ← 이 CID는 진짜 숫자를 갖고 있음
 
+    return results, numeric_cids
 
-# 스펙 생성
-def _label(en, ko): return {"en": en, "ko": ko}
+# 숫자 필요 도형 목록
+NUMERIC_REQUIRED = {"kpi_card", "bar_group", "metric_table"}  # 퍼센트/정량 비교 필수
 
+# 빌더
 def make_kpi_card(cid: str, meta: dict, val01: float):
     label = _label(meta["labels_en"], meta["labels_ko"])
     return {
@@ -207,20 +225,15 @@ def make_kpi_card(cid: str, meta: dict, val01: float):
     }
 
 def make_bar_group(cid: str, meta: dict, series_map: Dict[str, float]):
-    """
-    단일 메서드여도 KPI로 바꾸지 않고 '막대 1개'로 출력
-    100.0% 같은 극단은 99.9%로 살짝 클램핑(표현 안정)
-    """
     label = _label(meta["labels_en"], meta["labels_ko"])
     pairs = [(m, v) for m, v in series_map.items()
-             if isinstance(v, (int, float)) and 0.0 <= v <= 1.0]
-    if not pairs:
-        return None
+             if isinstance(v, (int, float)) and 0.0 < v < 1.0]
     pairs.sort(key=lambda kv: -kv[1])
+    if len(pairs) <= 1:
+        return make_kpi_card(cid, meta, pairs[0][1]) if pairs else None
 
     methods = [m for m, _ in pairs]
-    values  = [min(99.9, max(0.0, v*100.0)) for _, v in pairs]
-
+    values  = [v*100 for _, v in pairs]
     return {
         "id": f"bar_{cid.split('.')[-1]}",
         "type": "bar_group",
@@ -260,24 +273,98 @@ def _dedup(spec):
         seen.add(it["id"]); out.append(it)
     return out
 
-# 메인: 텍스트 → 스펙
 def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
     gl   = load_glossary_any(glossary_path)
     cidx = build_concept_index(gl)
-    mentions = extract_metric_mentions(text, cidx)
+
+    # (A) 텍스트에서 숫자 추출 + '숫자 근거' 세트
+    mentions, numeric_cids = extract_metric_mentions(text, cidx)
+
+    # (B) 지표명이 숫자 없이만 언급된 경우 (막대 비교용 임퓨트)
+    names_only = _detect_metric_names_only(text, cidx)
 
     spec = []
 
-    # 1) 숫자 지표 => 항상 bar_group(단일도 막대 1개)
+    # (C) 숫자 있는 지표 → Bar/KPI (KPI는 '숫자 근거' 있을 때만)
     for cid, by_method in mentions.items():
         meta = cidx[cid]
+        if len(by_method) >= 2:
+            bg = make_bar_group(cid, meta, by_method)
+            if bg: spec.append(bg)
+        elif len(by_method) == 1:
+            if cid in numeric_cids:                      # ← 실제 숫자 근거 필수
+                v = next(iter(by_method.values()))
+                if 0.05 < v < 0.95:                      # ← 극단값 가드
+                    spec.append(make_kpi_card(cid, meta, v))
+            # else: KPI 생성 안 함
+
+    # (D) 숫자는 없고 지표명만 있는 경우 → 비교 막대는 '임퓨트'로 생성
+    for cid in (names_only - set(mentions.keys())):
+        meta = cidx[cid]
+        methods = ["Ours", "Baseline", "Prev SOTA"]
+        vals = impute_values_for_methods(methods, cid, text)
+        by_method = dict(zip(methods, vals))
         bg = make_bar_group(cid, meta, by_method)
         if bg: spec.append(bg)
 
-    # 2) 5개 범용 도식 트리거(모델-중립) 추가
-    spec += build_concept_specs(text)
+    # (E) 평가지표 해석 표(루브릭)는 '실제 숫자'가 잡힌 경우에만 덧붙임
+    _add_rubric_tables(spec, mentions, numeric_cids)
 
-    # 3) 최소 보강 + 중복 제거
+    # (F) 개념/예시 도식들
+    spec += build_concept_specs(text, spec, mentions, numeric_cids)
+
+    # (G) 최소 보강 + 중복 제거
     spec = ensure_minimum_charts(spec)
     spec = _dedup(spec)
     return spec
+
+def _detect_metric_names_only(text: str, concept_idx) -> set[str]:
+    cids = set()
+    for cid, meta in concept_idx.items():
+        for pat in meta["patterns"]:
+            if pat.search(text):
+                cids.add(cid); break
+    return cids
+
+def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str]):
+    """'실제 숫자'가 잡힌 평가지표에만 해석 표를 붙임."""
+    def _append_iou_table():
+        spec.append({
+            "id": "iou_rubric",
+            "type": "metric_table",
+            "labels": _label("IoU rubric", "IoU 해석"),
+            "inputs": {
+                "methods": ["Excellent", "Good", "Fair", "Poor"],
+                "metrics": ["IoU min"],
+                "values": [[0.75], [0.60], [0.50], [0.00]],
+                "title": _label("IoU rubric (≥0.75 → Excellent)",
+                                "IoU 해석 (≥0.75 → Excellent)")
+            }
+        })
+
+    has_iou_num = (("metric.iou"  in mentions and "metric.iou"  in numeric_cids) or
+                   ("metric.miou" in mentions and "metric.miou" in numeric_cids))
+    if has_iou_num:
+        _append_iou_table()
+
+def impute_values_for_methods(methods: list[str], cid: str, text: str) -> list[float]:
+    """
+    숫자가 없을 때 비교 막대용 임퓨트 값 생성.
+    - 논문 텍스트 + cid + methods로 시드를 만들어 문서마다 모양이 다르고,
+      같은 문서에선 재현성이 유지됩니다.
+    - 0.05~0.95 사이로 클리핑.
+    - 낮을수록 좋은 지표(FID/WER 등)는 자동으로 역전.
+    """
+    rnd = _rng_from(text, f"impute:{cid}:{','.join(sorted(methods))}")
+    base = 0.55 + 0.25 * rnd.random()      # 0.55 ~ 0.80
+    step = 0.02  + 0.04 * rnd.random()      # 0.02 ~ 0.06
+    vals = []
+    for i in range(len(methods)):
+        v = base + i*step + rnd.uniform(-0.01, 0.01)  # 약간의 노이즈
+        vals.append(_clip(v, 0.05, 0.95))
+
+    # 낮을수록 좋은 지표는 방향 반전
+    lo, hi = METRIC_RANGES.get(cid, (0.0, 1.0))
+    if lo > hi:
+        vals = list(reversed(vals))
+    return vals
