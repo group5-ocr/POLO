@@ -136,22 +136,20 @@ def build_concept_specs(text: str, spec: list, mentions: dict, numeric_cids: set
     # IoU 겹침 도식: 숫자 있으면 그 값, 없으면 '(예시)' 표시로만
     if T(r"\bIoU\b|Intersection\s*over\s*Union|겹치(는|ㅁ)"):
         iou_val = None
-        if "metric.iou" in mentions and "metric.iou" in numeric_cids:
-            iou_val = list(mentions["metric.iou"].values())[0]
-        elif "metric.miou" in mentions and "metric.miou" in numeric_cids:
-            iou_val = list(mentions["metric.miou"].values())[0]
+        for key in ("metric.iou", "metric.miou"):
+            if key in mentions and mentions[key]:
+                # mentions[...]는 0~1 정규화 값. 첫 값만 사용
+                iou_val = float(list(mentions[key].values())[0])
+                break
 
+        inputs = {}
         if iou_val is not None:
-            title_en, title_ko = "IoU concept", "IoU(겹침) 개념"
-            iou_to_use = round(float(iou_val), 2)
-        else:
-            title_en, title_ko = "IoU concept (example)", "IoU(겹침) 개념 (예시)"
-            iou_to_use = 0.35  # 안정적인 예시값
+            inputs["iou"] = round(iou_val, 2)  # 숫자 있을 때만 명시적으로 전달
 
         spec.append({
             "id": "iou_overlap_demo",
             "type": "iou_overlap",
-            "labels": _label(title_en, title_ko),
-            "inputs": {"iou": iou_to_use}
+            "labels": _label("IoU concept", "IoU(겹침) 예시"),
+            "inputs": inputs
         })
     return spec
