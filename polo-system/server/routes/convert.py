@@ -35,6 +35,21 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         logger.error(f"PDF 텍스트 추출 실패: {e}")
         raise RuntimeError(f"PDF 텍스트 추출 실패: {e}")
 
+def minimize_easy_json(data: dict) -> dict:
+    """outputs 저장용: 섹션 original만 제거하고 나머지는 그대로 보존"""
+    try:
+        result = dict(data)
+        # sections의 original 제거 (easy 전문은 그대로 둠)
+        for section in ["abstract","introduction","methods","results","discussion","conclusion"]:
+            sec = (result.get(section) or {})
+            if isinstance(sec, dict) and "original" in sec:
+                sec.pop("original", None)
+                result[section] = sec
+        return result
+    except Exception as e:
+        logger.warning(f"경량화 실패, 원본을 저장합니다: {e}")
+        return data
+
 @router.post("/convert")
 async def convert_pdf(file: UploadFile = File(...)):
     """PDF 파일을 업로드하고 AI로 변환"""
@@ -90,11 +105,13 @@ async def convert_pdf(file: UploadFile = File(...)):
                 "extracted_text_length": len(extracted_text)
             }
             
-            # data/outputs에 JSON 저장
+            # 저장용으로 경량화
+            minimized = minimize_easy_json(easy_json)
+            # data/outputs에 JSON 저장 (경량본)
             json_filename = f"{timestamp}_{base_name}.json"
             json_file_path = OUTPUTS_DIR / json_filename
             with open(json_file_path, "w", encoding="utf-8") as f:
-                json.dump(easy_json, f, ensure_ascii=False, indent=2)
+                json.dump(minimized, f, ensure_ascii=False, indent=2)
             logger.info(f"변환된 JSON 저장: {json_file_path}")
             
             return {
@@ -104,7 +121,7 @@ async def convert_pdf(file: UploadFile = File(...)):
                 "file_size": len(content),
                 "extracted_text_length": len(extracted_text),
                 "extracted_text_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text,
-                "easy_json": easy_json,
+                "easy_json": minimized,
                 "status": "success"
             }
             

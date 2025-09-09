@@ -17,6 +17,7 @@ export default function Upload() {
   const [result, setResult] = useState<UploadResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string>('')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   const uploadFile = async (file: File) => {
     setUploading(true)
@@ -68,8 +69,7 @@ export default function Upload() {
       e.currentTarget.value = ''
       return
     }
-
-    uploadFile(f)
+    setSelectedFile(f)
   }
 
   const checkModelStatus = async () => {
@@ -91,19 +91,33 @@ export default function Upload() {
     <div className="page upload">
       <h2>논문 업로드 (PDF 전용)</h2>
       
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
         <button 
           onClick={checkModelStatus}
           style={{
             padding: '10px 20px',
-            backgroundColor: '#007bff',
+            backgroundColor: '#6c757d',
             color: 'white',
             border: 'none',
             borderRadius: '5px',
             cursor: 'pointer'
           }}
         >
-          AI 모델 상태 확인
+          모델 연결 테스트 (health)
+        </button>
+        <button
+          onClick={() => selectedFile && uploadFile(selectedFile)}
+          disabled={!selectedFile || uploading}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: selectedFile && !uploading ? '#007bff' : '#9bbcf1',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: selectedFile && !uploading ? 'pointer' : 'not-allowed'
+          }}
+        >
+          변환하기 (generate)
         </button>
       </div>
 

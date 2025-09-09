@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import json
 import time
 import logging
+import re
 
 # --- 환경 변수 ---
 BASE_MODEL = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
@@ -210,15 +211,50 @@ async def generate_json(request: TextRequest):
         logger.info(f"📊 입력 텍스트 길이: {len(request.text)} 문자")
         logger.info(f"🎯 GPU 사용: {gpu_available}")
 
+        # 1) 원문에서 주요 섹션 텍스트 미리 추출하여 'original' 채워두기
+        def extract_sections(src: str) -> dict:
+            sections = {
+                "abstract": "",
+                "introduction": "",
+                "methods": "",
+                "results": "",
+                "discussion": "",
+                "conclusion": "",
+            }
+            # 섹션 헤더 패턴 (대/소문자, 공백 포함, 콜론 허용)
+            headers = [
+                ("abstract", r"^\s*abstract\b[:\-]?"),
+                ("introduction", r"^\s*introduction\b[:\-]?"),
+                ("methods", r"^\s*methods?\b[:\-]?|^\s*materials?\s+and\s+methods\b[:\-]?"),
+                ("results", r"^\s*results?\b[:\-]?"),
+                ("discussion", r"^\s*discussion\b[:\-]?"),
+                ("conclusion", r"^\s*conclusion[s]?\b[:\-]?|^\s*concluding\s+remarks\b[:\-]?")
+            ]
+            lines = src.splitlines()
+            indices = []
+            for idx, line in enumerate(lines):
+                for key, pat in headers:
+                    if re.match(pat, line.strip(), flags=re.IGNORECASE):
+                        indices.append((idx, key))
+                        break
+            indices.sort()
+            for i, (start_idx, key) in enumerate(indices):
+                end_idx = indices[i+1][0] if i+1 < len(indices) else len(lines)
+                chunk = "\n".join(lines[start_idx+1:end_idx]).strip()
+                sections[key] = chunk[:2000]  # 원문은 길이 제한
+            return sections
+
+        extracted = extract_sections(request.text)
+
         json_schema = {
             "title": "",  # 논문 제목(원문 추출 불가 시 요약 기반 생성)
             "authors": [],  # 저자 목록(알 수 없으면 빈 배열)
-            "abstract": {"original": "", "easy": ""},
-            "introduction": {"original": "", "easy": ""},
-            "methods": {"original": "", "easy": ""},
-            "results": {"original": "", "easy": ""},
-            "discussion": {"original": "", "easy": ""},
-            "conclusion": {"original": "", "easy": ""},
+            "abstract": {"original": extracted["abstract"], "easy": ""},
+            "introduction": {"original": extracted["introduction"], "easy": ""},
+            "methods": {"original": extracted["methods"], "easy": ""},
+            "results": {"original": extracted["results"], "easy": ""},
+            "discussion": {"original": extracted["discussion"], "easy": ""},
+            "conclusion": {"original": extracted["conclusion"], "easy": ""},
             "keywords": [],
             "figures_tables": [],  # {label, caption, easy}
             "references": [],
@@ -229,21 +265,21 @@ async def generate_json(request: TextRequest):
         }
 
         instruction = (
-            "너는 과학 커뮤니케이터다. 사용자가 제공한 논문 텍스트를 기반으로, 누구나 이해할 수 있게 쉽게 재해석한 JSON을 만들어라. "
-            "반드시 유효한 JSON만 출력하고, 마크다운이나 추가 설명은 절대 넣지 마라. "
-            "각 섹션의 'original'에는 원문에서 해당되는 핵심 문장을 2-4문장으로 뽑거나 요약하고, 'easy'에는 중학생도 이해할 수 있게 풀어써라. "
-            "원문에 특정 섹션이 없으면 빈 문자열이나 빈 배열을 사용하라. 키 이름은 스키마와 정확히 같아야 한다."
+            "너는 과학 커뮤니케이터다. 아래 스키마의 키와 구조를 절대 변경하지 말고, 값만 채워라. "
+            "출력은 오직 JSON 하나만 허용된다(마크다운, 설명, 코드블록 금지). "
+            "각 섹션의 'easy'에는 중학생도 이해할 수 있게 4-6문장으로 풀어쓰고, 과장/추측 금지. "
+            "모를 정보는 빈 문자열이나 빈 배열로 둔다. 'figures_tables'는 있으면 {label, caption, easy}로 목록화. "
+            "'plain_summary'는 전체를 일반어로 5-7문장 요약." 
         )
 
         schema_str = json.dumps(json_schema, ensure_ascii=False, indent=2)
 
         prompt = f"""{instruction}
 
-다음은 출력해야 할 JSON 스키마 예시다. 키 이름과 구조를 그대로 따르되, 값을 채워라:
+다음은 출력해야 할 JSON 스키마(미리 일부 original이 채워짐)이다. 키/구조는 그대로 두고 값만 채워라. 반드시 순수 JSON만 출력:
 {schema_str}
 
-아래는 사용자가 제공한 논문 텍스트다:
-"""
+참고용 전체 원문 텍스트(섹션 추출이 부정확할 수 있으므로 보조로만 사용):\n\n"""
 
         logger.info("📝 토크나이징 시작...")
         # 토크나이징
@@ -264,10 +300,11 @@ async def generate_json(request: TextRequest):
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=768,
-                temperature=0.7,
-                do_sample=True,
+                max_new_tokens=1600,
+                do_sample=False,
+                repetition_penalty=1.1,
                 pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
             )
 
         inference_time = time.time() - inference_start
@@ -285,14 +322,55 @@ async def generate_json(request: TextRequest):
                 text = text[start:end+1]
             return json.loads(text)
 
+        def is_meaningful(d: dict) -> bool:
+            try:
+                # 섹션 easy 중 하나라도 내용이 있으면 의미 있다고 간주
+                sections = ["abstract","introduction","methods","results","discussion","conclusion"]
+                return any(len((d.get(s,{}) or {}).get("easy","")) > 10 for s in sections)
+            except Exception:
+                return False
+
         try:
             data = coerce_json(raw)
-            logger.info("✅ JSON 파싱 성공")
+            if not is_meaningful(data):
+                raise ValueError("empty_json")
+            logger.info("✅ JSON 파싱/검증 성공")
         except Exception as e:
-            logger.warning(f"⚠️ JSON 파싱 실패: {e}")
-            # 파싱 실패 시, 안전한 최소 구조 반환
-            data = json_schema
-            data["plain_summary"] = raw[:1000]
+            logger.warning(f"⚠️ 1차 파싱 실패: {e}. 재생성 시도")
+            # 2차 시도: 더 엄격한 지시문과 샘플링/길이 조정
+            strict_instruction = (
+                "위 스키마를 기준으로 값을 채워 '유효한 JSON'만 출력하라. 반드시 '{' 로 시작하고 '}' 로 끝내라. "
+                "코드블록, 주석, 설명, 키 변경 일절 금지. 응답은 순수 JSON 문자열 하나만 허용."
+            )
+            strict_prompt = f"{strict_instruction}\n\n스키마:\n{schema_str}\n\n참고 원문(요약/재해석에만 사용):\n\n"
+            inputs2 = tokenizer(
+                strict_prompt + request.text,
+                return_tensors="pt",
+                truncation=True,
+                max_length=2048,
+            )
+            if gpu_available:
+                inputs2 = {k: v.cuda() for k, v in inputs2.items()}
+            with torch.no_grad():
+                outputs2 = model.generate(
+                    **inputs2,
+                    max_new_tokens=1400,
+                    do_sample=False,
+                    repetition_penalty=1.1,
+                    pad_token_id=tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+            gen2 = tokenizer.decode(outputs2[0], skip_special_tokens=True)
+            raw2 = gen2[len(strict_prompt):].strip()
+            try:
+                data = coerce_json(raw2)
+                if not is_meaningful(data):
+                    raise ValueError("empty_json_retry")
+                logger.info("✅ 2차 JSON 파싱/검증 성공")
+            except Exception as e2:
+                logger.warning(f"⚠️ 2차 파싱 실패: {e2}. 기본 스키마 반환")
+                data = json_schema
+                data["plain_summary"] = ""
 
         total_time = time.time() - start_time
         logger.info(f"🎉 전체 처리 완료: {total_time:.2f}초")
