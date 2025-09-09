@@ -2,8 +2,8 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY app.py .
+COPY requirements.easy.txt ./
 
-RUN pip install fastapi uvicorn pydantic
+RUN pip install --no-cache-dir -r requirements.easy.txt
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5003"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5003", "--reload"]

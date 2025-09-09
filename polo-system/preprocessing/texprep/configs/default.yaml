@@ -1,0 +1,27 @@
+# 파이프라인 제일 앞
+
+root_dir: "./data/raw"
+out_dir: "./data/out"
+drop_envs:
+  [
+    "tikzpicture",
+    "minted",
+    "lstlisting",
+    "verbatim",
+    "Verbatim",
+    "framed",
+    "mdframed",
+    "tcolorbox",
+  ]
+filters:
+  cut_after:
+    - "\\appendix\\b"
+    - "\\section\\*?\\{Generations\\}"
+    - "\\section\\*?\\{Bias\\}"
+
+placeholder:
+  eq_display: "⟨EQ:{id}⟩"
+  figure: "⟨FIG:{label}⟩"
+chunk: { max_chars: 3800, overlap_paras: 1 }
+plugins:
+  - texprep.tex.plugins.algorithme2e:Algorithm2eDrop
