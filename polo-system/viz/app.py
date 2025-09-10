@@ -14,6 +14,27 @@ mpl.rcParams["savefig.dpi"] = 220
 mpl.rcParams["figure.dpi"]  = 220
 mpl.rcParams["axes.unicode_minus"] = False
 
+_MT_MAP = {
+    "≈": r"$\approx$", "×": r"$\times$", "∈": r"$\in$",
+    "→": r"$\rightarrow$", "≥": r"$\geq$", "≤": r"$\leq$", "−": "-"
+}
+def _mt(s):
+    if not isinstance(s, str):
+        return s
+    out = s
+    for k, v in _MT_MAP.items():
+        out = out.replace(k, v)
+    return out
+
+def _mtexify_value(v):
+    if isinstance(v, str):
+        return _mt(v)
+    if isinstance(v, dict):
+        return {k: _mtexify_value(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_mtexify_value(x) for x in v]
+    return v
+
 def _setup_matplotlib_fonts():
     # (1) 한국어 본문 후보
     kr_candidates = (
@@ -117,7 +138,7 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
     spec_list: [{ id, type, labels?, caption_labels?, inputs: {...} }, ...]
     """
     _ensure_grammars_loaded() # 시각화 기법 로드
-    _setup_matplotlib_fonts() # 폰트 한글화
+     # 폰트 한글화
     _prepare_outdir(outdir, clear=clear_outdir) # 이전 출력물 제거
     opts = make_opts(target_lang=target_lang, bilingual=bilingual)
     os.makedirs(outdir, exist_ok=True)
@@ -128,6 +149,7 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
         raw_inputs = deepcopy(item.get("inputs", {}))      # 원본 보존
         raw_inputs = _inject_labels_into_inputs(item, raw_inputs, opts)
         inputs = _localize_inputs(raw_inputs, opts)        # ko/en 딕셔너리를 문자열로 변환
+        inputs = _mtexify_value(inputs)   
 
         # 필수 입력 자동 채움(기존 로직 유지)
         for need in getattr(g, "needs", []):
