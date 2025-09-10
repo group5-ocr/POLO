@@ -1,27 +1,37 @@
-# 파이프라인 제일 앞
+# 파이프라인 최상위 설정 (configs/default.yaml)
 
 root_dir: "./data/raw"
 out_dir: "./data/out"
+
 drop_envs:
-  [
-    "tikzpicture",
-    "minted",
-    "lstlisting",
-    "verbatim",
-    "Verbatim",
-    "framed",
-    "mdframed",
-    "tcolorbox",
-  ]
+  - tikzpicture
+  - minted
+  - lstlisting
+  - verbatim
+  - Verbatim
+  - framed
+  - mdframed
+  - tcolorbox
+  - algorithm2e # 알고리즘 박스류 추가
+  - algorithm
+
 filters:
   cut_after:
     - "\\appendix\\b"
     - "\\section\\*?\\{Generations\\}"
     - "\\section\\*?\\{Bias\\}"
 
-placeholder:
-  eq_display: "⟨EQ:{id}⟩"
-  figure: "⟨FIG:{label}⟩"
-chunk: { max_chars: 3800, overlap_paras: 1 }
-plugins:
-  - texprep.tex.plugins.algorithme2e:Algorithm2eDrop
+select:
+  mode: auto_merge # one | merge | multi | auto_merge(추천)
+
+chunk:
+  max_chars: 3800
+  overlap: 1 # 키 이름은 overlap
+  include_latex: true # true면 청크에 LaTeX 수식 보존
+
+export:
+  compress: false
+
+math:
+  prelim_chars: 1200
+  # question: ""     # 필요하면 넣어라. qwen_payload 같이 생성됨
