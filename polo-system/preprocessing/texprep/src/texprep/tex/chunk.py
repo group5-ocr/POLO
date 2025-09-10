@@ -24,10 +24,11 @@ _SECTION_CMD = re.compile(
 )
 
 # 플레이스홀더
-PH_EQ  = re.compile(r"⟨EQ:(?P<id>[^>]+)⟩")
-PH_ieq = re.compile(r"⟨eq:(?P<id>[^>]+)⟩")
-PH_FIG = re.compile(r"⟨FIG:(?P<id>[^>]+)⟩")
-PH_TAB = re.compile(r"⟨TAB:(?P<id>[^>]+)⟩")
+# 닫힘 문자를 '>'가 아니라 '⟩' 기준으로 잡아야 안전
+PH_EQ  = re.compile(r"⟨EQ:(?P<id>[^⟩]+)⟩")
+PH_ieq = re.compile(r"⟨eq:(?P<id>[^⟩]+)⟩")
+PH_FIG = re.compile(r"⟨FIG:(?P<id>[^⟩]+)⟩")
+PH_TAB = re.compile(r"⟨TAB:(?P<id>[^⟩]+)⟩")
 
 
 def _split_paragraphs(text: str) -> list[str]:

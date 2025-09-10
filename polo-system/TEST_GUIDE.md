@@ -2,7 +2,7 @@
 
 ## 🚀 빠른 시작 (Windows 기준)
 
-한번에 모두 다 키기기
+### 모든 서버 열기
 C:\POLO\POLO\polo-system\run_system.bat 
 
 ### 0. 사전 준비
