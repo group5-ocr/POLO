@@ -187,7 +187,8 @@
     },
     "regex": {
       "en": [
-        "\\bF-?1\\b"
+        "\\bF-?1\\b",
+        "F1[-\\s]?score"
       ],
       "ko": [
         "\\bF-?1\\b"
@@ -221,7 +222,9 @@
     },
     "regex": {
       "en": [
-        "\\b(AU?ROC|ROC-?AUC|AUC)\\b"
+        "\\b(AU?ROC|ROC-?AUC|AUC)\\b",
+        "ROC ?AUC",
+        "Area under ?ROC"
       ],
       "ko": [
         "\\bROC-?AUC\\b",
@@ -254,7 +257,9 @@
     },
     "regex": {
       "en": [
-        "\\b(AUPRC|PR-?AUC)\\b"
+        "\\b(AUPRC|PR-?AUC)\\b",
+        "PR ?AUC",
+        "Area under (the )?PR"
       ],
       "ko": [
         "\\bPR-?AUC\\b",
@@ -290,7 +295,8 @@
     },
     "regex": {
       "en": [
-        "\\b(mAP|AP(?:\\d{2})|AP@[0-9.]+(?::[0-9.]+)?)\\b"
+        "\\b(mAP|AP(?:\\d{2})|AP@[0-9.]+(?::[0-9.]+)?)\\b",
+        "AP(?:50|75|95)"
       ],
       "ko": [
         "\\bmAP\\b",
@@ -324,7 +330,9 @@
     },
     "regex": {
       "en": [
-        "\\b(AR|mAR)\\b"
+        "\\b(AR|mAR)\\b",
+        "Average\\s*Recall",
+        "avg\\.?\\s*recall"
       ],
       "ko": [
         "평균 ?재현율",
@@ -358,7 +366,8 @@
     },
     "regex": {
       "en": [
-        "\\b(m?IoU)\\b"
+        "\\b(m?IoU)\\b",
+        "Intersection[-\\s]*over[-\\s]*Union"
       ],
       "ko": [
         "\\bm?IoU\\b",
@@ -1065,7 +1074,9 @@
       ],
       "ko": [
         "퍼플렉서티",
-        "\\bPPL\\b"
+        "\\bPPL\\b",
+        "퍼플렉시티",
+        "펄플렉시티"
       ]
     },
     "category": "metric",
@@ -1293,7 +1304,8 @@
     },
     "regex": {
       "en": [
-        "\\b(s?FID)\\b"
+        "\\b(s?FID)\\b",
+        "Fr[eé]chet\\s+Inception\\s+Distance"
       ],
       "ko": [
         "\\bs?FID\\b",
@@ -1322,7 +1334,8 @@
     },
     "regex": {
       "en": [
-        "\\bKID\\b"
+        "\\bKID\\b",
+        "Kernel\\s+Inception\\s+Distance"
       ],
       "ko": [
         "\\bKID\\b",
@@ -1407,7 +1420,8 @@
     },
     "regex": {
       "en": [
-        "\\bFVD\\b"
+        "\\bFVD\\b",
+        "Fr[eé]chet\\s+Video\\s+Distance"
       ],
       "ko": [
         "\\bFVD\\b"
@@ -1747,7 +1761,9 @@
       "ko": [
         "파라미터 ?수",
         "#?파라미터",
-        "매개변수 ?수"
+        "매개변수 ?수",
+        "파라미터(?:\\s*수)?",
+        "매개변수(?:\\s*수)?"
       ]
     },
     "category": "compute",
@@ -1782,7 +1798,10 @@
       ],
       "ko": [
         "(?:[GMT]?)FLOPs",
-        "연산량"
+        "연산량",
+        "[GT]?FLOPs",
+        "GFLOPs",
+        "TFLOPs"
       ]
     },
     "category": "compute",
@@ -1852,7 +1871,9 @@
       "ko": [
         "처리량",
         "초당 ?(토큰|이미지|샘플)",
-        "\\bFPS\\b"
+        "\\bFPS\\b",
+        "FPS",
+        "프레임 ?퍼 ?세컨드"
       ]
     },
     "category": "compute",

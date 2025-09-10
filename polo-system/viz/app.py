@@ -15,24 +15,40 @@ mpl.rcParams["figure.dpi"]  = 220
 mpl.rcParams["axes.unicode_minus"] = False
 
 def _setup_matplotlib_fonts():
-    candidates = ([os.getenv("FONT_KR_FAMILY")] if os.getenv("FONT_KR_FAMILY") else []) + [
-        "Noto Sans KR","Noto Sans CJK KR","Apple SD Gothic Neo",
-        "Malgun Gothic","NanumGothic","Source Han Sans K","Source Han Sans KR"
+    # (1) 한국어 본문 후보
+    kr_candidates = (
+        [os.getenv("FONT_KR_FAMILY")] if os.getenv("FONT_KR_FAMILY") else []
+    ) + [
+        "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo",
+        "Malgun Gothic", "NanumGothic", "Source Han Sans K", "Source Han Sans KR",
     ]
+
     chosen = None
-    for name in candidates:
-        if not name: continue
+    for name in kr_candidates:
+        if not name:
+            continue
         try:
             path = font_manager.findfont(FontProperties(family=name), fallback_to_default=False)
         except Exception:
             path = ""
         if path and os.path.exists(path):
+            # 로컬 설치/경로 등록
             font_manager.fontManager.addfont(path)
             chosen = FontProperties(fname=path).get_name()
             break
+
+    # (2) 기호 폴백(≈, ∈, ×, ≥, ≤ 등)
+    symbol_fallbacks = ["Noto Sans Symbols 2", "DejaVu Sans"]
+
+    # (3) 최종 패밀리 우선순위 (본문 → 기호 폴백)
     if chosen:
-        rcParams["font.family"] = "sans-serif"
-        rcParams["font.sans-serif"] = [chosen, "DejaVu Sans"]
+        rcParams["font.family"] = [chosen] + symbol_fallbacks
+        rcParams["font.sans-serif"] = [chosen] + symbol_fallbacks
+    else:
+        rcParams["font.family"] = symbol_fallbacks
+        rcParams["font.sans-serif"] = symbol_fallbacks
+
+    # 마이너스 부호, mathtext 기본 폰트
     rcParams["axes.unicode_minus"] = False
     rcParams["mathtext.fontset"] = "dejavusans"
 
@@ -52,12 +68,18 @@ def _prepare_outdir(outdir, clear=False, patterns=("*.png", "*.json")):
 _GRAMMARS_LOADED = False
 def _ensure_grammars_loaded():
     global _GRAMMARS_LOADED
-    if _GRAMMARS_LOADED: return
-    here = Path(__file__).parent
-    pkg_path = here / "templates" / "grammars" 
-    if pkg_path.exists():
-        for m in pkgutil.iter_modules([str(pkg_path)]):
-            importlib.import_module(f"templates.grammars.{m.name}")
+    if _GRAMMARS_LOADED:
+        return
+    pkg_dir = Path(__file__).parent / "templates" / "grammars"
+
+    # 안전: 현재 폴더(viz)를 sys.path에 보장
+    import sys
+    viz_dir = str(Path(__file__).parent.resolve())
+    if viz_dir not in sys.path:
+        sys.path.insert(0, viz_dir)
+
+    for m in pkgutil.iter_modules([str(pkg_dir)]):
+        importlib.import_module(f"templates.grammars.{m.name}")
     _GRAMMARS_LOADED = True
 
 def _localize_value(v, opts):
