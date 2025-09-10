@@ -27,39 +27,39 @@ async def lifespan(app: FastAPI):
     # 종료 시
     print("🛑 POLO 서버 종료 중...")
 
-def create_app() -> FastAPI:
-    app = FastAPI(
-        title="POLO Easy Inference API", 
-        version="0.1.0",
-        lifespan=lifespan
-    )
+# FastAPI 앱 생성
+app = FastAPI(
+    title="POLO Easy Inference API", 
+    version="0.1.0",
+    lifespan=lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-    # ✅ easy 전용 prefix
-    app.include_router(upload.router,        prefix="/easy")
-    app.include_router(convert.router,       prefix="/easy")
-    app.include_router(results.router,       prefix="/easy")
-    app.include_router(easy_generate.router, prefix="/easy")
+# ✅ easy 전용 prefix
+app.include_router(upload.router,        prefix="/easy")
+app.include_router(convert.router,       prefix="/easy")
+app.include_router(results.router,       prefix="/easy")
+app.include_router(easy_generate.router, prefix="/easy")
     
-    # ✅ 데이터베이스 관련 라우트
-    app.include_router(database.router,      prefix="/db")
+# ✅ 데이터베이스 관련 라우트
+app.include_router(database.router,      prefix="/db")
     
-    # ✅ 파일 관리 라우트
-    app.include_router(files.router,         prefix="/api")
+# ✅ 파일 관리 라우트
+app.include_router(files.router,         prefix="/api")
 
-    @app.get("/healthz")
-    def healthz():
-        return {"status": "ok"}
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
     
-    @app.get("/db/health")
-    def db_health():
-        """데이터베이스 연결 상태 확인"""
-        is_connected = db_manager.test_connection()
-        return {
-            "status": "ok" if is_connected else "error",
-            "database": "connected" if is_connected else "disconnected"
-        }
+@app.get("/db/health")
+def db_health():
+    """데이터베이스 연결 상태 확인"""
+    is_connected = db_manager.test_connection()
+    return {
+        "status": "ok" if is_connected else "error",
+        "database": "connected" if is_connected else "disconnected"
+    }

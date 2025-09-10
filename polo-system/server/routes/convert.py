@@ -1,5 +1,6 @@
 # server/routes/convert.py
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from typing import Optional
 import fitz, tempfile, os, logging
 from services.llm_client import easy_llm
 from services.file_manager import file_manager
