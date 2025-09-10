@@ -4,7 +4,7 @@
 fastapi==0.116.1
 uvicorn==0.35.0
 
-# Core LLM stack - CUDA 버전
+# Core LLM stack
 torch==2.5.1+cu121
 torchvision==0.20.1+cu121
 torchaudio==2.5.1+cu121
@@ -14,7 +14,6 @@ peft==0.11.1
 tokenizers==0.19.1
 safetensors==0.4.4
 sentencepiece==0.1.99
-# bitsandbytes 제거 (로컬 서빙은 bfloat16로 수행)
 
 # Utils
 numpy==1.26.4
