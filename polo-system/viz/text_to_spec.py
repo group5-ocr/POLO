@@ -96,6 +96,56 @@ METRIC_RANGES = {
     "metric.wer": (1.0,0.0), "metric.cer": (1.0,0.0),
 }
 
+# -------------------- Rubrics (기본 임계값) --------------------
+# mode: "up"(클수록 좋음) | "down"(작을수록 좋음)
+# thresholds: 높은 등급부터 나열. 값은 '원 단위'(0~1 스케일 X)
+RUBRICS: dict[str, dict] = {
+    # 분류/랭킹
+    "metric.accuracy":      {"mode":"up",   "title":"Accuracy rubric",
+                             "col":"min score",  "thr":[(0.98,"Excellent"), (0.95,"Good"), (0.90,"Fair"), (0.00,"Poor")]},
+    "metric.f1":            {"mode":"up",   "title":"F1-score rubric",
+                             "col":"min score",  "thr":[(0.90,"Excellent"), (0.80,"Good"), (0.70,"Fair"), (0.00,"Poor")]},
+    "metric.precision":     {"mode":"up",   "title":"Precision rubric",
+                             "col":"min score",  "thr":[(0.95,"Excellent"), (0.90,"Good"), (0.80,"Fair"), (0.00,"Poor")]},
+    "metric.recall":        {"mode":"up",   "title":"Recall rubric",
+                             "col":"min score",  "thr":[(0.95,"Excellent"), (0.90,"Good"), (0.80,"Fair"), (0.00,"Poor")]},
+    "metric.auroc":         {"mode":"up",   "title":"AUROC rubric",
+                             "col":"min score",  "thr":[(0.90,"Excellent"), (0.85,"Good"), (0.75,"Fair"), (0.50,"Poor")]},
+    # ⚠ AUPRC는 양성비에 민감 — 기본값은 보수적으로
+    "metric.auprc":         {"mode":"up",   "title":"AUPRC rubric (baseline≈prevalence)",
+                             "col":"min score",  "thr":[(0.70,"Excellent"), (0.50,"Good"), (0.30,"Fair"), (0.00,"Poor")]},
+
+    # 검출/세그먼테이션
+    "metric.map_detection": {"mode":"up",   "title":"mAP rubric (@[.5:.95])",
+                             "col":"min mAP",   "thr":[(0.55,"Excellent"), (0.40,"Good"), (0.25,"Fair"), (0.00,"Poor")]},
+    "metric.average_recall":{"mode":"up",   "title":"AR rubric",
+                             "col":"min AR",    "thr":[(0.70,"Excellent"), (0.55,"Good"), (0.40,"Fair"), (0.00,"Poor")]},
+    "metric.miou":          {"mode":"up",   "title":"mIoU rubric",
+                             "col":"min IoU",   "thr":[(0.80,"Excellent"), (0.60,"Good"), (0.40,"Fair"), (0.00,"Poor")]},
+    "metric.dice":          {"mode":"up",   "title":"Dice rubric",
+                             "col":"min Dice",  "thr":[(0.85,"Excellent"), (0.75,"Good"), (0.65,"Fair"), (0.00,"Poor")]},
+    "metric.pq":            {"mode":"up",   "title":"PQ rubric",
+                             "col":"min PQ",    "thr":[(0.55,"Excellent"), (0.45,"Good"), (0.35,"Fair"), (0.00,"Poor")]},
+    "metric.iou":           {"mode":"up",   "title":"IoU rubric",
+                             "col":"min IoU",   "thr":[(0.75,"Excellent"), (0.60,"Good"), (0.50,"Fair"), (0.00,"Poor")]},
+
+    # 생성/복원(낮을수록 좋음)
+    "metric.fid":           {"mode":"down", "title":"FID rubric",
+                             "col":"max FID",   "thr":[(10.0,"Excellent"), (25.0,"Good"), (50.0,"Fair"), (1e9,"Poor")]},
+    "metric.kid":           {"mode":"down", "title":"KID rubric",
+                             "col":"max KID",   "thr":[(0.01,"Excellent"), (0.02,"Good"), (0.05,"Fair"), (1e9,"Poor")]},
+    "metric.lpips":         {"mode":"down", "title":"LPIPS rubric",
+                             "col":"max LPIPS", "thr":[(0.15,"Excellent"), (0.25,"Good"), (0.35,"Fair"), (1e9,"Poor")]},
+    "metric.inception_score":{"mode":"up",  "title":"IS rubric (dataset-dep.)",
+                             "col":"min IS",    "thr":[(8.5,"Excellent"), (7.5,"Good"), (6.5,"Fair"), (0.0,"Poor")]},
+
+    # 음성/문자 인식(낮을수록 좋음)
+    "metric.wer":           {"mode":"down", "title":"WER rubric",
+                             "col":"max WER",   "thr":[(0.05,"Excellent"), (0.10,"Good"), (0.20,"Fair"), (1.0,"Poor")]},
+    "metric.cer":           {"mode":"down", "title":"CER rubric",
+                             "col":"max CER",   "thr":[(0.02,"Excellent"), (0.05,"Good"), (0.10,"Fair"), (1.0,"Poor")]},
+}
+
 def normalize_value(cid: str, value: float, is_percent: bool) -> float:
     v = value/100.0 if is_percent else value
     lo, hi = METRIC_RANGES.get(cid, (0.0,1.0))
@@ -285,18 +335,16 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
 
     spec = []
 
-    # (C) 숫자 있는 지표 → Bar/KPI (KPI는 '숫자 근거' 있을 때만)
+    # --- KPI/Bar: 2개 이상일 때만 막대 그래프, 1개면 생성 안 함 ---
     for cid, by_method in mentions.items():
         meta = cidx[cid]
         if len(by_method) >= 2:
             bg = make_bar_group(cid, meta, by_method)
-            if bg: spec.append(bg)
-        elif len(by_method) == 1:
-            if cid in numeric_cids:                      # ← 실제 숫자 근거 필수
-                v = next(iter(by_method.values()))
-                if 0.05 < v < 0.95:                      # ← 극단값 가드
-                    spec.append(make_kpi_card(cid, meta, v))
-            # else: KPI 생성 안 함
+            if bg:
+                spec.append(bg)
+
+    # 숫자 있는 지표에만 해석 표(예: IoU rubric) 붙이기
+    _add_rubric_tables(spec, mentions)
 
     # (D) 숫자는 없고 지표명만 있는 경우 → 비교 막대는 '임퓨트'로 생성
     for cid in (names_only - set(mentions.keys())):
@@ -326,26 +374,41 @@ def _detect_metric_names_only(text: str, concept_idx) -> set[str]:
                 cids.add(cid); break
     return cids
 
-def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str]):
-    """'실제 숫자'가 잡힌 평가지표에만 해석 표를 붙임."""
-    def _append_iou_table():
+def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None = None):
+    """
+    숫자값이 실제로 추출된 지표(cids)에 대해서만 RUBRICS 기반 'metric_table'을 붙인다.
+    """
+    if numeric_cids is None:
+        numeric_cids = {cid for cid, by_method in mentions.items() if by_method}
+
+    def _append_table(cid: str, rub: dict):
+        label_en = rub.get("title", cid)
+        label_ko = {
+            "min score":"최소 점수", "max FID":"최대 FID", "max KID":"최대 KID",
+            "max LPIPS":"최대 LPIPS", "min IoU":"최소 IoU", "min mAP":"최소 mAP",
+            "min AR":"최소 AR", "min Dice":"최소 Dice", "min PQ":"최소 PQ",
+            "min IS":"최소 IS", "max WER":"최대 WER", "max CER":"최대 CER"
+        }.get(rub["col"], rub["col"])
+
+        rows   = [name for _, name in rub["thr"]]
+        # 표에는 '임계값'을 그대로 넣는다(원 단위). 소수는 보기 좋게 반올림.
+        vals   = [[round(th, 3) if th < 1e8 else float("inf")] for th, _ in rub["thr"]]
         spec.append({
-            "id": "iou_rubric",
+            "id": f"{cid.split('.')[-1]}_rubric",
             "type": "metric_table",
-            "labels": _label("IoU rubric", "IoU 해석"),
+            "labels": {"en": label_en, "ko": label_en.replace("rubric", "해석")},
             "inputs": {
-                "methods": ["Excellent", "Good", "Fair", "Poor"],
-                "metrics": ["IoU min"],
-                "values": [[0.75], [0.60], [0.50], [0.00]],
-                "title": _label("IoU rubric (≥0.75 → Excellent)",
-                                "IoU 해석 (≥0.75 → Excellent)")
+                "methods": rows,
+                "metrics": [rub["col"]],
+                "values":  vals,
+                "title":   {"en": label_en, "ko": label_en.replace("rubric", "해석")}
             }
         })
 
-    has_iou_num = (("metric.iou"  in mentions and "metric.iou"  in numeric_cids) or
-                   ("metric.miou" in mentions and "metric.miou" in numeric_cids))
-    if has_iou_num:
-        _append_iou_table()
+    for cid in sorted(numeric_cids):
+        rub = RUBRICS.get(cid)
+        if rub:
+            _append_table(cid, rub)
 
 def impute_values_for_methods(methods: list[str], cid: str, text: str) -> list[float]:
     """
