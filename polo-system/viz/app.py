@@ -35,8 +35,30 @@ def _mtexify_value(v):
         return [_mtexify_value(x) for x in v]
     return v
 
+def _present_families(candidates):
+    """설치돼 있는 폰트만 필터링해서 family 이름 리스트로 반환."""
+    present = []
+    for name in candidates:
+        if not name:
+            continue
+        try:
+            path = font_manager.findfont(
+                FontProperties(family=name),
+                fallback_to_default=False,  # ← 없으면 실패하게
+            )
+        except Exception:
+            path = ""
+        if path and os.path.exists(path):
+            # 시스템폰트면 addfont 없어도 되지만, 경로로 family 이름을 정확히 가져오자
+            try:
+                fam = FontProperties(fname=path).get_name()
+            except Exception:
+                fam = name
+            present.append(fam)
+    return present
+
 def _setup_matplotlib_fonts():
-    # (1) 한국어 본문 후보
+    # (1) 한글 본문 후보 (환경변수 우선)
     kr_candidates = (
         [os.getenv("FONT_KR_FAMILY")] if os.getenv("FONT_KR_FAMILY") else []
     ) + [
@@ -44,33 +66,22 @@ def _setup_matplotlib_fonts():
         "Malgun Gothic", "NanumGothic", "Source Han Sans K", "Source Han Sans KR",
     ]
 
-    chosen = None
-    for name in kr_candidates:
-        if not name:
-            continue
-        try:
-            path = font_manager.findfont(FontProperties(family=name), fallback_to_default=False)
-        except Exception:
-            path = ""
-        if path and os.path.exists(path):
-            # 로컬 설치/경로 등록
-            font_manager.fontManager.addfont(path)
-            chosen = FontProperties(fname=path).get_name()
-            break
+    # (2) 기호 폴백 후보 (Windows에 흔한 'Segoe UI Symbol'도 포함)
+    sym_candidates = ["Noto Sans Symbols 2", "Segoe UI Symbol", "DejaVu Sans"]
 
-    # (2) 기호 폴백(≈, ∈, ×, ≥, ≤ 등)
-    symbol_fallbacks = ["Noto Sans Symbols 2", "DejaVu Sans"]
+    kr_present  = _present_families(kr_candidates)
+    sym_present = _present_families(sym_candidates)
 
-    # (3) 최종 패밀리 우선순위 (본문 → 기호 폴백)
-    if chosen:
-        rcParams["font.family"] = [chosen] + symbol_fallbacks
-        rcParams["font.sans-serif"] = [chosen] + symbol_fallbacks
-    else:
-        rcParams["font.family"] = symbol_fallbacks
-        rcParams["font.sans-serif"] = symbol_fallbacks
+    # 최종 우선순위: [한글 본문 1개] + [존재하는 기호 폴백들] (최소 DejaVu Sans 보장)
+    family = []
+    if kr_present:
+        family.append(kr_present[0])
+    family += (sym_present or ["DejaVu Sans"])
 
-    # 마이너스 부호, mathtext 기본 폰트
+    rcParams["font.family"] = family
+    rcParams["font.sans-serif"] = family
     rcParams["axes.unicode_minus"] = False
+    # 수학기호는 mathtext로 렌더 → DejaVu Sans 기반이라 기호가 안전함
     rcParams["mathtext.fontset"] = "dejavusans"
 
 def _prepare_outdir(outdir, clear=False, patterns=("*.png", "*.json")):
@@ -138,7 +149,7 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
     spec_list: [{ id, type, labels?, caption_labels?, inputs: {...} }, ...]
     """
     _ensure_grammars_loaded() # 시각화 기법 로드
-     # 폰트 한글화
+    _setup_matplotlib_fonts() # 폰트 한글화
     _prepare_outdir(outdir, clear=clear_outdir) # 이전 출력물 제거
     opts = make_opts(target_lang=target_lang, bilingual=bilingual)
     os.makedirs(outdir, exist_ok=True)
