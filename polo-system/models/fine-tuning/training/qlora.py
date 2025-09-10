@@ -1,12 +1,9 @@
-# qlora.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 import os
 import json
 import argparse
-from typing import Dict, Optional
-
 import torch
+from typing import Dict, Optional
 from datasets import load_dataset, Dataset
 from transformers import (
     AutoModelForCausalLM,
@@ -15,7 +12,13 @@ from transformers import (
 )
 from peft import LoraConfig, PeftModel, prepare_model_for_kbit_training
 from trl import SFTTrainer, SFTConfig
+from huggingface_hub import login
+import os
 
+token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
+if not token:
+    raise RuntimeError("HF token not found in env vars.")
+login(token=token, add_to_git_credential=True)
 
 # =============================
 # 1) 프롬프트 유틸

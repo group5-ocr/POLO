@@ -1,10 +1,13 @@
 import os
 import torch
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
-import logging
+from huggingface_hub import login 
+from pathlib import Path           
+import re 
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +17,8 @@ app = FastAPI(title="Easy LLM Service", version="1.0.0")
 
 # 모델 설정
 BASE_MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
-CHECKPOINT_PATH = "/app/outputs/llama32-3b-qlora/checkpoint-600"
+CHECKPOINT_PATH = "/app/outputs/llama32-3b-qlora/"
+CHECKPOINT_ROOT = "/app/outputs/llama32-3b-qlora" 
 
 # 전역 변수
 model = None
@@ -30,32 +34,50 @@ class GenerateResponse(BaseModel):
     generated_text: str
     input_text: str
 
+def _get_latest_ckpt_dir(root: str) -> str:
+    p = Path(root)
+    cks = sorted(
+        [d for d in p.glob("checkpoint-*") if d.is_dir()],
+        key=lambda d: int(re.findall(r"\d+", d.name)[-1]) if re.findall(r"\d+", d.name) else -1
+    )
+    return str(cks[-1]) if cks else root  # checkpoint-* 없으면 루트 사용
+
 def load_model():
-    """파인튜닝된 모델 로드"""
     global model, tokenizer
-    
     try:
+        # ★ 1) 비대화식 로그인
+        hf_token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
+        if not hf_token:
+            raise RuntimeError("Hugging Face token not found in env.")
+        login(token=hf_token, add_to_git_credential=True)
+
         logger.info(f"베이스 모델 로딩: {BASE_MODEL_ID}")
-        tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
-        
-        # 패딩 토큰 설정
+        tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, use_fast=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        
+
+        # ★ 2) dtype 폴백
+        dtype = torch.bfloat16
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+            dtype = torch.float16
+
         logger.info("베이스 모델 로딩 중...")
         base_model = AutoModelForCausalLM.from_pretrained(
             BASE_MODEL_ID,
             device_map="auto",
-            torch_dtype=torch.bfloat16,
+            torch_dtype=dtype,
             trust_remote_code=True
         )
-        
-        logger.info(f"파인튜닝된 모델 로딩: {CHECKPOINT_PATH}")
-        model = PeftModel.from_pretrained(base_model, CHECKPOINT_PATH)
-        
+
+        # ★ 3) 최신 체크포인트 자동 선택
+        ckpt_dir = _get_latest_ckpt_dir(CHECKPOINT_ROOT)
+        logger.info(f"파인튜닝된 모델 로딩: {ckpt_dir}")
+        model = PeftModel.from_pretrained(base_model, ckpt_dir)
+        model.eval()
+
         logger.info("모델 로딩 완료!")
         return True
-        
+
     except Exception as e:
         logger.error(f"모델 로딩 실패: {e}")
         return False
@@ -74,12 +96,9 @@ async def health_check():
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate_text(request: GenerateRequest):
-    """텍스트 생성"""
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다.")
-    
     try:
-        # 입력 텍스트 토크나이징
         inputs = tokenizer(
             request.text,
             return_tensors="pt",
@@ -87,8 +106,7 @@ async def generate_text(request: GenerateRequest):
             truncation=True,
             max_length=512
         ).to(model.device)
-        
-        # 텍스트 생성
+
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
@@ -99,19 +117,14 @@ async def generate_text(request: GenerateRequest):
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id
             )
-        
-        # 생성된 텍스트 디코딩
-        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # 입력 텍스트 제거 (생성된 부분만 반환)
-        input_length = len(tokenizer.decode(inputs['input_ids'][0], skip_special_tokens=True))
-        generated_only = generated_text[input_length:].strip()
-        
-        return GenerateResponse(
-            generated_text=generated_only,
-            input_text=request.text
-        )
-        
+
+        # ★ 4) 토큰 기준으로 생성분만 추출
+        full_ids = outputs[0]
+        prompt_len = inputs["input_ids"].shape[-1]
+        gen_ids = full_ids[prompt_len:]
+        generated_only = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+
+        return GenerateResponse(generated_text=generated_only, input_text=request.text)
     except Exception as e:
         logger.error(f"텍스트 생성 실패: {e}")
         raise HTTPException(status_code=500, detail=f"텍스트 생성 실패: {str(e)}")

@@ -35,6 +35,7 @@ services:
       --gradient_checkpointing
       --learning_rate 2e-4
       --warmup_ratio 0.03
+      --resume_from_checkpoint outputs/llama32-3b-qlora/checkpoint-1000
       --target_modules q_proj,k_proj,v_proj,o_proj
 
   easy-llm:
