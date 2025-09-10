@@ -1,4 +1,3 @@
-# server/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -35,13 +34,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # 필요 시 프론트 도메인만 허용으로 좁혀도 됨
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+)
 
     # ✅ easy 전용 prefix
     app.include_router(upload.router,        prefix="/easy")
@@ -67,7 +63,3 @@ def create_app() -> FastAPI:
             "status": "ok" if is_connected else "error",
             "database": "connected" if is_connected else "disconnected"
         }
-
-    return app
-
-app = create_app()

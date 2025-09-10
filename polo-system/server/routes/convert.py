@@ -1,68 +1,27 @@
+# server/routes/convert.py
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
-import fitz  # PyMuPDF
-import os
-import tempfile
-import logging
-import json
-import re
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
+import fitz, tempfile, os, logging
 from services.llm_client import easy_llm
 from services.file_manager import file_manager
 from services.environment import env_manager
 
-router = APIRouter(tags=["easy-convert"])
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-RAW_DIR = BASE_DIR / "data" / "raw"
-OUTPUTS_DIR = BASE_DIR / "data" / "outputs"
-RAW_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-
-UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "50"))
-
-def _sanitize_filename(name: str) -> str:
-    name = Path(name).stem
-    name = name.strip()[:200]
-    return re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", name) or "doc"
-
-def _extract_text_from_pdf(pdf_path: str) -> str:
+def _extract_text(pdf_bytes: bytes) -> str:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(pdf_bytes); tmp_path = tmp.name
     try:
-        with fitz.open(pdf_path) as doc:
-            if doc.is_encrypted:
-                try:
-                    if not doc.authenticate(""):
-                        raise RuntimeError("암호화된 PDF이며 열 수 없습니다.")
-                except Exception:
-                    raise RuntimeError("암호화된 PDF이며 열 수 없습니다.")
+        with fitz.open(tmp_path) as doc:
             parts = []
-            for i, page in enumerate(doc):
-                t = page.get_text("text") or ""
-                if not t.strip():
-                    t = page.get_text("blocks") or ""
-                    if isinstance(t, list):
-                        t = "\n".join([b[4] for b in t if isinstance(b, (list, tuple)) and len(b) >= 5 and isinstance(b[4], str)])
+            for i in range(len(doc)):
+                t = doc[i].get_text("text")
                 if t.strip():
                     parts.append(f"--- 페이지 {i+1} ---\n{t}")
-            return "\n\n".join(parts)
-    except Exception as e:
-        logger.error(f"PDF 텍스트 추출 실패: {e}")
-        raise RuntimeError(f"PDF 텍스트 추출 실패: {e}")
-
-def _minimize_easy_json(data: dict) -> dict:
-    try:
-        result = dict(data)
-        for sec_name in ["abstract","introduction","methods","results","discussion","conclusion"]:
-            sec = (result.get(sec_name) or {})
-            if isinstance(sec, dict) and "original" in sec:
-                sec.pop("original", None)
-                result[sec_name] = sec
-        return result
-    except Exception as e:
-        logger.warning(f"경량화 실패, 원본 유지: {e}")
-        return data
+        return "\n\n".join(parts)
+    finally:
+        try: os.unlink(tmp_path)
+        except: pass
 
 @router.post("/convert")
 async def convert_pdf(

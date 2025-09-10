@@ -2,7 +2,23 @@
 
 root_dir: "./data/raw"
 out_dir: "./data/out"
-drop_envs: ["tikzpicture", "minted", "lstlisting", "verbatim"]
+drop_envs:
+  [
+    "tikzpicture",
+    "minted",
+    "lstlisting",
+    "verbatim",
+    "Verbatim",
+    "framed",
+    "mdframed",
+    "tcolorbox",
+  ]
+filters:
+  cut_after:
+    - "\\appendix\\b"
+    - "\\section\\*?\\{Generations\\}"
+    - "\\section\\*?\\{Bias\\}"
+
 placeholder:
   eq_display: "⟨EQ:{id}⟩"
   figure: "⟨FIG:{label}⟩"

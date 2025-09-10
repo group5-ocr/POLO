@@ -186,13 +186,23 @@ def load_model():
             device_map=None,
         )
 
-    # LoRA 어댑터
+    # LoRA 어댑터 (실패해도 베이스 모델로 계속 진행)
+    m = base  # 기본값은 베이스 모델
+    
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
-        logger.info(f"🔄 어댑터 로딩: {ADAPTER_DIR}")
-        m = PeftModel.from_pretrained(base, ADAPTER_DIR, is_trainable=False)
+        logger.info(f"🔄 어댑터 로딩 시도: {ADAPTER_DIR}")
+        try:
+            # Windows 경로 문제 해결을 위해 절대 경로 사용
+            adapter_path = os.path.abspath(ADAPTER_DIR)
+            # Hugging Face가 로컬 경로를 인식하도록 처리
+            m = PeftModel.from_pretrained(base, adapter_path, is_trainable=False, local_files_only=True)
+            logger.info("✅ 어댑터 로딩 성공")
+        except Exception as e:
+            logger.error(f"❌ 어댑터 로딩 실패: {e}")
+            logger.warning("⚠️ 베이스 모델로 계속 진행")
+            m = base
     else:
         logger.warning("⚠️ 어댑터 경로 없음 → 베이스 모델로 동작")
-        m = base
 
     m.eval()
     m = m.to(safe_dtype).to(device)
