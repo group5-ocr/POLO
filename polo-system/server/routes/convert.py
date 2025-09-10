@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from services.llm_client import easy_llm
+from services.file_manager import file_manager
+from services.environment import env_manager
 
 router = APIRouter(tags=["easy-convert"])
 logger = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ async def convert_pdf(
     두 모드 지원:
     1) 업로드 즉시 변환: file 업로드만 제공
     2) 업로드 후 나중에 변환: doc_id만 제공 (data/raw의 PDF를 찾아서 변환)
+    환경에 따라 DB 또는 로컬 파일 시스템 사용.
     """
     # 모델 상태 선확인
     if not easy_llm.health_check():
@@ -79,7 +82,7 @@ async def convert_pdf(
     # ---- 모드 결정 ----
     content: Optional[bytes] = None
     original_filename = None
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    raw_file_path = None
 
     if file and file.filename:
         if not file.filename.lower().endswith(".pdf"):
@@ -89,20 +92,9 @@ async def convert_pdf(
         if size_mb > UPLOAD_MAX_MB:
             raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(>{UPLOAD_MAX_MB}MB).")
         original_filename = file.filename
-        safe_base = _sanitize_filename(original_filename)
-        raw_pdf_name = f"{timestamp}_{safe_base}.pdf"
-        raw_file_path = RAW_DIR / raw_pdf_name
-        # 원본 저장
-        try:
-            with open(raw_file_path, "wb") as f:
-                f.write(content)
-            logger.info(f"[convert:file] 원본 PDF 저장: {raw_file_path}")
-        except Exception as e:
-            logger.error(f"원본 저장 실패: {e}")
-            raise HTTPException(status_code=500, detail="원본 파일 저장에 실패했습니다.")
     elif doc_id:
         # 이전 업로드 파일 사용
-        raw_file_path = RAW_DIR / doc_id
+        raw_file_path = file_manager.raw_dir / doc_id
         if not raw_file_path.exists():
             raise HTTPException(status_code=404, detail="doc_id에 해당하는 원본 PDF가 존재하지 않습니다.")
         original_filename = doc_id
@@ -110,7 +102,6 @@ async def convert_pdf(
         raise HTTPException(status_code=400, detail="file 또는 doc_id 중 하나는 반드시 제공해야 합니다.")
 
     # ---- 텍스트 추출 ----
-    # 파일 모드에선 content에서 임시파일. doc_id 모드에선 raw_file_path 직접 사용.
     if content is not None:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(content)
@@ -139,28 +130,43 @@ async def convert_pdf(
         "processed_at": datetime.now().isoformat(),
         "file_size": len(content) if content is not None else None,
         "extracted_text_length": len(extracted),
-        "doc_id": raw_file_path.name if 'raw_file_path' in locals() else None,
     })
 
     minimized = _minimize_easy_json(easy_json)
-    safe_base_for_json = _sanitize_filename(original_filename or "document")
-    json_file_path = OUTPUTS_DIR / f"{timestamp}_{safe_base_for_json}.json"
+
+    # 통합 파일 관리자 사용
     try:
-        with open(json_file_path, "w", encoding="utf-8") as f:
-            json.dump(minimized, f, ensure_ascii=False, indent=2)
-        logger.info(f"변환된 JSON 저장: {json_file_path}")
+        # 파일 업로드 모드인 경우 원본 파일도 저장
+        if content is not None:
+            origin_result = file_manager.save_origin_file(
+                filename=original_filename,
+                content=content,
+                user_id=None  # TODO: 사용자 인증 연동 시 user_id 전달
+            )
+            raw_file_path = Path(origin_result["file_path"])
+        
+        # Easy 변환 결과 저장
+        easy_result = file_manager.save_easy_file(
+            origin_filename=original_filename,
+            easy_json=minimized,
+            user_id=None  # TODO: 사용자 인증 연동 시 user_id 전달
+        )
+        
+        logger.info(f"변환 완료 - Easy: {easy_result['filename']}")
+        
     except Exception as e:
-        logger.error(f"JSON 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail="결과 파일 저장에 실패했습니다.")
+        logger.error(f"파일 저장 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"파일 저장에 실패했습니다: {e}")
 
     return {
         "status": "success",
-        "doc_id": (raw_file_path.name if 'raw_file_path' in locals() else None),
-        "raw_file_path": (str(raw_file_path) if 'raw_file_path' in locals() else None),
-        "json_file_path": str(json_file_path),
+        "doc_id": raw_file_path.name if raw_file_path else None,
+        "raw_file_path": str(raw_file_path) if raw_file_path else None,
+        "json_file_path": easy_result["file_path"],
         "extracted_text_length": len(extracted),
         "extracted_text_preview": (extracted[:500] + "...") if len(extracted) > 500 else extracted,
         "easy_json": minimized,
+        "storage_info": env_manager.get_storage_info(),
     }
 
 

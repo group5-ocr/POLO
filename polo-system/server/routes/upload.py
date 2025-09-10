@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from services.llm_client import easy_llm
+from services.file_manager import file_manager
+from services.environment import env_manager
 
 router = APIRouter(tags=["easy-upload"])
 logger = logging.getLogger(__name__)
@@ -73,6 +75,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     """
     PDF 업로드 → data/raw에 저장 → 바로 모델 변환까지 수행 후 data/outputs에 JSON 저장.
     프론트에서 '업로드 즉시 변환'을 원할 때 사용.
+    환경에 따라 DB 또는 로컬 파일 시스템 사용.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
@@ -86,20 +89,6 @@ async def upload_pdf(file: UploadFile = File(...)):
     size_mb = len(content) / (1024 * 1024)
     if size_mb > UPLOAD_MAX_MB:
         raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(>{UPLOAD_MAX_MB}MB).")
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_base = _sanitize_filename(file.filename)
-    raw_pdf_name = f"{timestamp}_{safe_base}.pdf"
-    raw_file_path = RAW_DIR / raw_pdf_name
-
-    # 원본 저장
-    try:
-        with open(raw_file_path, "wb") as f:
-            f.write(content)
-        logger.info(f"원본 PDF 저장: {raw_file_path}")
-    except Exception as e:
-        logger.error(f"원본 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail="원본 파일 저장에 실패했습니다.")
 
     # 텍스트 추출(임시파일로)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -128,40 +117,75 @@ async def upload_pdf(file: UploadFile = File(...)):
         "processed_at": datetime.now().isoformat(),
         "file_size": len(content),
         "extracted_text_length": len(extracted),
-        "doc_id": raw_pdf_name,  # 업로드 식별자
     })
 
     # 경량 저장
     minimized = _minimize_easy_json(easy_json)
-    json_file_path = OUTPUTS_DIR / f"{timestamp}_{safe_base}.json"
+
+    # 통합 파일 관리자 사용
     try:
-        with open(json_file_path, "w", encoding="utf-8") as f:
-            json.dump(minimized, f, ensure_ascii=False, indent=2)
-        logger.info(f"변환된 JSON 저장: {json_file_path}")
+        # 원본 파일 저장
+        origin_result = file_manager.save_origin_file(
+            filename=file.filename,
+            content=content,
+            user_id=None  # TODO: 사용자 인증 연동 시 user_id 전달
+        )
+        
+        # Easy 변환 결과 저장
+        easy_result = file_manager.save_easy_file(
+            origin_filename=file.filename,
+            easy_json=minimized,
+            user_id=None  # TODO: 사용자 인증 연동 시 user_id 전달
+        )
+        
+        logger.info(f"파일 저장 완료 - 원본: {origin_result['filename']}, Easy: {easy_result['filename']}")
+        
     except Exception as e:
-        logger.error(f"JSON 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail="결과 파일 저장에 실패했습니다.")
+        logger.error(f"파일 저장 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"파일 저장에 실패했습니다: {e}")
 
     return {
         "status": "success",
-        "doc_id": raw_pdf_name,
+        "doc_id": origin_result["filename"],
         "filename": file.filename,
-        "raw_file_path": str(raw_file_path),
-        "json_file_path": str(json_file_path),
+        "raw_file_path": origin_result["file_path"],
+        "json_file_path": easy_result["file_path"],
         "file_size": len(content),
         "extracted_text_length": len(extracted),
         "extracted_text_preview": (extracted[:500] + "...") if len(extracted) > 500 else extracted,
         "easy_json": minimized,
+        "storage_info": env_manager.get_storage_info(),
     }
 
 
 @router.get("/upload-status")
 async def get_upload_status():
     """업로드/결과 파일 개요"""
-    return {
-        "raw_files_count": len(list(RAW_DIR.glob("*.pdf"))),
-        "output_files_count": len(list(OUTPUTS_DIR.glob("*.json"))),
-        "raw_dir": str(RAW_DIR),
-        "outputs_dir": str(OUTPUTS_DIR),
-        "status": "ok",
-    }
+    # 통합 파일 관리자 사용
+    try:
+        files = file_manager.get_file_list("all")
+        origin_files = [f for f in files if f["file_type"] == "origin"]
+        easy_files = [f for f in files if f["file_type"] == "easy"]
+        math_files = [f for f in files if f["file_type"] == "math"]
+        
+        return {
+            "raw_files_count": len(origin_files),
+            "output_files_count": len(easy_files),
+            "math_files_count": len(math_files),
+            "raw_dir": str(file_manager.raw_dir),
+            "outputs_dir": str(file_manager.outputs_dir),
+            "storage_info": env_manager.get_storage_info(),
+            "status": "ok",
+        }
+    except Exception as e:
+        logger.error(f"파일 상태 조회 실패: {e}")
+        return {
+            "raw_files_count": 0,
+            "output_files_count": 0,
+            "math_files_count": 0,
+            "raw_dir": str(file_manager.raw_dir),
+            "outputs_dir": str(file_manager.outputs_dir),
+            "storage_info": env_manager.get_storage_info(),
+            "status": "error",
+            "error": str(e)
+        }

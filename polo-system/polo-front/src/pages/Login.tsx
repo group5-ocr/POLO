@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Login() {
   const [formData, setFormData] = useState({
@@ -7,18 +8,28 @@ export default function Login() {
     password: "",
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    // 실제 로그인 로직은 여기에 구현
-    setTimeout(() => {
+    try {
+      const success = await login(formData.username, formData.password);
+
+      if (success) {
+        navigate("/");
+      } else {
+        setError("이메일 또는 비밀번호가 올바르지 않습니다.");
+      }
+    } catch (error) {
+      console.error("로그인 오류:", error);
+      setError("로그인 중 오류가 발생했습니다.");
+    } finally {
       setIsLoading(false);
-      // 로그인 성공 시 메인 페이지로 이동
-      navigate("/");
-    }, 1000);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -26,6 +37,10 @@ export default function Login() {
       ...formData,
       [e.target.name]: e.target.value,
     });
+    // 에러 메시지 초기화
+    if (error) {
+      setError(null);
+    }
   };
 
   return (
@@ -60,14 +75,14 @@ export default function Login() {
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="username">아이디</label>
+            <label htmlFor="username">이메일</label>
             <input
-              type="text"
+              type="email"
               id="username"
               name="username"
               value={formData.username}
               onChange={handleChange}
-              placeholder="아이디를 입력하세요"
+              placeholder="이메일을 입력하세요"
               required
             />
           </div>
@@ -84,6 +99,8 @@ export default function Login() {
               required
             />
           </div>
+
+          {error && <div className="error-message">{error}</div>}
 
           <button
             type="submit"

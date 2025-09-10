@@ -5,7 +5,7 @@ export default function Signup() {
   const [formData, setFormData] = useState({
     name: "",
     job: "",
-    phone: "",
+    email: "",
     username: "",
     password: "",
     confirmPassword: "",
@@ -26,12 +26,55 @@ export default function Signup() {
       return;
     }
 
-    // 실제 회원가입 로직은 여기에 구현
-    setTimeout(() => {
+    try {
+      // 백엔드 API로 회원가입 요청
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/db/users`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            username: formData.username,
+            email: formData.email,
+            password: formData.password,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        alert("회원가입이 완료되었습니다!");
+        navigate("/login");
+      } else {
+        const errorData = await response.json();
+        console.error("회원가입 오류 상세:", errorData);
+
+        // 오류 메시지를 더 명확하게 표시
+        let errorMessage = "알 수 없는 오류";
+        if (errorData.detail) {
+          if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail
+              .map((err) =>
+                typeof err === "string" ? err : err.msg || JSON.stringify(err)
+              )
+              .join(", ");
+          } else if (typeof errorData.detail === "string") {
+            errorMessage = errorData.detail;
+          } else {
+            errorMessage = JSON.stringify(errorData.detail);
+          }
+        }
+
+        alert(`회원가입 실패: ${errorMessage}`);
+      }
+    } catch (error) {
+      console.error("회원가입 오류:", error);
+      alert("회원가입 중 오류가 발생했습니다.");
+    } finally {
       setIsLoading(false);
-      // 회원가입 성공 시 로그인 페이지로 이동
-      navigate("/login");
-    }, 1000);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,15 +149,14 @@ export default function Signup() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="phone">휴대폰 번호</label>
+            <label htmlFor="email">이메일</label>
             <input
-              type="tel"
-              id="phone"
-              name="phone"
-              value={formData.phone}
+              type="email"
+              id="email"
+              name="email"
+              value={formData.email}
               onChange={handleChange}
-              placeholder="010-1234-5678"
-              pattern="^\\d{3}-?\\d{3,4}-?\\d{4}$"
+              placeholder="example@email.com"
               required
             />
           </div>

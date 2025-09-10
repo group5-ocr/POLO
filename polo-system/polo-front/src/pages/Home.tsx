@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import DatabaseStatus from "../components/DatabaseStatus";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -167,6 +168,14 @@ export default function Home() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* 데이터베이스 상태 섹션 */}
+      <section className="database-status-section">
+        <div className="container">
+          <h2 className="section-title">시스템 상태</h2>
+          <DatabaseStatus />
         </div>
       </section>
     </>

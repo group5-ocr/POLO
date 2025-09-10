@@ -37,6 +37,7 @@ services:
     volumes:
       - ./models/fine-tuning:/app
       - ./models/fine-tuning/outputs:/app/outputs
+    # 데이터베이스는 외부 서버 사용
 
   # 파인튜닝된 모델을 서빙하는 서비스 (선택사항)
   easy-llm:
@@ -50,4 +51,6 @@ services:
       - ./models/fine-tuning/outputs:/app/outputs
     command: python /app/app.py
     depends_on:
-      - easy-train
+      easy-train:
+        condition: service_started
+    # 데이터베이스는 외부 서버 사용
