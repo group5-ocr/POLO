@@ -145,9 +145,9 @@ def build_concept_specs(text: str, spec: list, mentions: dict, numeric_cids: set
             inputs["anchor_rel_cell"] = [float(m.group(1)), float(m.group(2))]
 
         spec.append({
-            "id": "cell_scale_demo",
-            "type": "cell_scale_demo",
-            "labels": _label("Cell→Pixel scale", "셀 내부(0~1) → 픽셀 스케일"),
+            "id": "cell_scale",
+            "type": "cell_scale",
+            "labels": _label("Cell→Pixel scale", "셀 내부 → 픽셀 스케일"),
             "inputs": inputs
         })
 

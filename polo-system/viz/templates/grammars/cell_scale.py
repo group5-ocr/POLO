@@ -106,7 +106,7 @@ def render_cell_scale(inputs, out_path):
     plt.close(fig)
 
 register(Grammar(
-    "cell_scale_demo",
+    "cell_scale",
     [],  # required
     ["img_wh", "grids", "cell_xy", "norm_center", "norm_wh_cell",
      "anchor_rel_cell", "example_badge", "title"],
