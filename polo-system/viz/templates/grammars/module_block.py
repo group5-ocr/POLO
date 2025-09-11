@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 수직 스택 블록(모듈 구성) 문법
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle

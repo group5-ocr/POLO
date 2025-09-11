@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 혼동행렬(Confusion Matrix) 히트맵. 각 셀에 값 주석 표시.
 import numpy as np
 import matplotlib.pyplot as plt
