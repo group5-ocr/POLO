@@ -37,7 +37,7 @@ _DEFAULT_ADAPTER_DIR = os.path.abspath(
 )
 ADAPTER_DIR = os.getenv("EASY_ADAPTER_DIR", _DEFAULT_ADAPTER_DIR)
 
-MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "600"))  # 속도/안정성 기본 600
+MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "4000"))  # 가중치 4000으로 설정
 
 # -------------------- FastAPI --------------------
 app = FastAPI(title="POLO Easy Model", version="1.2.0")
@@ -256,7 +256,7 @@ async def simplify_text(request: TextRequest):
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=4000,          # ✅ 가중치 4000으로 설정
             do_sample=False,              # ✅ 그리디(추측 억제)
             use_cache=True,
             pad_token_id=tokenizer.eos_token_id,
