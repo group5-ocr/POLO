@@ -1,115 +1,70 @@
-# server/services/llm_client.py
 import os
-import requests
+import httpx
+import json
+import asyncio
 import logging
-import time
-from typing import Optional, Dict, Any
+from pathlib import Path
+from typing import Optional
 
-logger = logging.getLogger(__name__)
+EASY_MODEL_URL = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
+CALLBACK_URL = os.getenv("CALLBACK_URL", "http://localhost:8000/generate/easy-callback")
+TIMEOUT = int(os.getenv("EASY_TIMEOUT", "180"))
 
-def _env(name: str, default: str) -> str:
-    return os.getenv(name, default)
+logger = logging.getLogger("easy_client")
+logger.setLevel(logging.INFO)
 
-class EasyLLMClient:
-    """파인튜닝된 Easy LLM 서비스 클라이언트"""
 
-    def __init__(
-        self,
-        base_url: str = None,
-        generate_path: str = None,
-        default_timeout: int = None,
-        max_retries: int = None,
-    ):
-        self.base_url = base_url or _env("EASY_LLM_BASE_URL", "http://localhost:5003")
-        # 모델 서버가 /generate가 아닌 /easy/generate인 경우 환경변수로 바꿔줄 수 있음
-        self.generate_path = generate_path or _env("EASY_LLM_GENERATE_PATH", "/generate")
-        self.session = requests.Session()
-        self.default_timeout = int(default_timeout or _env("EASY_LLM_TIMEOUT", "900"))
-        self.max_retries = int(max_retries or _env("EASY_LLM_MAX_RETRIES", "2"))
-
-    def health_check(self) -> bool:
-        """모델 서비스 상태 확인: /health -> /healthz -> / 순서로 시도"""
-        for path in ("/health", "/healthz", "/"):
-            try:
-                r = self.session.get(f"{self.base_url}{path}", timeout=5)
-                if r.ok:
-                    # 일부 서버는 단순 텍스트를 반환하므로 상태코드로만 판단
-                    return True
-            except Exception as e:
-                logger.debug(f"health check {path} failed: {e}")
-        logger.error(f"Easy LLM 서비스 연결 실패(base_url={self.base_url})")
-        return False
-
-    def _post_json(self, path: str, payload: Dict[str, Any], timeout: int):
-        url = f"{self.base_url}{path}"
-        r = self.session.post(url, json=payload, timeout=timeout, headers={"Content-Type": "application/json"})
-        return r
-
-    def generate(
-        self,
-        text: str,
-        max_length: int = 512,
-        temperature: float = 0.7,
-        top_p: float = 0.95,
-    ) -> Optional[dict]:
-        """
-        논문 텍스트를 모델 서비스로 보내 easy_json을 받는다.
-        - 반환이 문자열(JSON str)이어도 처리
-        - 4xx/5xx 재시도(최대 max_retries)
-        """
-        payload = {
-            "text": text,
-            "max_length": max_length,
-            "temperature": temperature,
-            "top_p": top_p,
-        }
-        last_error: Optional[Exception] = None
-
-        for attempt in range(1, self.max_retries + 2):  # 1회+재시도
-            try:
-                resp = self._post_json(self.generate_path, payload, self.default_timeout)
-                if resp.status_code == 200:
-                    # JSON 파싱 보강
-                    try:
-                        return resp.json()
-                    except Exception as je:
-                        # 서버가 text/plain JSON 문자열을 보낼 수 있음
-                        txt = resp.text.strip()
-                        try:
-                            import json as _json
-                            return _json.loads(txt)
-                        except Exception as j2:
-                            last_error = RuntimeError(f"JSON 파싱 실패: {je}; text[:200]={txt[:200]}")
-                            logger.error(str(last_error))
-                else:
-                    # 4xx/5xx
-                    preview = resp.text[:200].replace("\n", " ")
-                    logger.error(f"[{attempt}/{self.max_retries+1}] 모델 응답 오류: {resp.status_code} - {preview}")
-                    last_error = RuntimeError(f"HTTP {resp.status_code}")
-            except Exception as e:
-                last_error = e
-                logger.error(f"[{attempt}/{self.max_retries+1}] 요청 실패: {e}")
-
-            if attempt <= self.max_retries:
-                time.sleep(min(5 * attempt, 15))
-
-        logger.error(f"텍스트 생성 최종 실패: {last_error}")
+async def _send_easy_request(text: str) -> Optional[str]:
+    """
+    Easy 모델의 /simplify API 호출.
+    """
+    url = f"{EASY_MODEL_URL}/simplify"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.post(url, json={"text": text})
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("simplified_text", "")
+    except Exception as e:
+        logger.error(f"❌ Easy 모델 호출 실패: {e}")
         return None
 
-    def get_model_info(self) -> Optional[dict]:
-        """모델 정보 조회: / -> /health -> /healthz 순으로 시도"""
-        for path in ("/", "/health", "/healthz"):
-            try:
-                r = self.session.get(f"{self.base_url}{path}", timeout=5)
-                if r.ok:
-                    try:
-                        return r.json()
-                    except Exception:
-                        return {"text": r.text}
-            except Exception as e:
-                logger.debug(f"model info {path} failed: {e}")
-        logger.error("모델 정보 조회 실패")
-        return None
 
-# 전역 인스턴스
-easy_llm = EasyLLMClient()
+async def ingest_jsonl(paper_id: str, jsonl_path: str):
+    """
+    JSONL 파일을 읽어서 Easy 모델에 병렬 요청하고,
+    각 결과를 오케스트레이터 콜백(/generate/easy-callback)으로 전송.
+    """
+    path = Path(jsonl_path)
+    if not path.exists():
+        logger.error(f"❌ JSONL 파일 없음: {path}")
+        return
+
+    # 1) JSONL 로드
+    with path.open("r", encoding="utf-8") as f:
+        lines = [json.loads(line) for line in f]
+
+    async def process_chunk(index: int, chunk: dict):
+        rewritten = await _send_easy_request(chunk["text"])
+        if rewritten is None:
+            rewritten = ""  # 실패 시 빈 문자열
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            try:
+                await client.post(
+                    CALLBACK_URL,
+                    json={
+                        "paper_id": str(paper_id),
+                        "index": index,
+                        "rewritten_text": rewritten
+                    },
+                )
+                logger.info(f"✅ Easy 콜백 전송 완료: paper_id={paper_id}, index={index}")
+            except Exception as e:
+                logger.error(f"❌ Easy 콜백 전송 실패: {e}")
+
+    # 2) 병렬 처리 (동시성 최적화)
+    tasks = [process_chunk(i, chunk) for i, chunk in enumerate(lines)]
+    await asyncio.gather(*tasks)
+
+    logger.info(f"🎉 Easy 모델 작업 완료: paper_id={paper_id}, chunks={len(lines)}")

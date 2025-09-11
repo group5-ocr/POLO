@@ -2,13 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+from sqlalchemy import text
 
 # 환경 변수 로드
 load_dotenv()
 
 # 모듈 alias로 불러 충돌 방지
-from routes import convert, upload, results, generate as easy_generate, database, files
-from services.db import db_manager
+from routes import upload, results, generate as easy_generate
+from services.database.db import DB
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -16,11 +17,9 @@ async def lifespan(app: FastAPI):
     # 시작 시
     print("🚀 POLO 서버 시작 중...")
     
-    # 데이터베이스 연결 테스트
-    if db_manager.test_connection():
-        print("✅ 데이터베이스 연결 성공")
-    else:
-        print("❌ 데이터베이스 연결 실패")
+    # 데이터베이스 초기화 및 연결 테스트
+    await DB.init()
+    print(f"✅ 데이터베이스 연결 성공 (모드: {DB.mode})")
     
     yield
     
@@ -41,25 +40,28 @@ app.add_middleware(
 
 # ✅ easy 전용 prefix
 app.include_router(upload.router,        prefix="/easy")
-app.include_router(convert.router,       prefix="/easy")
 app.include_router(results.router,       prefix="/easy")
-app.include_router(easy_generate.router, prefix="/easy")
-    
-# ✅ 데이터베이스 관련 라우트
-app.include_router(database.router,      prefix="/db")
-    
-# ✅ 파일 관리 라우트
-app.include_router(files.router,         prefix="/api")
+app.include_router(easy_generate.router, prefix="/generate")
 
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
     
-@app.get("/db/health")
-def db_health():
-    """데이터베이스 연결 상태 확인"""
-    is_connected = db_manager.test_connection()
-    return {
-        "status": "ok" if is_connected else "error",
-        "database": "connected" if is_connected else "disconnected"
-    }
+    @app.get("/db/health")
+    async def db_health():
+        """데이터베이스 연결 상태 확인"""
+        try:
+            # 간단한 쿼리로 연결 테스트
+            async with DB.session() as session:
+                await session.execute(text("SELECT 1"))
+            return {
+                "status": "ok",
+                "database": "connected",
+                "mode": DB.mode
+            }
+        except Exception as e:
+            return {
+                "status": "error", 
+                "database": "disconnected",
+                "error": str(e)
+            }

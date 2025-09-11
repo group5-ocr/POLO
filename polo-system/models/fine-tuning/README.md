@@ -11,6 +11,9 @@ docker compose build --no-cache easy-train
 3. qlora.py, train.jsonl, 파라미터 수정 시에
 docker compose up easy-train
 
+4. 학습 과정 그래프 보기
+http://localhost:6006/?darkMode=true#timeseries
+
 ------
 
 ### 이미지 및 컨테이너 관리 (powershell)
