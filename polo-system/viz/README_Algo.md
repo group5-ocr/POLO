@@ -9,6 +9,8 @@
 - `grammars/` — 도형 문법 모듈
 - `charts/` — 샘플 출력 이미지가 생성되는 폴더
 - `switch.py` — 시각화 라벨 한/영 병기 스위치 유틸
+- `generic_rules.py` — 개념/예시 도식 빌더 문법 모듈과 연결
+- `patch_glossary.py` — 용어 사전 보강 패처(패치 끝나면 지워도 됨)
 
 ## 평가지표
 
@@ -23,5 +25,5 @@
 ## 실행
 
 ```bash
-python render.py
+python app.py
 ```

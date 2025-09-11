@@ -175,7 +175,7 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
 if __name__ == "__main__":
     # 논문 텍스트 → 스펙 자동 생성 → 렌더
     from pathlib import Path
-    from text_to_spec import auto_build_spec_from_text, ensure_minimum_charts
+    from text_to_spec import auto_build_spec_from_text
 
     _ensure_grammars_loaded()  # 그래머 로드 보장
 
@@ -186,7 +186,6 @@ if __name__ == "__main__":
 
     text = text_path.read_text(encoding="utf-8")
     spec = auto_build_spec_from_text(text)       # glossary_hybrid.json 자동 탐색
-    spec = ensure_minimum_charts(spec)
 
     outdir = root / "charts"
     outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing")
