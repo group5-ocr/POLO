@@ -26,26 +26,26 @@ async def lifespan(app: FastAPI):
     # 종료 시
     print("🛑 POLO 서버 종료 중...")
 
-def create_app() -> FastAPI:
-    app = FastAPI(
-        title="POLO Easy Inference API", 
-        version="0.1.0",
-        lifespan=lifespan
-    )
+# FastAPI 앱 생성
+app = FastAPI(
+    title="POLO Easy Inference API", 
+    version="0.1.0",
+    lifespan=lifespan
+)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+)
 
-    # ✅ easy 전용 prefix
-    app.include_router(upload.router,        prefix="/easy")
-    app.include_router(results.router,       prefix="/easy")
-    app.include_router(easy_generate.router, prefix="/generate")
+# ✅ easy 전용 prefix
+app.include_router(upload.router,        prefix="/easy")
+app.include_router(results.router,       prefix="/easy")
+app.include_router(easy_generate.router, prefix="/generate")
 
-    @app.get("/healthz")
-    def healthz():
-        return {"status": "ok"}
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
     
     @app.get("/db/health")
     async def db_health():
