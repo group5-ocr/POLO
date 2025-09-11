@@ -37,7 +37,7 @@ _DEFAULT_ADAPTER_DIR = os.path.abspath(
 )
 ADAPTER_DIR = os.getenv("EASY_ADAPTER_DIR", _DEFAULT_ADAPTER_DIR)
 
-MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "600"))  # 속도/안정성 기본 600
+MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "4000"))  # 가중치 4000으로 설정
 
 # -------------------- FastAPI --------------------
 app = FastAPI(title="POLO Easy Model", version="1.2.0")
@@ -186,13 +186,23 @@ def load_model():
             device_map=None,
         )
 
-    # LoRA 어댑터
+    # LoRA 어댑터 (실패해도 베이스 모델로 계속 진행)
+    m = base  # 기본값은 베이스 모델
+    
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
-        logger.info(f"🔄 어댑터 로딩: {ADAPTER_DIR}")
-        m = PeftModel.from_pretrained(base, ADAPTER_DIR, is_trainable=False)
+        logger.info(f"🔄 어댑터 로딩 시도: {ADAPTER_DIR}")
+        try:
+            # Windows 경로 문제 해결을 위해 절대 경로 사용
+            adapter_path = os.path.abspath(ADAPTER_DIR)
+            # Hugging Face가 로컬 경로를 인식하도록 처리
+            m = PeftModel.from_pretrained(base, adapter_path, is_trainable=False, local_files_only=True)
+            logger.info("✅ 어댑터 로딩 성공")
+        except Exception as e:
+            logger.error(f"❌ 어댑터 로딩 실패: {e}")
+            logger.warning("⚠️ 베이스 모델로 계속 진행")
+            m = base
     else:
         logger.warning("⚠️ 어댑터 경로 없음 → 베이스 모델로 동작")
-        m = base
 
     m.eval()
     m = m.to(safe_dtype).to(device)
@@ -246,7 +256,7 @@ async def simplify_text(request: TextRequest):
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=4000,          # ✅ 가중치 4000으로 설정
             do_sample=False,              # ✅ 그리디(추측 억제)
             use_cache=True,
             pad_token_id=tokenizer.eos_token_id,

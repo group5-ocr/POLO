@@ -192,6 +192,36 @@ async def download_raw_pdf(doc_id: str):
         raise HTTPException(status_code=404, detail="원본 PDF를 찾을 수 없습니다.")
     return FileResponse(str(pf), media_type="application/pdf", filename=safe)
 
+@router.get("/download/easy/{doc_id}")
+async def download_easy_pdf(doc_id: str):
+    """변환된 논문 PDF 다운로드(doc_id는 RAW 파일명)"""
+    safe = _sanitize_filename(doc_id)
+    if not safe.endswith(".pdf"):
+        safe = f"{safe}.pdf"
+    
+    # 변환된 논문 PDF 파일명 생성 (예: 20250101_123456_myfile_easy.pdf)
+    easy_filename = safe.replace(".pdf", "_easy.pdf")
+    easy_file = OUTPUTS_DIR / easy_filename
+    
+    if not easy_file.exists():
+        raise HTTPException(status_code=404, detail="변환된 논문 PDF를 찾을 수 없습니다.")
+    return FileResponse(str(easy_file), media_type="application/pdf", filename=easy_filename)
+
+@router.get("/download/math/{doc_id}")
+async def download_math_pdf(doc_id: str):
+    """수식 설명 PDF 다운로드(doc_id는 RAW 파일명)"""
+    safe = _sanitize_filename(doc_id)
+    if not safe.endswith(".pdf"):
+        safe = f"{safe}.pdf"
+    
+    # 수식 설명 PDF 파일명 생성 (예: 20250101_123456_myfile_math.pdf)
+    math_filename = safe.replace(".pdf", "_math.pdf")
+    math_file = OUTPUTS_DIR / math_filename
+    
+    if not math_file.exists():
+        raise HTTPException(status_code=404, detail="수식 설명 PDF를 찾을 수 없습니다.")
+    return FileResponse(str(math_file), media_type="application/pdf", filename=math_filename)
+
 @router.get("/results/recent")
 async def get_recent_results(limit: int = Query(5, ge=1, le=50)):
     """최근 처리 결과 상위 N개"""

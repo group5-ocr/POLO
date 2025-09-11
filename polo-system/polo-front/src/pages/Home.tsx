@@ -1,169 +1,107 @@
-import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import DatabaseStatus from "../components/DatabaseStatus";
 
 export default function Home() {
-  const heroStageRef = useRef<HTMLDivElement | null>(null)
-  const scannerCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const graphCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const overlayRef = useRef<HTMLDivElement | null>(null)
+  const navigate = useNavigate();
+  const graphCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
-  // 히어로 스캐너(바운딩 박스)
+  // 애니메이션된 사인함수 그래프 그리기
   useEffect(() => {
-    const canvas = scannerCanvasRef.current
-    const stage = heroStageRef.current
-    if (!canvas || !stage) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    const canvas = graphCanvasRef.current;
+    if (!canvas) return;
 
-    const scanner = { x: 80, y: 60, w: 220, h: 150, vx: 2.8, vy: 2.2, margin: 16 }
-    const resize = () => {
-      const { clientWidth: w, clientHeight: h } = stage
-      canvas.width = w
-      canvas.height = h
-      scanner.w = Math.min(300, w * 0.28)
-      scanner.h = Math.min(210, h * 0.35)
-      scanner.x = Math.min(Math.max(scanner.margin, scanner.x), w - scanner.w - scanner.margin)
-      scanner.y = Math.min(Math.max(scanner.margin, scanner.y), h - scanner.h - scanner.margin)
-    }
-    resize()
-    const ro = new ResizeObserver(resize)
-    ro.observe(stage)
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    let t = 0
-    let raf = 0
-    const draw = () => {
-      const w = canvas.width
-      const h = canvas.height
-      const ctx2 = ctx
-      ctx2.clearRect(0, 0, w, h)
-      scanner.x += scanner.vx
-      scanner.y += scanner.vy
-      if (scanner.x <= scanner.margin || scanner.x + scanner.w >= w - scanner.margin) scanner.vx *= -1
-      if (scanner.y <= scanner.margin || scanner.y + scanner.h >= h - scanner.margin) scanner.vy *= -1
-      const pulse = (Math.sin(t * 0.06) + 1) / 2
-      ctx2.lineWidth = 3
-      ctx2.setLineDash([10, 10])
-      ctx2.strokeStyle = `rgba(34,197,94,${0.55 + pulse * 0.35})`
-      ctx2.strokeRect(scanner.x, scanner.y, scanner.w, scanner.h)
-      ctx2.setLineDash([])
-      const len = 22
-      ctx2.lineWidth = 4
-      ctx2.strokeStyle = '#22c55e'
-      line(ctx2, scanner.x, scanner.y, scanner.x + len, scanner.y)
-      line(ctx2, scanner.x, scanner.y, scanner.x, scanner.y + len)
-      line(ctx2, scanner.x + scanner.w, scanner.y, scanner.x + scanner.w - len, scanner.y)
-      line(ctx2, scanner.x + scanner.w, scanner.y, scanner.x + scanner.w, scanner.y + len)
-      line(ctx2, scanner.x, scanner.y + scanner.h, scanner.x + len, scanner.y + scanner.h)
-      line(ctx2, scanner.x, scanner.y + scanner.h, scanner.x, scanner.y + scanner.h - len)
-      line(ctx2, scanner.x + scanner.w, scanner.y + scanner.h, scanner.x + scanner.w - len, scanner.y + scanner.h)
-      line(ctx2, scanner.x + scanner.w, scanner.y + scanner.h, scanner.x + scanner.w, scanner.y + scanner.h - len)
-      t += 1
-      raf = requestAnimationFrame(draw)
-    }
-    raf = requestAnimationFrame(draw)
-    return () => { cancelAnimationFrame(raf); ro.disconnect() }
-  }, [])
+    let animationId: number;
+    let time = 0;
 
-  // 그래프(동적 라인 + 토스트)
-  useEffect(() => {
-    const canvas = graphCanvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const overlay = overlayRef.current
-    const sampleTitles = [
-      'Contrastive Vision-Language Pretraining for...' ,
-      'Retrieval-Augmented Generation in Practice',
-      'Efficient QLoRA Fine-tuning for 7B Models',
-      'Visualizing Transformers: Attention Graphs',
-      'Mathematical Reasoning with LLMs',
-      'Graph-based Vector Indexing 2024',
-    ]
-    const resize = () => {
-      canvas.width = canvas.clientWidth
-      canvas.height = 360
-    }
-    resize()
-    const onResize = () => resize()
-    window.addEventListener('resize', onResize)
+    const resizeCanvas = () => {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    };
 
-    let t = 0
-    let lastTextTime = 0
-    let raf = 0
-    const draw = () => {
-      const w = canvas.width
-      const h = canvas.height
-      ctx.clearRect(0, 0, w, h)
-      ctx.strokeStyle = '#2563eb'
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      for (let x = 0; x < w; x++) {
-        const y = h / 2 + Math.sin((x + t) * 0.02) * 46 + Math.cos((x + t) * 0.01) * 26
-        if (x === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
+    const animate = () => {
+      time += 0.08;
+      drawAnimatedGraph(ctx, canvas.width, canvas.height, time);
+      animationId = requestAnimationFrame(animate);
+    };
+
+    resizeCanvas();
+    animate();
+    window.addEventListener("resize", resizeCanvas);
+
+    return () => {
+      window.removeEventListener("resize", resizeCanvas);
+      if (animationId) {
+        cancelAnimationFrame(animationId);
       }
-      ctx.stroke()
-      t += 2
-
-      const now = performance.now()
-      if (overlay && now - lastTextTime > 1200) {
-        lastTextTime = now
-        const burstCount = 2 + Math.floor(Math.random() * 3)
-        for (let i = 0; i < burstCount; i++) {
-          const el = document.createElement('div')
-          el.className = 'graph-toast color-' + ((Math.floor(Math.random() * 6) % 6) + 1)
-          el.textContent = `${rndDate()} · ${sampleTitles[Math.floor(Math.random() * sampleTitles.length)]}`
-          overlay.appendChild(el)
-          el.style.left = Math.floor(Math.random() * 80 + 10) + '%'
-          el.style.top = Math.floor(Math.random() * 60 + 20) + '%'
-          setTimeout(() => {
-            el.classList.add('hide')
-            setTimeout(() => el.remove(), 600)
-          }, 1600 + Math.random() * 500)
-        }
-        const items = overlay.querySelectorAll('.graph-toast')
-        if (items.length > 6) {
-          for (let i = 0; i < items.length - 6; i++) {
-            items[i].classList.add('hide')
-            setTimeout(() => items[i].remove(), 400)
-          }
-        }
-      }
-
-      raf = requestAnimationFrame(draw)
-    }
-    raf = requestAnimationFrame(draw)
-
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize) }
-  }, [])
-
-  const navigate = useNavigate()
+    };
+  }, []);
 
   return (
     <>
+      {/* 히어로 섹션 */}
       <section className="hero">
-        <div className="hero-inner">
-          <div className="slogan">
-            <div className="slogan-logo">
-              <img src="/img/logo.png" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} alt="logo" />
-            </div>
-            <p className="tagline strong">논문을 시각적·쉬운 언어로 바꿔주는 AI</p>
+        <div className="hero-content">
+          <div className="hero-logo">
+            <img
+              src="/img/head_logo.png"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+              alt="POLO 로고"
+            />
           </div>
-          <div className="hero-stage" ref={heroStageRef}>
-            <div className="carousel-track">
-              <img className="slide" src="/img/main1.png" alt="visual 1" />
-              <img className="slide" src="/img/main2.png" alt="visual 2" />
-              <img className="slide" src="/img/main3.png" alt="visual 3" />
-              <img className="slide" src="/img/main4.png" alt="visual 4" />
-              <img className="slide" src="/img/main1.png" alt="visual 1 duplicate" />
-              <img className="slide" src="/img/main2.png" alt="visual 2 duplicate" />
-            </div>
-            <canvas className="scanner" ref={scannerCanvasRef} />
+          <p className="hero-description">
+            복잡한 AI 논문을 누구나 이해할 수 있도록
+            <br />
+            시각적이고 쉬운 언어로 변환해주는 AI 서비스
+            <br />
+            <br />
+            <span className="hero-cta-text">
+              지금 바로 시작해보세요!
+              <br />
+              복잡한 AI 논문도 POLO와 함께라면 쉽게 이해할 수 있어요
+            </span>
+          </p>
+          <div className="hero-buttons">
+            <button
+              className="btn-primary"
+              onClick={() => {
+                window.scrollTo(0, 0);
+                navigate("/upload");
+              }}
+            >
+              논문 변환하기
+            </button>
           </div>
         </div>
-        <div className="scroll-cue">스크롤</div>
+        <div className="hero-visual">
+          <canvas className="hero-sine-canvas" ref={graphCanvasRef} />
+          <div className="floating-card card-1">
+            <div className="card-icon">📊</div>
+            <div className="card-text">데이터 분석</div>
+          </div>
+          <div className="floating-card card-2">
+            <div className="card-icon">⚡</div>
+            <div className="card-text">AI 처리</div>
+          </div>
+          <div className="floating-card card-3">
+            <div className="card-icon">💡</div>
+            <div className="card-text">쉬운 설명</div>
+          </div>
+          <div className="floating-card card-4">
+            <div className="card-icon">🎯</div>
+            <div className="card-text">수학 시각화</div>
+          </div>
+        </div>
       </section>
 
+      {/* Vector DB 수집 논문 흐름 섹션 */}
       <section className="graphs">
         <h2>Vector DB: 2023.01 ~ 2024.12 수집 논문 흐름</h2>
         <div className="graph-stage">
@@ -172,68 +110,177 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="cta-pipeline">
-        <div className="cta-inner">
-          <div className="pipeline-demo">
-            <div className="demo-left">
-              <div className="workflow-demo">
-                <div className="workflow-step step-1">
-                  <div className="step-icon">📄</div>
-                  <div className="step-label">논문 업로드</div>
-                  <div className="step-desc">PDF 파일</div>
-                </div>
-                
-                <div className="workflow-arrow">➡️</div>
-                
-                <div className="workflow-step step-2">
-                  <div className="step-icon">🤖</div>
-                  <div className="step-label">AI 처리</div>
-                  <div className="step-desc">분석 & 변환</div>
-                </div>
-                
-                <div className="workflow-arrow">➡️</div>
-                
-                <div className="workflow-results">
-                  <div className="result-item">
-                    <img className="result-preview" src="/img/easy_page.png" alt="쉬운 설명" />
-                    <div className="result-label">쉬운 설명</div>
-                    <div className="result-desc">직관적 이해</div>
-                  </div>
-                  <div className="result-item">
-                    <img className="result-preview" src="/img/math_page.png" alt="수학 설명서" />
-                    <div className="result-label">수학 설명서</div>
-                    <div className="result-desc">개념 시각화</div>
-                  </div>
-                </div>
-              </div>
+      {/* 기능 소개 섹션 */}
+      <section className="features">
+        <div className="container">
+          <h2 className="section-title">POLO의 특별한 기능들</h2>
+          <div className="features-grid">
+            <div className="feature-card">
+              <div className="feature-icon">📖</div>
+              <h3>쉬운 설명서</h3>
+              <p>
+                복잡한 AI 논문을 누구나 이해할 수 있도록 일상 언어로
+                변환해드려요!
+              </p>
             </div>
-            <div className="demo-right">
-              <h3>AI 논문 변환 서비스</h3>
-              <p>복잡한 AI 연구 논문을 누구나 이해할 수 있도록<br />AI가 쉽게 풀어서 설명해드립니다.<br /><br />
-              <strong>📚 쉬운 설명서:</strong> AI 전문 용어를 일상 언어로 변환<br />
-              <strong>📐 수학 설명서:</strong> AI 알고리즘과 수식을 시각화<br /><br />
-              AI 연구자부터 입문자까지, 모든 AI 논문을<br />직관적으로 이해할 수 있습니다.</p>
-              <button className="cta-button" onClick={() => navigate('/upload')}>논문 변환하러 가기</button>
+            <div className="feature-card">
+              <div className="feature-icon">📊</div>
+              <h3>수학 설명서</h3>
+              <p>
+                어려운 수식과 알고리즘을 시각적으로 보여주고 쉽게 설명해드려요!
+              </p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">🚀</div>
+              <h3>빠른 처리</h3>
+              <p>PDF 업로드만 하면 몇 초 만에 결과를 받아볼 수 있어요!</p>
             </div>
           </div>
         </div>
       </section>
+
+      {/* 사용법 섹션 */}
+      <section className="how-it-works">
+        <div className="container">
+          <h2 className="section-title">간단한 3단계 프로세스</h2>
+          <div className="steps">
+            <div className="step">
+              <div className="step-number">1</div>
+              <div className="step-content">
+                <h3>논문 업로드</h3>
+                <p>PDF 파일을 드래그하거나 클릭해서 업로드하세요</p>
+              </div>
+            </div>
+            <div className="step-arrow">→</div>
+            <div className="step">
+              <div className="step-number">2</div>
+              <div className="step-content">
+                <h3>AI 분석</h3>
+                <p>POLO가 논문을 분석하고 이해하기 쉽게 변환해드려요</p>
+              </div>
+            </div>
+            <div className="step-arrow">→</div>
+            <div className="step">
+              <div className="step-number">3</div>
+              <div className="step-content">
+                <h3>결과 확인</h3>
+                <p>쉬운 설명서와 수학 설명서를 받아보세요!</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 데이터베이스 상태 섹션 */}
+      <section className="database-status-section">
+        <div className="container">
+          <h2 className="section-title">시스템 상태</h2>
+          <DatabaseStatus />
+        </div>
+      </section>
     </>
-  )
+  );
 }
 
-function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {
-  ctx.beginPath()
-  ctx.moveTo(x1, y1)
-  ctx.lineTo(x2, y2)
-  ctx.stroke()
-}
+// 애니메이션된 사인함수 그래프 그리기 함수
+function drawAnimatedGraph(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  time: number
+) {
+  // 캔버스 초기화
+  ctx.clearRect(0, 0, width, height);
 
-function rndDate() {
-  const start = new Date(2023, 0, 1).getTime()
-  const end = new Date(2024, 11, 31).getTime()
-  const d = new Date(start + Math.random() * (end - start))
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  return `${y}.${m}`
+  // 배경 그라데이션
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "rgba(167, 243, 208, 0.1)");
+  gradient.addColorStop(0.5, "rgba(191, 219, 254, 0.15)");
+  gradient.addColorStop(1, "rgba(224, 231, 255, 0.1)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+
+  // 격자 그리기 (더 연하게)
+  ctx.strokeStyle = "rgba(167, 243, 208, 0.05)";
+  ctx.lineWidth = 1;
+
+  // 세로 격자
+  for (let i = 0; i <= 20; i++) {
+    const x = (width / 20) * i;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+
+  // 가로 격자
+  for (let i = 0; i <= 10; i++) {
+    const y = (height / 10) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+
+  // 애니메이션된 사인함수 그리기
+  const centerY = height / 2;
+  const amplitude = height * 0.25;
+  const frequency = 0.015;
+  const waveSpeed = 0.08;
+
+  // 메인 사인파
+  ctx.strokeStyle = "#a7f3d0";
+  ctx.lineWidth = 4;
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+
+  for (let x = 0; x < width; x += 1) {
+    const y = centerY + Math.sin(x * frequency + time * waveSpeed) * amplitude;
+    if (x === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  // 두 번째 사인파 (더 작은 진폭)
+  ctx.strokeStyle = "#bfdbfe";
+  ctx.lineWidth = 3;
+  ctx.globalAlpha = 0.6;
+  ctx.beginPath();
+
+  for (let x = 0; x < width; x += 1) {
+    const y =
+      centerY +
+      Math.sin(x * frequency * 1.3 + time * waveSpeed * 1.5) *
+        (amplitude * 0.7);
+    if (x === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  // 세 번째 사인파 (가장 작은 진폭)
+  ctx.strokeStyle = "#e0e7ff";
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+
+  for (let x = 0; x < width; x += 1) {
+    const y =
+      centerY +
+      Math.sin(x * frequency * 0.7 + time * waveSpeed * 0.8) *
+        (amplitude * 0.5);
+    if (x === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  ctx.globalAlpha = 1;
 }

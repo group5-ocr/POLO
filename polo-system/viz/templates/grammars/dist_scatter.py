@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 산점도 문법 (예: (w,h) 분포)
 import matplotlib.pyplot as plt
 from registry import Grammar, register

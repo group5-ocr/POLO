@@ -6,37 +6,19 @@
       "ko": "정확도"
     },
     "aliases": {
-      "en": [
-        "Accuracy",
-        "Acc",
-        "Top-1",
-        "Top 1"
-      ],
-      "ko": [
-        "정확도",
-        "정확률",
-        "탑1",
-        "Top-1",
-        "Top 1"
-      ]
+      "en": ["Accuracy", "Acc", "Top-1", "Top 1"],
+      "ko": ["정확도", "정확률", "탑1", "Top-1", "Top 1"]
     },
     "regex": {
-      "en": [
-        "\\b(Accuracy|Acc|Top-?1)\\b"
-      ],
-      "ko": [
-        "\\b정확도\\b",
-        "\\b정확률\\b",
-        "\\b탑-?1\\b",
-        "\\bTop-?1\\b"
-      ]
+      "en": ["\\b(Accuracy|Acc|Top-?1)\\b"],
+      "ko": ["\\b정확도\\b", "\\b정확률\\b", "\\b탑-?1\\b", "\\bTop-?1\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.5
   },
   {
     "concept_id": "metric.top5_accuracy",
@@ -45,33 +27,19 @@
       "ko": "Top-5 정확도"
     },
     "aliases": {
-      "en": [
-        "Top-5",
-        "Top 5"
-      ],
-      "ko": [
-        "Top-5 정확도",
-        "Top 5 정확도",
-        "탑5 정확도",
-        "탑-5 정확도"
-      ]
+      "en": ["Top-5", "Top 5"],
+      "ko": ["Top-5 정확도", "Top 5 정확도", "탑5 정확도", "탑-5 정확도"]
     },
     "regex": {
-      "en": [
-        "\\bTop-?5\\b"
-      ],
-      "ko": [
-        "Top-?5 ?정확도",
-        "탑-?5 ?정확도",
-        "\\bTop-?5\\b"
-      ]
+      "en": ["\\bTop-?5\\b"],
+      "ko": ["Top-?5 ?정확도", "탑-?5 ?정확도", "\\bTop-?5\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.5
   },
   {
     "concept_id": "metric.precision",
@@ -80,33 +48,19 @@
       "ko": "정밀도"
     },
     "aliases": {
-      "en": [
-        "Precision",
-        "Prec."
-      ],
-      "ko": [
-        "정밀도",
-        "정밀률",
-        "Prec.",
-        "프리시전"
-      ]
+      "en": ["Precision", "Prec."],
+      "ko": ["정밀도", "정밀률", "Prec.", "프리시전"]
     },
     "regex": {
-      "en": [
-        "\\bPrecision\\b"
-      ],
-      "ko": [
-        "\\b정밀도\\b",
-        "\\b정밀률\\b",
-        "\\bPrec\\.?\\b"
-      ]
+      "en": ["\\bPrecision\\b"],
+      "ko": ["\\b정밀도\\b", "\\b정밀률\\b", "\\bPrec\\.?\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.5
   },
   {
     "concept_id": "metric.recall",
@@ -115,30 +69,19 @@
       "ko": "재현율"
     },
     "aliases": {
-      "en": [
-        "Recall",
-        "Sensitivity"
-      ],
-      "ko": [
-        "재현율",
-        "민감도"
-      ]
+      "en": ["Recall", "Sensitivity"],
+      "ko": ["재현율", "민감도"]
     },
     "regex": {
-      "en": [
-        "\\bRecall\\b|\\bSensitivity\\b"
-      ],
-      "ko": [
-        "\\b재현율\\b",
-        "\\b민감도\\b"
-      ]
+      "en": ["\\bRecall\\b|\\bSensitivity\\b"],
+      "ko": ["\\b재현율\\b", "\\b민감도\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.5
   },
   {
     "concept_id": "metric.specificity",
@@ -147,27 +90,19 @@
       "ko": "특이도"
     },
     "aliases": {
-      "en": [
-        "Specificity"
-      ],
-      "ko": [
-        "특이도"
-      ]
+      "en": ["Specificity"],
+      "ko": ["특이도"]
     },
     "regex": {
-      "en": [
-        "\\bSpecificity\\b"
-      ],
-      "ko": [
-        "\\b특이도\\b"
-      ]
+      "en": ["\\bSpecificity\\b"],
+      "ko": ["\\b특이도\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.5
   },
   {
     "concept_id": "metric.f1",
@@ -176,29 +111,19 @@
       "ko": "F1 점수"
     },
     "aliases": {
-      "en": [
-        "F1",
-        "F-1"
-      ],
-      "ko": [
-        "F1 점수",
-        "F-1"
-      ]
+      "en": ["F1", "F-1"],
+      "ko": ["F1 점수", "F-1"]
     },
     "regex": {
-      "en": [
-        "\\bF-?1\\b"
-      ],
-      "ko": [
-        "\\bF-?1\\b"
-      ]
+      "en": ["\\bF-?1\\b", "F1[-\\s]?score"],
+      "ko": ["\\bF-?1\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.5
   },
   {
     "concept_id": "metric.auroc",
@@ -207,33 +132,19 @@
       "ko": "ROC-AUC"
     },
     "aliases": {
-      "en": [
-        "AUROC",
-        "ROC-AUC",
-        "AUC"
-      ],
-      "ko": [
-        "AUC",
-        "ROC-AUC",
-        "AUROC",
-        "ROC 곡선 아래 면적"
-      ]
+      "en": ["AUROC", "ROC-AUC", "AUC"],
+      "ko": ["AUC", "ROC-AUC", "AUROC", "ROC 곡선 아래 면적"]
     },
     "regex": {
-      "en": [
-        "\\b(AU?ROC|ROC-?AUC|AUC)\\b"
-      ],
-      "ko": [
-        "\\bROC-?AUC\\b",
-        "\\bAUC\\b",
-        "\\bAU?ROC\\b",
-        "ROC ?곡선.*면적"
-      ]
+      "en": ["\\b(AU?ROC|ROC-?AUC|AUC)\\b", "ROC ?AUC", "Area under ?ROC"],
+      "ko": ["\\bROC-?AUC\\b", "\\bAUC\\b", "\\bAU?ROC\\b", "ROC ?곡선.*면적"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.5, 1.0],
+    "min_reasonable": 0.6
   },
   {
     "concept_id": "metric.auprc",
@@ -242,30 +153,19 @@
       "ko": "PR-AUC"
     },
     "aliases": {
-      "en": [
-        "AUPRC",
-        "PR-AUC"
-      ],
-      "ko": [
-        "PR-AUC",
-        "AUPRC",
-        "정밀-재현 곡선 아래 면적"
-      ]
+      "en": ["AUPRC", "PR-AUC"],
+      "ko": ["PR-AUC", "AUPRC", "정밀-재현 곡선 아래 면적"]
     },
     "regex": {
-      "en": [
-        "\\b(AUPRC|PR-?AUC)\\b"
-      ],
-      "ko": [
-        "\\bPR-?AUC\\b",
-        "\\bAUPRC\\b",
-        "정밀-재현 ?곡선.*면적"
-      ]
+      "en": ["\\b(AUPRC|PR-?AUC)\\b", "PR ?AUC", "Area under (the )?PR"],
+      "ko": ["\\bPR-?AUC\\b", "\\bAUPRC\\b", "정밀-재현 ?곡선.*면적"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.3
   },
   {
     "concept_id": "metric.map_detection",
@@ -274,36 +174,22 @@
       "ko": "mAP"
     },
     "aliases": {
-      "en": [
-        "mAP",
-        "AP50",
-        "AP75",
-        "AP@[0.5:0.95]"
-      ],
-      "ko": [
-        "mAP",
-        "AP50",
-        "AP75",
-        "AP@[0.5:0.95]",
-        "평균 평균정밀도"
-      ]
+      "en": ["mAP", "AP50", "AP75", "AP@[0.5:0.95]"],
+      "ko": ["mAP", "AP50", "AP75", "AP@[0.5:0.95]", "평균 평균정밀도"]
     },
     "regex": {
       "en": [
-        "\\b(mAP|AP(?:\\d{2})|AP@[0-9.]+(?::[0-9.]+)?)\\b"
+        "\\b(mAP|AP(?:\\d{2})|AP@[0-9.]+(?::[0-9.]+)?)\\b",
+        "AP(?:50|75|95)"
       ],
-      "ko": [
-        "\\bmAP\\b",
-        "AP\\d{2}",
-        "AP@\\d+(?::\\d+(?:\\.\\d+)?)?"
-      ]
+      "ko": ["\\bmAP\\b", "AP\\d{2}", "AP@\\d+(?::\\d+(?:\\.\\d+)?)?"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.2
   },
   {
     "concept_id": "metric.average_recall",
@@ -312,32 +198,18 @@
       "ko": "평균 재현율"
     },
     "aliases": {
-      "en": [
-        "AR",
-        "mAR"
-      ],
-      "ko": [
-        "평균 재현율",
-        "AR",
-        "mAR"
-      ]
+      "en": ["AR", "mAR"],
+      "ko": ["평균 재현율", "AR", "mAR"]
     },
     "regex": {
-      "en": [
-        "\\b(AR|mAR)\\b"
-      ],
-      "ko": [
-        "평균 ?재현율",
-        "\\bAR\\b",
-        "\\bmAR\\b"
-      ]
+      "en": ["\\b(AR|mAR)\\b", "Average\\s*Recall", "avg\\.?\\s*recall"],
+      "ko": ["평균 ?재현율", "\\bAR\\b", "\\bmAR\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.miou",
@@ -346,31 +218,19 @@
       "ko": "평균 IoU"
     },
     "aliases": {
-      "en": [
-        "mIoU",
-        "IoU"
-      ],
-      "ko": [
-        "mIoU",
-        "평균 IoU",
-        "IoU"
-      ]
+      "en": ["mIoU", "IoU"],
+      "ko": ["mIoU", "평균 IoU", "IoU"]
     },
     "regex": {
-      "en": [
-        "\\b(m?IoU)\\b"
-      ],
-      "ko": [
-        "\\bm?IoU\\b",
-        "교집합.?합집합"
-      ]
+      "en": ["\\b(m?IoU)\\b", "Intersection[-\\s]*over[-\\s]*Union"],
+      "ko": ["\\bm?IoU\\b", "교집합.?합집합"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0],
+    "min_reasonable": 0.3
   },
   {
     "concept_id": "metric.dice",
@@ -379,30 +239,18 @@
       "ko": "다이스 계수"
     },
     "aliases": {
-      "en": [
-        "Dice",
-        "Dice coefficient"
-      ],
-      "ko": [
-        "다이스 계수",
-        "Dice"
-      ]
+      "en": ["Dice", "Dice coefficient"],
+      "ko": ["다이스 계수", "Dice"]
     },
     "regex": {
-      "en": [
-        "\\bDice\\b"
-      ],
-      "ko": [
-        "다이스",
-        "\\bDice\\b"
-      ]
+      "en": ["\\bDice\\b"],
+      "ko": ["다이스", "\\bDice\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.pq",
@@ -411,30 +259,18 @@
       "ko": "판옵틱 품질"
     },
     "aliases": {
-      "en": [
-        "Panoptic Quality",
-        "PQ"
-      ],
-      "ko": [
-        "판옵틱 품질",
-        "PQ"
-      ]
+      "en": ["Panoptic Quality", "PQ"],
+      "ko": ["판옵틱 품질", "PQ"]
     },
     "regex": {
-      "en": [
-        "\\b(PQ|Panoptic Quality)\\b"
-      ],
-      "ko": [
-        "판옵틱 ?품질",
-        "\\bPQ\\b"
-      ]
+      "en": ["\\b(PQ|Panoptic Quality)\\b"],
+      "ko": ["판옵틱 ?품질", "\\bPQ\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.mota",
@@ -443,27 +279,18 @@
       "ko": "MOTA"
     },
     "aliases": {
-      "en": [
-        "MOTA"
-      ],
-      "ko": [
-        "MOTA"
-      ]
+      "en": ["MOTA"],
+      "ko": ["MOTA"]
     },
     "regex": {
-      "en": [
-        "\\bMOTA\\b"
-      ],
-      "ko": [
-        "\\bMOTA\\b"
-      ]
+      "en": ["\\bMOTA\\b"],
+      "ko": ["\\bMOTA\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.motp",
@@ -472,27 +299,18 @@
       "ko": "MOTP"
     },
     "aliases": {
-      "en": [
-        "MOTP"
-      ],
-      "ko": [
-        "MOTP"
-      ]
+      "en": ["MOTP"],
+      "ko": ["MOTP"]
     },
     "regex": {
-      "en": [
-        "\\bMOTP\\b"
-      ],
-      "ko": [
-        "\\bMOTP\\b"
-      ]
+      "en": ["\\bMOTP\\b"],
+      "ko": ["\\bMOTP\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.hota",
@@ -501,27 +319,18 @@
       "ko": "HOTA"
     },
     "aliases": {
-      "en": [
-        "HOTA"
-      ],
-      "ko": [
-        "HOTA"
-      ]
+      "en": ["HOTA"],
+      "ko": ["HOTA"]
     },
     "regex": {
-      "en": [
-        "\\bHOTA\\b"
-      ],
-      "ko": [
-        "\\bHOTA\\b"
-      ]
+      "en": ["\\bHOTA\\b"],
+      "ko": ["\\bHOTA\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.idf1",
@@ -530,28 +339,18 @@
       "ko": "ID F1"
     },
     "aliases": {
-      "en": [
-        "IDF1"
-      ],
-      "ko": [
-        "IDF1",
-        "ID F1"
-      ]
+      "en": ["IDF1"],
+      "ko": ["IDF1", "ID F1"]
     },
     "regex": {
-      "en": [
-        "\\bIDF1\\b"
-      ],
-      "ko": [
-        "\\bIDF1\\b"
-      ]
+      "en": ["\\bIDF1\\b"],
+      "ko": ["\\bIDF1\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.map_ranking",
@@ -560,31 +359,18 @@
       "ko": "MAP(랭킹)"
     },
     "aliases": {
-      "en": [
-        "MAP"
-      ],
-      "ko": [
-        "MAP(랭킹)",
-        "랭킹 MAP",
-        "IR MAP"
-      ]
+      "en": ["MAP"],
+      "ko": ["MAP(랭킹)", "랭킹 MAP", "IR MAP"]
     },
     "regex": {
-      "en": [
-        "\\bMAP\\b"
-      ],
-      "ko": [
-        "MAP\\(랭킹\\)",
-        "랭킹 ?MAP",
-        "\\bMAP\\b"
-      ]
+      "en": ["\\bMAP\\b"],
+      "ko": ["MAP\\(랭킹\\)", "랭킹 ?MAP", "\\bMAP\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.mrr",
@@ -593,27 +379,18 @@
       "ko": "MRR"
     },
     "aliases": {
-      "en": [
-        "MRR"
-      ],
-      "ko": [
-        "MRR"
-      ]
+      "en": ["MRR"],
+      "ko": ["MRR"]
     },
     "regex": {
-      "en": [
-        "\\bMRR\\b"
-      ],
-      "ko": [
-        "\\bMRR\\b"
-      ]
+      "en": ["\\bMRR\\b"],
+      "ko": ["\\bMRR\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.ndcg_at_k",
@@ -622,33 +399,18 @@
       "ko": "NDCG@k"
     },
     "aliases": {
-      "en": [
-        "NDCG@1",
-        "NDCG@5",
-        "NDCG@10"
-      ],
-      "ko": [
-        "NDCG@1",
-        "NDCG@5",
-        "NDCG@10",
-        "정규화 누적 DCG"
-      ]
+      "en": ["NDCG@1", "NDCG@5", "NDCG@10"],
+      "ko": ["NDCG@1", "NDCG@5", "NDCG@10", "정규화 누적 DCG"]
     },
     "regex": {
-      "en": [
-        "\\bNDCG@\\d+\\b"
-      ],
-      "ko": [
-        "NDCG@\\d+",
-        "정규화 ?누적 ?DCG"
-      ]
+      "en": ["\\bNDCG@\\d+\\b"],
+      "ko": ["NDCG@\\d+", "정규화 ?누적 ?DCG"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.recall_at_k",
@@ -657,33 +419,18 @@
       "ko": "재현율@k"
     },
     "aliases": {
-      "en": [
-        "Recall@1",
-        "Recall@5",
-        "Recall@10"
-      ],
-      "ko": [
-        "재현율@1",
-        "재현율@5",
-        "재현율@10",
-        "Recall@k"
-      ]
+      "en": ["Recall@1", "Recall@5", "Recall@10"],
+      "ko": ["재현율@1", "재현율@5", "재현율@10", "Recall@k"]
     },
     "regex": {
-      "en": [
-        "\\bRecall@\\d+\\b"
-      ],
-      "ko": [
-        "재현율@\\d+",
-        "Recall@\\d+"
-      ]
+      "en": ["\\bRecall@\\d+\\b"],
+      "ko": ["재현율@\\d+", "Recall@\\d+"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.precision_at_k",
@@ -692,33 +439,18 @@
       "ko": "정밀도@k"
     },
     "aliases": {
-      "en": [
-        "Precision@1",
-        "Precision@5",
-        "Precision@10"
-      ],
-      "ko": [
-        "정밀도@1",
-        "정밀도@5",
-        "정밀도@10",
-        "Precision@k"
-      ]
+      "en": ["Precision@1", "Precision@5", "Precision@10"],
+      "ko": ["정밀도@1", "정밀도@5", "정밀도@10", "Precision@k"]
     },
     "regex": {
-      "en": [
-        "\\bPrecision@\\d+\\b"
-      ],
-      "ko": [
-        "정밀도@\\d+",
-        "Precision@\\d+"
-      ]
+      "en": ["\\bPrecision@\\d+\\b"],
+      "ko": ["정밀도@\\d+", "Precision@\\d+"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.hit_at_k",
@@ -727,33 +459,18 @@
       "ko": "Hit@k"
     },
     "aliases": {
-      "en": [
-        "Hit@1",
-        "Hit@5",
-        "Hit@10"
-      ],
-      "ko": [
-        "Hit@1",
-        "Hit@5",
-        "Hit@10",
-        "히트율@k"
-      ]
+      "en": ["Hit@1", "Hit@5", "Hit@10"],
+      "ko": ["Hit@1", "Hit@5", "Hit@10", "히트율@k"]
     },
     "regex": {
-      "en": [
-        "\\bHit@\\d+\\b"
-      ],
-      "ko": [
-        "Hit@\\d+",
-        "히트율@\\d+"
-      ]
+      "en": ["\\bHit@\\d+\\b"],
+      "ko": ["Hit@\\d+", "히트율@\\d+"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.bleu",
@@ -762,28 +479,18 @@
       "ko": "BLEU"
     },
     "aliases": {
-      "en": [
-        "BLEU",
-        "SacreBLEU"
-      ],
-      "ko": [
-        "BLEU",
-        "SacreBLEU"
-      ]
+      "en": ["BLEU", "SacreBLEU"],
+      "ko": ["BLEU", "SacreBLEU"]
     },
     "regex": {
-      "en": [
-        "\\b(BLEU|SacreBLEU)\\b"
-      ],
-      "ko": [
-        "\\bBLEU\\b",
-        "\\bSacreBLEU\\b"
-      ]
+      "en": ["\\b(BLEU|SacreBLEU)\\b"],
+      "ko": ["\\bBLEU\\b", "\\bSacreBLEU\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.chrf",
@@ -792,27 +499,18 @@
       "ko": "chrF"
     },
     "aliases": {
-      "en": [
-        "chrF",
-        "chrF++"
-      ],
-      "ko": [
-        "chrF",
-        "chrF++"
-      ]
+      "en": ["chrF", "chrF++"],
+      "ko": ["chrF", "chrF++"]
     },
     "regex": {
-      "en": [
-        "\\bchrF\\+?\\+?\\b"
-      ],
-      "ko": [
-        "chrF\\+?\\+?"
-      ]
+      "en": ["\\bchrF\\+?\\+?\\b"],
+      "ko": ["chrF\\+?\\+?"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.ter",
@@ -821,29 +519,16 @@
       "ko": "번역 편집률"
     },
     "aliases": {
-      "en": [
-        "TER"
-      ],
-      "ko": [
-        "TER",
-        "번역 편집률",
-        "편집률"
-      ]
+      "en": ["TER"],
+      "ko": ["TER", "번역 편집률", "편집률"]
     },
     "regex": {
-      "en": [
-        "\\bTER\\b"
-      ],
-      "ko": [
-        "\\bTER\\b",
-        "편집률"
-      ]
+      "en": ["\\bTER\\b"],
+      "ko": ["\\bTER\\b", "편집률"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
+    "units": ["%"],
     "default_grammar": "kpi_card"
   },
   {
@@ -853,27 +538,18 @@
       "ko": "ROUGE-1"
     },
     "aliases": {
-      "en": [
-        "ROUGE-1"
-      ],
-      "ko": [
-        "ROUGE-1"
-      ]
+      "en": ["ROUGE-1"],
+      "ko": ["ROUGE-1"]
     },
     "regex": {
-      "en": [
-        "\\bROUGE-?1\\b"
-      ],
-      "ko": [
-        "ROUGE-?1"
-      ]
+      "en": ["\\bROUGE-?1\\b"],
+      "ko": ["ROUGE-?1"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.rouge2",
@@ -882,27 +558,18 @@
       "ko": "ROUGE-2"
     },
     "aliases": {
-      "en": [
-        "ROUGE-2"
-      ],
-      "ko": [
-        "ROUGE-2"
-      ]
+      "en": ["ROUGE-2"],
+      "ko": ["ROUGE-2"]
     },
     "regex": {
-      "en": [
-        "\\bROUGE-?2\\b"
-      ],
-      "ko": [
-        "ROUGE-?2"
-      ]
+      "en": ["\\bROUGE-?2\\b"],
+      "ko": ["ROUGE-?2"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.rougeL",
@@ -911,27 +578,18 @@
       "ko": "ROUGE-L"
     },
     "aliases": {
-      "en": [
-        "ROUGE-L"
-      ],
-      "ko": [
-        "ROUGE-L"
-      ]
+      "en": ["ROUGE-L"],
+      "ko": ["ROUGE-L"]
     },
     "regex": {
-      "en": [
-        "\\bROUGE-?L\\b"
-      ],
-      "ko": [
-        "ROUGE-?L"
-      ]
+      "en": ["\\bROUGE-?L\\b"],
+      "ko": ["ROUGE-?L"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.meteor",
@@ -940,27 +598,18 @@
       "ko": "METEOR"
     },
     "aliases": {
-      "en": [
-        "METEOR"
-      ],
-      "ko": [
-        "METEOR"
-      ]
+      "en": ["METEOR"],
+      "ko": ["METEOR"]
     },
     "regex": {
-      "en": [
-        "\\bMETEOR\\b"
-      ],
-      "ko": [
-        "\\bMETEOR\\b"
-      ]
+      "en": ["\\bMETEOR\\b"],
+      "ko": ["\\bMETEOR\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.bertscore",
@@ -969,25 +618,18 @@
       "ko": "BERTScore"
     },
     "aliases": {
-      "en": [
-        "BERTScore"
-      ],
-      "ko": [
-        "BERTScore"
-      ]
+      "en": ["BERTScore"],
+      "ko": ["BERTScore"]
     },
     "regex": {
-      "en": [
-        "\\bBERTScore\\b"
-      ],
-      "ko": [
-        "\\bBERTScore\\b"
-      ]
+      "en": ["\\bBERTScore\\b"],
+      "ko": ["\\bBERTScore\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.comet",
@@ -996,25 +638,18 @@
       "ko": "COMET"
     },
     "aliases": {
-      "en": [
-        "COMET"
-      ],
-      "ko": [
-        "COMET"
-      ]
+      "en": ["COMET"],
+      "ko": ["COMET"]
     },
     "regex": {
-      "en": [
-        "\\bCOMET\\b"
-      ],
-      "ko": [
-        "\\bCOMET\\b"
-      ]
+      "en": ["\\bCOMET\\b"],
+      "ko": ["\\bCOMET\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [-1.0, 1.0]
   },
   {
     "concept_id": "metric.bleurt",
@@ -1023,25 +658,18 @@
       "ko": "BLEURT"
     },
     "aliases": {
-      "en": [
-        "BLEURT"
-      ],
-      "ko": [
-        "BLEURT"
-      ]
+      "en": ["BLEURT"],
+      "ko": ["BLEURT"]
     },
     "regex": {
-      "en": [
-        "\\bBLEURT\\b"
-      ],
-      "ko": [
-        "\\bBLEURT\\b"
-      ]
+      "en": ["\\bBLEURT\\b"],
+      "ko": ["\\bBLEURT\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [-1.0, 1.0]
   },
   {
     "concept_id": "metric.perplexity",
@@ -1050,23 +678,12 @@
       "ko": "퍼플렉서티"
     },
     "aliases": {
-      "en": [
-        "Perplexity",
-        "PPL"
-      ],
-      "ko": [
-        "퍼플렉서티",
-        "PPL"
-      ]
+      "en": ["Perplexity", "PPL"],
+      "ko": ["퍼플렉서티", "PPL"]
     },
     "regex": {
-      "en": [
-        "\\b(Perplexity|PPL)\\b"
-      ],
-      "ko": [
-        "퍼플렉서티",
-        "\\bPPL\\b"
-      ]
+      "en": ["\\b(Perplexity|PPL)\\b"],
+      "ko": ["퍼플렉서티", "\\bPPL\\b", "퍼플렉시티", "펄플렉시티"]
     },
     "category": "metric",
     "value_type": "scalar",
@@ -1080,29 +697,18 @@
       "ko": "단어 오류율"
     },
     "aliases": {
-      "en": [
-        "WER"
-      ],
-      "ko": [
-        "WER",
-        "단어 오류율"
-      ]
+      "en": ["WER"],
+      "ko": ["WER", "단어 오류율"]
     },
     "regex": {
-      "en": [
-        "\\bWER\\b"
-      ],
-      "ko": [
-        "\\bWER\\b",
-        "단어 ?오류율"
-      ]
+      "en": ["\\bWER\\b"],
+      "ko": ["\\bWER\\b", "단어 ?오류율"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [1.0, 0.0]
   },
   {
     "concept_id": "metric.cer",
@@ -1111,29 +717,18 @@
       "ko": "문자 오류율"
     },
     "aliases": {
-      "en": [
-        "CER"
-      ],
-      "ko": [
-        "CER",
-        "문자 오류율"
-      ]
+      "en": ["CER"],
+      "ko": ["CER", "문자 오류율"]
     },
     "regex": {
-      "en": [
-        "\\bCER\\b"
-      ],
-      "ko": [
-        "\\bCER\\b",
-        "문자 ?오류율"
-      ]
+      "en": ["\\bCER\\b"],
+      "ko": ["\\bCER\\b", "문자 ?오류율"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [1.0, 0.0]
   },
   {
     "concept_id": "metric.stoi",
@@ -1142,25 +737,18 @@
       "ko": "STOI"
     },
     "aliases": {
-      "en": [
-        "STOI"
-      ],
-      "ko": [
-        "STOI"
-      ]
+      "en": ["STOI"],
+      "ko": ["STOI"]
     },
     "regex": {
-      "en": [
-        "\\bSTOI\\b"
-      ],
-      "ko": [
-        "\\bSTOI\\b"
-      ]
+      "en": ["\\bSTOI\\b"],
+      "ko": ["\\bSTOI\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.pesq",
@@ -1169,25 +757,18 @@
       "ko": "PESQ"
     },
     "aliases": {
-      "en": [
-        "PESQ"
-      ],
-      "ko": [
-        "PESQ"
-      ]
+      "en": ["PESQ"],
+      "ko": ["PESQ"]
     },
     "regex": {
-      "en": [
-        "\\bPESQ\\b"
-      ],
-      "ko": [
-        "\\bPESQ\\b"
-      ]
+      "en": ["\\bPESQ\\b"],
+      "ko": ["\\bPESQ\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [1.0, 4.5]
   },
   {
     "concept_id": "metric.sdr",
@@ -1196,25 +777,18 @@
       "ko": "SDR"
     },
     "aliases": {
-      "en": [
-        "SDR"
-      ],
-      "ko": [
-        "SDR"
-      ]
+      "en": ["SDR"],
+      "ko": ["SDR"]
     },
     "regex": {
-      "en": [
-        "\\bSDR\\b"
-      ],
-      "ko": [
-        "\\bSDR\\b"
-      ]
+      "en": ["\\bSDR\\b"],
+      "ko": ["\\bSDR\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 20.0]
   },
   {
     "concept_id": "metric.si_sdr",
@@ -1223,25 +797,18 @@
       "ko": "SI-SDR"
     },
     "aliases": {
-      "en": [
-        "SI-SDR"
-      ],
-      "ko": [
-        "SI-SDR"
-      ]
+      "en": ["SI-SDR"],
+      "ko": ["SI-SDR"]
     },
     "regex": {
-      "en": [
-        "\\bSI-?SDR\\b"
-      ],
-      "ko": [
-        "\\bSI-?SDR\\b"
-      ]
+      "en": ["\\bSI-?SDR\\b"],
+      "ko": ["\\bSI-?SDR\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 20.0]
   },
   {
     "concept_id": "metric.mos",
@@ -1250,29 +817,18 @@
       "ko": "평균 의견 점수"
     },
     "aliases": {
-      "en": [
-        "MOS",
-        "CMOS"
-      ],
-      "ko": [
-        "MOS",
-        "CMOS",
-        "평균 의견 점수"
-      ]
+      "en": ["MOS", "CMOS"],
+      "ko": ["MOS", "CMOS", "평균 의견 점수"]
     },
     "regex": {
-      "en": [
-        "\\bC?MOS\\b"
-      ],
-      "ko": [
-        "\\bC?MOS\\b",
-        "의견 ?점수"
-      ]
+      "en": ["\\bC?MOS\\b"],
+      "ko": ["\\bC?MOS\\b", "의견 ?점수"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [1.0, 5.0]
   },
   {
     "concept_id": "metric.fid",
@@ -1281,29 +837,18 @@
       "ko": "FID"
     },
     "aliases": {
-      "en": [
-        "FID",
-        "sFID"
-      ],
-      "ko": [
-        "FID",
-        "sFID",
-        "프레셰 인셉션 거리"
-      ]
+      "en": ["FID", "sFID"],
+      "ko": ["FID", "sFID", "프레셰 인셉션 거리"]
     },
     "regex": {
-      "en": [
-        "\\b(s?FID)\\b"
-      ],
-      "ko": [
-        "\\bs?FID\\b",
-        "프레[셰쉐] ?인셉션 ?거리"
-      ]
+      "en": ["\\b(s?FID)\\b", "Fr[eé]chet\\s+Inception\\s+Distance"],
+      "ko": ["\\bs?FID\\b", "프레[셰쉐] ?인셉션 ?거리"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [150.0, 5.0]
   },
   {
     "concept_id": "metric.kid",
@@ -1312,27 +857,18 @@
       "ko": "KID"
     },
     "aliases": {
-      "en": [
-        "KID"
-      ],
-      "ko": [
-        "KID",
-        "커널 인셉션 거리"
-      ]
+      "en": ["KID"],
+      "ko": ["KID", "커널 인셉션 거리"]
     },
     "regex": {
-      "en": [
-        "\\bKID\\b"
-      ],
-      "ko": [
-        "\\bKID\\b",
-        "커널 ?인셉션 ?거리"
-      ]
+      "en": ["\\bKID\\b", "Kernel\\s+Inception\\s+Distance"],
+      "ko": ["\\bKID\\b", "커널 ?인셉션 ?거리"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.3, 0.0]
   },
   {
     "concept_id": "metric.inception_score",
@@ -1341,28 +877,18 @@
       "ko": "인셉션 스코어"
     },
     "aliases": {
-      "en": [
-        "IS",
-        "Inception Score"
-      ],
-      "ko": [
-        "인셉션 스코어",
-        "IS"
-      ]
+      "en": ["IS", "Inception Score"],
+      "ko": ["인셉션 스코어", "IS"]
     },
     "regex": {
-      "en": [
-        "\\b(IS|Inception Score)\\b"
-      ],
-      "ko": [
-        "\\bIS\\b",
-        "인셉션 ?스코어"
-      ]
+      "en": ["\\b(IS|Inception Score)\\b"],
+      "ko": ["\\bIS\\b", "인셉션 ?스코어"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [1.0, 30.0]
   },
   {
     "concept_id": "metric.lpips",
@@ -1371,25 +897,18 @@
       "ko": "LPIPS"
     },
     "aliases": {
-      "en": [
-        "LPIPS"
-      ],
-      "ko": [
-        "LPIPS"
-      ]
+      "en": ["LPIPS"],
+      "ko": ["LPIPS"]
     },
     "regex": {
-      "en": [
-        "\\bLPIPS\\b"
-      ],
-      "ko": [
-        "\\bLPIPS\\b"
-      ]
+      "en": ["\\bLPIPS\\b"],
+      "ko": ["\\bLPIPS\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [1.0, 0.0]
   },
   {
     "concept_id": "metric.fvd",
@@ -1398,25 +917,18 @@
       "ko": "FVD"
     },
     "aliases": {
-      "en": [
-        "FVD"
-      ],
-      "ko": [
-        "FVD"
-      ]
+      "en": ["FVD"],
+      "ko": ["FVD"]
     },
     "regex": {
-      "en": [
-        "\\bFVD\\b"
-      ],
-      "ko": [
-        "\\bFVD\\b"
-      ]
+      "en": ["\\bFVD\\b", "Fr[eé]chet\\s+Video\\s+Distance"],
+      "ko": ["\\bFVD\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [1000.0, 0.0]
   },
   {
     "concept_id": "metric.clip_score",
@@ -1425,28 +937,18 @@
       "ko": "CLIP 점수"
     },
     "aliases": {
-      "en": [
-        "CLIPScore",
-        "CLIP Score"
-      ],
-      "ko": [
-        "CLIP 점수",
-        "CLIPScore"
-      ]
+      "en": ["CLIPScore", "CLIP Score"],
+      "ko": ["CLIP 점수", "CLIPScore"]
     },
     "regex": {
-      "en": [
-        "\\bCLIP\\s?Score\\b|\\bCLIPScore\\b"
-      ],
-      "ko": [
-        "CLIP ?점수",
-        "\\bCLIPScore\\b"
-      ]
+      "en": ["\\bCLIP\\s?Score\\b|\\bCLIPScore\\b"],
+      "ko": ["CLIP ?점수", "\\bCLIPScore\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.r_precision",
@@ -1455,30 +957,18 @@
       "ko": "R-정밀도"
     },
     "aliases": {
-      "en": [
-        "R-precision",
-        "R precision"
-      ],
-      "ko": [
-        "R-정밀도",
-        "R precision"
-      ]
+      "en": ["R-precision", "R precision"],
+      "ko": ["R-정밀도", "R precision"]
     },
     "regex": {
-      "en": [
-        "\\bR-?\\s?precision\\b"
-      ],
-      "ko": [
-        "R-?\\s?precision",
-        "R-?정밀도"
-      ]
+      "en": ["\\bR-?\\s?precision\\b"],
+      "ko": ["R-?\\s?precision", "R-?정밀도"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.pass_at_k",
@@ -1487,31 +977,18 @@
       "ko": "pass@k"
     },
     "aliases": {
-      "en": [
-        "pass@1",
-        "pass@5",
-        "pass@10"
-      ],
-      "ko": [
-        "pass@1",
-        "pass@5",
-        "pass@10"
-      ]
+      "en": ["pass@1", "pass@5", "pass@10"],
+      "ko": ["pass@1", "pass@5", "pass@10"]
     },
     "regex": {
-      "en": [
-        "\\bpass@\\d+\\b"
-      ],
-      "ko": [
-        "pass@\\d+"
-      ]
+      "en": ["\\bpass@\\d+\\b"],
+      "ko": ["pass@\\d+"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.code_bleu",
@@ -1520,25 +997,18 @@
       "ko": "CodeBLEU"
     },
     "aliases": {
-      "en": [
-        "CodeBLEU"
-      ],
-      "ko": [
-        "CodeBLEU"
-      ]
+      "en": ["CodeBLEU"],
+      "ko": ["CodeBLEU"]
     },
     "regex": {
-      "en": [
-        "\\bCodeBLEU\\b"
-      ],
-      "ko": [
-        "\\bCodeBLEU\\b"
-      ]
+      "en": ["\\bCodeBLEU\\b"],
+      "ko": ["\\bCodeBLEU\\b"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.humaneval",
@@ -1547,27 +1017,18 @@
       "ko": "HumanEval"
     },
     "aliases": {
-      "en": [
-        "HumanEval"
-      ],
-      "ko": [
-        "HumanEval"
-      ]
+      "en": ["HumanEval"],
+      "ko": ["HumanEval"]
     },
     "regex": {
-      "en": [
-        "\\bHumanEval\\b"
-      ],
-      "ko": [
-        "\\bHumanEval\\b"
-      ]
+      "en": ["\\bHumanEval\\b"],
+      "ko": ["\\bHumanEval\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.mbpp",
@@ -1576,27 +1037,18 @@
       "ko": "MBPP"
     },
     "aliases": {
-      "en": [
-        "MBPP"
-      ],
-      "ko": [
-        "MBPP"
-      ]
+      "en": ["MBPP"],
+      "ko": ["MBPP"]
     },
     "regex": {
-      "en": [
-        "\\bMBPP\\b"
-      ],
-      "ko": [
-        "\\bMBPP\\b"
-      ]
+      "en": ["\\bMBPP\\b"],
+      "ko": ["\\bMBPP\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 100.0]
   },
   {
     "concept_id": "metric.return",
@@ -1605,31 +1057,18 @@
       "ko": "리턴(누적 보상)"
     },
     "aliases": {
-      "en": [
-        "Return",
-        "Episode Return",
-        "Cumulative Reward"
-      ],
-      "ko": [
-        "리턴",
-        "에피소드 리턴",
-        "누적 보상"
-      ]
+      "en": ["Return", "Episode Return", "Cumulative Reward"],
+      "ko": ["리턴", "에피소드 리턴", "누적 보상"]
     },
     "regex": {
-      "en": [
-        "\\b(Return|Cumulative Reward)\\b"
-      ],
-      "ko": [
-        "리턴",
-        "누적 ?보상",
-        "에피소드 ?리턴"
-      ]
+      "en": ["\\b(Return|Cumulative Reward)\\b"],
+      "ko": ["리턴", "누적 ?보상", "에피소드 ?리턴"]
     },
     "category": "metric",
     "value_type": "scalar",
     "units": [],
-    "default_grammar": "kpi_card"
+    "default_grammar": "kpi_card",
+    "norm_range": [-100.0, 100.0]
   },
   {
     "concept_id": "metric.success_rate",
@@ -1638,30 +1077,18 @@
       "ko": "성공률"
     },
     "aliases": {
-      "en": [
-        "Success Rate",
-        "SR"
-      ],
-      "ko": [
-        "성공률",
-        "SR"
-      ]
+      "en": ["Success Rate", "SR"],
+      "ko": ["성공률", "SR"]
     },
     "regex": {
-      "en": [
-        "\\b(Success Rate|SR)\\b"
-      ],
-      "ko": [
-        "성공률",
-        "\\bSR\\b"
-      ]
+      "en": ["\\b(Success Rate|SR)\\b"],
+      "ko": ["성공률", "\\bSR\\b"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.spl",
@@ -1670,30 +1097,18 @@
       "ko": "SPL"
     },
     "aliases": {
-      "en": [
-        "SPL",
-        "Success weighted by Path Length"
-      ],
-      "ko": [
-        "SPL",
-        "경로 길이 가중 성공률"
-      ]
+      "en": ["SPL", "Success weighted by Path Length"],
+      "ko": ["SPL", "경로 길이 가중 성공률"]
     },
     "regex": {
-      "en": [
-        "\\bSPL\\b"
-      ],
-      "ko": [
-        "\\bSPL\\b",
-        "경로 ?길이 ?가중 ?성공률"
-      ]
+      "en": ["\\bSPL\\b"],
+      "ko": ["\\bSPL\\b", "경로 ?길이 ?가중 ?성공률"]
     },
     "category": "metric",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
-    "default_grammar": "kpi_card"
+    "units": ["%"],
+    "default_grammar": "kpi_card",
+    "norm_range": [0.0, 1.0]
   },
   {
     "concept_id": "metric.episode_length",
@@ -1702,20 +1117,12 @@
       "ko": "에피소드 길이"
     },
     "aliases": {
-      "en": [
-        "Episode Length"
-      ],
-      "ko": [
-        "에피소드 길이"
-      ]
+      "en": ["Episode Length"],
+      "ko": ["에피소드 길이"]
     },
     "regex": {
-      "en": [
-        "\\bEpisode Length\\b"
-      ],
-      "ko": [
-        "에피소드 ?길이"
-      ]
+      "en": ["\\bEpisode Length\\b"],
+      "ko": ["에피소드 ?길이"]
     },
     "category": "metric",
     "value_type": "scalar",
@@ -1729,32 +1136,22 @@
       "ko": "파라미터 수"
     },
     "aliases": {
-      "en": [
-        "Params",
-        "#Params",
-        "Parameters"
-      ],
-      "ko": [
-        "파라미터 수",
-        "#파라미터",
-        "매개변수 수"
-      ]
+      "en": ["Params", "#Params", "Parameters"],
+      "ko": ["파라미터 수", "#파라미터", "매개변수 수"]
     },
     "regex": {
-      "en": [
-        "(\\d+(?:\\.\\d+)?)\\s*(K|M|B)\\s*(params|Parameters)"
-      ],
+      "en": ["(\\d+(?:\\.\\d+)?)\\s*(K|M|B)\\s*(params|Parameters)"],
       "ko": [
         "파라미터 ?수",
         "#?파라미터",
-        "매개변수 ?수"
+        "매개변수 ?수",
+        "파라미터(?:\\s*수)?",
+        "매개변수(?:\\s*수)?"
       ]
     },
     "category": "compute",
     "value_type": "scalar",
-    "units": [
-      "count"
-    ],
+    "units": ["count"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1764,32 +1161,16 @@
       "ko": "FLOPs"
     },
     "aliases": {
-      "en": [
-        "FLOPs",
-        "GFLOPs",
-        "TFLOPs"
-      ],
-      "ko": [
-        "FLOPs",
-        "GFLOPs",
-        "TFLOPs",
-        "연산량"
-      ]
+      "en": ["FLOPs", "GFLOPs", "TFLOPs"],
+      "ko": ["FLOPs", "GFLOPs", "TFLOPs", "연산량"]
     },
     "regex": {
-      "en": [
-        "(\\d+(?:\\.\\d+)?)\\s*(G|T)?FLOPs"
-      ],
-      "ko": [
-        "(?:[GMT]?)FLOPs",
-        "연산량"
-      ]
+      "en": ["(\\d+(?:\\.\\d+)?)\\s*(G|T)?FLOPs"],
+      "ko": ["(?:[GMT]?)FLOPs", "연산량", "[GT]?FLOPs", "GFLOPs", "TFLOPs"]
     },
     "category": "compute",
     "value_type": "scalar",
-    "units": [
-      "FLOPs"
-    ],
+    "units": ["FLOPs"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1799,28 +1180,16 @@
       "ko": "지연 시간"
     },
     "aliases": {
-      "en": [
-        "latency"
-      ],
-      "ko": [
-        "지연 시간",
-        "레이턴시"
-      ]
+      "en": ["latency"],
+      "ko": ["지연 시간", "레이턴시"]
     },
     "regex": {
-      "en": [
-        "(\\d+(?:\\.\\d+)?)\\s*(ms|s|sec|seconds)"
-      ],
-      "ko": [
-        "지연 ?시간",
-        "레이턴시"
-      ]
+      "en": ["(\\d+(?:\\.\\d+)?)\\s*(ms|s|sec|seconds)"],
+      "ko": ["지연 ?시간", "레이턴시"]
     },
     "category": "compute",
     "value_type": "scalar",
-    "units": [
-      "ms"
-    ],
+    "units": ["ms"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1830,36 +1199,22 @@
       "ko": "처리량"
     },
     "aliases": {
-      "en": [
-        "throughput",
-        "tokens/s",
-        "images/s",
-        "samples/s",
-        "FPS"
-      ],
-      "ko": [
-        "처리량",
-        "초당 토큰",
-        "초당 이미지",
-        "초당 샘플",
-        "FPS"
-      ]
+      "en": ["throughput", "tokens/s", "images/s", "samples/s", "FPS"],
+      "ko": ["처리량", "초당 토큰", "초당 이미지", "초당 샘플", "FPS"]
     },
     "regex": {
-      "en": [
-        "(\\d+(?:\\.\\d+)?)\\s*(tokens|images|samples)\\/s|\\bFPS\\b"
-      ],
+      "en": ["(\\d+(?:\\.\\d+)?)\\s*(tokens|images|samples)\\/s|\\bFPS\\b"],
       "ko": [
         "처리량",
         "초당 ?(토큰|이미지|샘플)",
-        "\\bFPS\\b"
+        "\\bFPS\\b",
+        "FPS",
+        "프레임 ?퍼 ?세컨드"
       ]
     },
     "category": "compute",
     "value_type": "scalar",
-    "units": [
-      "rate"
-    ],
+    "units": ["rate"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1869,33 +1224,16 @@
       "ko": "그래픽 메모리"
     },
     "aliases": {
-      "en": [
-        "VRAM",
-        "Memory",
-        "GPU Memory"
-      ],
-      "ko": [
-        "VRAM",
-        "메모리",
-        "GPU 메모리",
-        "그래픽 메모리"
-      ]
+      "en": ["VRAM", "Memory", "GPU Memory"],
+      "ko": ["VRAM", "메모리", "GPU 메모리", "그래픽 메모리"]
     },
     "regex": {
-      "en": [
-        "(\\d+(?:\\.\\d+)?)\\s*(GB)\\s*(VRAM|memory|GPU memory)"
-      ],
-      "ko": [
-        "\\bVRAM\\b",
-        "GPU ?메모리",
-        "그래픽 ?메모리"
-      ]
+      "en": ["(\\d+(?:\\.\\d+)?)\\s*(GB)\\s*(VRAM|memory|GPU memory)"],
+      "ko": ["\\bVRAM\\b", "GPU ?메모리", "그래픽 ?메모리"]
     },
     "category": "compute",
     "value_type": "scalar",
-    "units": [
-      "GB"
-    ],
+    "units": ["GB"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1905,32 +1243,18 @@
       "ko": "학습 비용"
     },
     "aliases": {
-      "en": [
-        "GPU hours",
-        "$ per 1k tokens",
-        "training cost"
-      ],
-      "ko": [
-        "학습 비용",
-        "GPU 시간",
-        "1k 토큰당 비용"
-      ]
+      "en": ["GPU hours", "$ per 1k tokens", "training cost"],
+      "ko": ["학습 비용", "GPU 시간", "1k 토큰당 비용"]
     },
     "regex": {
       "en": [
         "(\\d+(?:\\.\\d+)?)\\s*(GPU hours)|\\$\\s*(\\d+(?:\\.\\d+)?)\\s*\\/\\s*1k\\s*tokens"
       ],
-      "ko": [
-        "학습 ?비용",
-        "GPU ?시간",
-        "1k ?토큰당 ?비용"
-      ]
+      "ko": ["학습 ?비용", "GPU ?시간", "1k ?토큰당 ?비용"]
     },
     "category": "compute",
     "value_type": "scalar",
-    "units": [
-      "cost"
-    ],
+    "units": ["cost"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1940,28 +1264,16 @@
       "ko": "유해성"
     },
     "aliases": {
-      "en": [
-        "toxicity"
-      ],
-      "ko": [
-        "유해성",
-        "toxicity"
-      ]
+      "en": ["toxicity"],
+      "ko": ["유해성", "toxicity"]
     },
     "regex": {
-      "en": [
-        "\\btoxicity\\b"
-      ],
-      "ko": [
-        "유해성",
-        "\\btoxicity\\b"
-      ]
+      "en": ["\\btoxicity\\b"],
+      "ko": ["유해성", "\\btoxicity\\b"]
     },
     "category": "safety",
     "value_type": "percent",
-    "units": [
-      "%"
-    ],
+    "units": ["%"],
     "default_grammar": "kpi_card"
   },
   {
@@ -1971,30 +1283,344 @@
       "ko": "편향 점수"
     },
     "aliases": {
-      "en": [
-        "bias score",
-        "WEAT",
-        "StereoSet"
-      ],
-      "ko": [
-        "편향 점수",
-        "WEAT",
-        "StereoSet"
-      ]
+      "en": ["bias score", "WEAT", "StereoSet"],
+      "ko": ["편향 점수", "WEAT", "StereoSet"]
     },
     "regex": {
-      "en": [
-        "\\b(WEAT|StereoSet|bias score)\\b"
-      ],
-      "ko": [
-        "편향 ?점수",
-        "\\bWEAT\\b",
-        "\\bStereoSet\\b"
-      ]
+      "en": ["\\b(WEAT|StereoSet|bias score)\\b"],
+      "ko": ["편향 ?점수", "\\bWEAT\\b", "\\bStereoSet\\b"]
     },
     "category": "safety",
     "value_type": "scalar",
     "units": [],
     "default_grammar": "kpi_card"
+  },
+  {
+    "concept_id": "sw.datasets",
+    "labels": {
+      "en": "Datasets",
+      "ko": "데이터셋"
+    },
+    "aliases": {
+      "en": [
+        "CIFAR",
+        "CIFAR-10",
+        "ImageNet",
+        "COCO",
+        "VOC",
+        "Pascal",
+        "CelebA",
+        "CelebA-HQ",
+        "LSUN",
+        "SVHN",
+        "MNIST",
+        "Cityscapes",
+        "WMT",
+        "UCF101",
+        "KITTI",
+        "ADE20K",
+        "NYU",
+        "SQuAD",
+        "LibriSpeech",
+        "WSJ"
+      ],
+      "ko": [
+        "CIFAR",
+        "CIFAR-10",
+        "이미지넷",
+        "코코",
+        "VOC",
+        "파스칼",
+        "셀렙A",
+        "LSUN",
+        "SVHN",
+        "MNIST",
+        "시티스케이프",
+        "WMT",
+        "UCF101",
+        "키티",
+        "ADE20K",
+        "NYU",
+        "스쿼드",
+        "리브리스피치",
+        "WSJ"
+      ]
+    },
+    "regex": {
+      "en": [],
+      "ko": []
+    },
+    "category": "dataset",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "sw.sections",
+    "labels": {
+      "en": "Sections",
+      "ko": "본문 섹션"
+    },
+    "aliases": {
+      "en": [
+        "abstract",
+        "introduction",
+        "related work",
+        "background",
+        "method",
+        "methods",
+        "experiments",
+        "results",
+        "discussion",
+        "conclusion",
+        "conclusions",
+        "table",
+        "figure",
+        "appendix",
+        "supplementary"
+      ],
+      "ko": [
+        "초록",
+        "서론",
+        "관련 연구",
+        "배경",
+        "방법",
+        "실험",
+        "결과",
+        "논의",
+        "결론",
+        "표",
+        "그림",
+        "부록",
+        "부록자료"
+      ]
+    },
+    "regex": {
+      "en": [],
+      "ko": []
+    },
+    "category": "section",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "ban.method.tokens",
+    "labels": {
+      "en": "Forbidden method tokens",
+      "ko": "방법 토큰 금지"
+    },
+    "aliases": {
+      "en": [
+        "inception",
+        "distance",
+        "fréchet",
+        "frechet",
+        "diffusion",
+        "transformer"
+      ],
+      "ko": ["인셉션", "거리", "프레셰", "프레셰트", "디퓨전", "트랜스포머"]
+    },
+    "regex": {
+      "en": [],
+      "ko": []
+    },
+    "category": "forbidden.method_token",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "method.whitelist",
+    "labels": {
+      "en": "Method whitelist",
+      "ko": "방법 화이트리스트"
+    },
+    "aliases": {
+      "en": [
+        "UNet",
+        "U-Net",
+        "ResNet-50",
+        "ResNet101",
+        "Swin-T",
+        "ViT-B/16",
+        "YOLOv3",
+        "Mask R-CNN",
+        "Faster R-CNN",
+        "DiT",
+        "Pix2Pix",
+        "CycleGAN"
+      ],
+      "ko": [
+        "UNet",
+        "U-Net",
+        "ResNet-50",
+        "ResNet101",
+        "Swin-T",
+        "ViT-B/16",
+        "YOLOv3",
+        "Mask R-CNN",
+        "Faster R-CNN",
+        "DiT",
+        "Pix2Pix",
+        "CycleGAN"
+      ]
+    },
+    "regex": {
+      "en": [],
+      "ko": []
+    },
+    "category": "method.whitelist",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.hist.trigger",
+    "labels": {
+      "en": "Histogram trigger",
+      "ko": "히스토그램 트리거"
+    },
+    "aliases": {
+      "en": ["histogram", "distribution"],
+      "ko": ["히스토그램", "분포"]
+    },
+    "regex": {
+      "en": ["\\bhistogram\\b", "\\bdistribution\\b"],
+      "ko": ["히스토그램", "분포"]
+    },
+    "category": "viz.trigger.histogram",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.trigger.bar_group",
+    "labels": {
+      "en": "Bar group trigger",
+      "ko": "그룹 막대 트리거"
+    },
+    "aliases": {
+      "en": ["benchmark", "compare", "vs", "baseline", "bar chart"],
+      "ko": ["벤치마크", "성능 비교", "vs", "대비", "막대"]
+    },
+    "regex": {
+      "en": [
+        "\\bbenchmark\\b",
+        "\\bcompare\\b",
+        "\\bvs\\b",
+        "\\bbaseline\\b",
+        "\\bbar\\s*chart\\b"
+      ],
+      "ko": ["벤치마크", "성능\\s*비교", "\\bvs\\b", "대비", "막대"]
+    },
+    "category": "viz.trigger.bar_group",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.trigger.donut_pct",
+    "labels": {
+      "en": "Donut percentage trigger",
+      "ko": "도넛 퍼센트 트리거"
+    },
+    "aliases": {
+      "en": ["composition", "mix", "masking policy", "80/10/10", "percentage"],
+      "ko": ["구성", "구성 비율", "마스킹 정책", "80/10/10", "퍼센트"]
+    },
+    "regex": {
+      "en": [
+        "\\bcomposition\\b",
+        "\\bmix\\b",
+        "\\bmasking\\s*policy\\b",
+        "80\\s*/\\s*10\\s*/\\s*10",
+        "\\bpercentage\\b"
+      ],
+      "ko": ["구성", "구성\\s*비율", "마스킹\\s*정책", "80/10/10", "퍼센트"]
+    },
+    "category": "viz.trigger.donut_pct",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.trigger.embedding_sum",
+    "labels": {
+      "en": "Embedding sum trigger",
+      "ko": "임베딩 합성 트리거"
+    },
+    "aliases": {
+      "en": [
+        "token embedding",
+        "segment embedding",
+        "position embedding",
+        "embedding sum"
+      ],
+      "ko": ["토큰 임베딩", "세그먼트 임베딩", "포지션 임베딩", "임베딩 합성"]
+    },
+    "regex": {
+      "en": [
+        "token\\s+embedding",
+        "segment\\s+embedding",
+        "position\\s+embedding",
+        "embedding\\s+sum"
+      ],
+      "ko": [
+        "토큰\\s*임베딩",
+        "세그먼트\\s*임베딩",
+        "포지션\\s*임베딩",
+        "임베딩\\s*합성"
+      ]
+    },
+    "category": "viz.trigger.embedding_sum",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.trigger.token_sequence",
+    "labels": {
+      "en": "Token sequence trigger",
+      "ko": "토큰 시퀀스 트리거"
+    },
+    "aliases": {
+      "en": ["[CLS]", "[SEP]", "input format", "sequence format"],
+      "ko": ["[CLS]", "[SEP]", "입력 포맷", "시퀀스 포맷"]
+    },
+    "regex": {
+      "en": ["\\[cls\\]", "\\[sep\\]", "input\\s*format", "sequence\\s*format"],
+      "ko": ["\\[CLS\\]", "\\[SEP\\]", "입력\\s*포맷", "시퀀스\\s*포맷"]
+    },
+    "category": "viz.trigger.token_sequence",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.trigger.stack_bar",
+    "labels": {
+      "en": "Stacked bar trigger",
+      "ko": "누적 막대 트리거"
+    },
+    "aliases": {
+      "en": ["breakdown", "stacked", "resource mix", "error type"],
+      "ko": ["분해", "누적", "리소스 비중", "오류 유형"]
+    },
+    "regex": {
+      "en": [
+        "\\bbreakdown\\b",
+        "\\bstacked\\b",
+        "resource\\s*mix",
+        "error\\s*type"
+      ],
+      "ko": ["분해", "누적", "리소스\\s*비중", "오류\\s*유형"]
+    },
+    "category": "viz.trigger.stack_bar",
+    "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.trigger.curve_generic",
+    "labels": {
+      "en": "Curve generic trigger",
+      "ko": "곡선 트리거"
+    },
+    "aliases": {
+      "en": ["learning curve", "ROC", "PR curve", "precision recall"],
+      "ko": ["학습곡선", "ROC", "PR 곡선", "정밀도 재현율"]
+    },
+    "regex": {
+      "en": [
+        "learning\\s*curve",
+        "\\broc\\b",
+        "\\bpr\\s*curve\\b",
+        "precision\\s*recall"
+      ],
+      "ko": ["학습\\s*곡선", "\\bROC\\b", "PR\\s*곡선", "정밀도\\s*재현율"]
+    },
+    "category": "viz.trigger.curve_generic",
+    "value_type": "scalar"
   }
 ]

@@ -1,0 +1,62 @@
+services:
+  easy-train:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: easy-train
+    env_file:
+      - .env
+    environment:
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - HF_TOKEN=${HUGGINGFACE_TOKEN}
+      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
+      - HF_HOME=/app/.cache/huggingface
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+    gpus: all
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      python training/qlora.py
+      --model_name_or_path meta-llama/Llama-3.2-3B-Instruct
+      --train_file training/train.jsonl
+      --output_dir outputs/llama32-3b-qlora
+      --report_to_tensorboard
+      --train_fraction 0.6
+      --num_train_epochs 10
+      --save_every_steps 500
+      --logging_steps 10
+      --bf16
+      --bnb_4bit
+      --bnb_4bit_quant_type nf4
+      --per_device_train_batch_size 1
+      --gradient_accumulation_steps 4
+      --max_seq_length 256
+      --gradient_checkpointing
+      --learning_rate 2e-4
+      --warmup_ratio 0.03
+      --resume_from_checkpoint outputs/llama32-3b-qlora/checkpoint-2000
+      --target_modules q_proj,k_proj,v_proj,o_proj
+
+  easy-llm:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: easy-llm
+    env_file:
+      - .env
+    environment:
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - HF_TOKEN=${HUGGINGFACE_TOKEN}
+      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
+      - HF_HOME=/app/.cache/huggingface
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+    gpus: all
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "5003:5003"
+    command: python app.py
+    depends_on:
+      - easy-train

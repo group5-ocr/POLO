@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 메트릭 비교 표 문법 (methods x metrics)
 import matplotlib.pyplot as plt
 from registry import Grammar, register
