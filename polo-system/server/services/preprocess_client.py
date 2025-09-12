@@ -16,11 +16,11 @@ async def run(paper_id: str, source_dir: str, callback: str):
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.post(
-                f"{PREPROCESS_URL}/process",
+                f"{PREPROCESS_URL}/preprocess",
                 json={
-                    "paper_id": paper_id,
-                    "source_dir": source_dir,
-                    "callback": callback,
+                    "input_path": source_dir,
+                    "output_dir": f"data/outputs/{paper_id}",
+                    "config_path": "configs/default.yaml"
                 },
             )
             resp.raise_for_status()

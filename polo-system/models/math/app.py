@@ -68,8 +68,12 @@ print(f"Python: {sys.version.split()[0]}", flush=True)
 print(f"PyTorch: {torch.__version__}", flush=True)
 print(f"CUDA available: {torch.cuda.is_available()}", flush=True)
 if torch.cuda.is_available():
-    print(f"GPU: {torch.cuda.get_device_name(0)}", flush=True)
-print(f"Device selected: {DEVICE}", flush=True)
+    gpu_name = torch.cuda.get_device_name(0)
+    print(f"✅ GPU 사용 가능: {gpu_name}", flush=True)
+    print(f"🔧 디바이스: {DEVICE}, 데이터 타입: float16", flush=True)
+else:
+    print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.", flush=True)
+    print(f"🔧 디바이스: {DEVICE}, 데이터 타입: float32", flush=True)
 
 try:
     # 1) 토크나이저 로드
@@ -590,6 +594,13 @@ async def math_post(req: MathRequest):
 
 # 직접 실행 진입점 (python app.py)
 if __name__ == "__main__":
-    import uvicorn
-    # --reload는 개발 편의용(코드 변경 시 자동 재시작). 배포 시에는 제거하세요.
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    try:
+        import uvicorn
+        print("🚀 Math Model 서버 시작 중...")
+        # --reload는 개발 편의용(코드 변경 시 자동 재시작). 배포 시에는 제거하세요.
+        uvicorn.run("app:app", host="0.0.0.0", port=5004, reload=False)
+    except Exception as e:
+        print(f"❌ Math Model 시작 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")

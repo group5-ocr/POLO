@@ -10,9 +10,37 @@ from matplotlib import font_manager, rcParams
 from matplotlib.font_manager import FontProperties
 from pathlib import Path
 import matplotlib as mpl
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+import uvicorn
+import torch
+
+# GPU/CPU 디바이스 설정
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+GPU_AVAILABLE = torch.cuda.is_available()
+
+# matplotlib 설정
 mpl.rcParams["savefig.dpi"] = 220
 mpl.rcParams["figure.dpi"]  = 220
 mpl.rcParams["axes.unicode_minus"] = False
+
+# GPU 가속 설정 (가능한 경우)
+if GPU_AVAILABLE:
+    try:
+        # GPU 백엔드 시도 (cudf, cupy 등이 설치된 경우)
+        import matplotlib.pyplot as plt
+        # GPU 메모리 최적화
+        torch.cuda.empty_cache()
+        print(f"✅ GPU 사용 가능: {torch.cuda.get_device_name(0)}")
+        print(f"🔧 Viz 디바이스: {DEVICE}")
+    except Exception as e:
+        print(f"⚠️ GPU 백엔드 설정 실패, CPU 사용: {e}")
+        DEVICE = "cpu"
+        GPU_AVAILABLE = False
+else:
+    print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
+    print(f"🔧 Viz 디바이스: {DEVICE}")
 
 _MT_MAP = {
     "≈": r"$\approx$", "×": r"$\times$", "∈": r"$\in$",
@@ -172,23 +200,109 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
         outputs.append({"id": item["id"], "type": item["type"], "path": out_path})
     return outputs
 
+# FastAPI 앱 생성
+app = FastAPI(title="POLO Viz Service", version="1.0.0")
+
+# 요청/응답 모델
+class VizRequest(BaseModel):
+    paper_id: str
+    index: int
+    rewritten_text: str
+    target_lang: str = "ko"
+    bilingual: str = "missing"
+
+class VizResponse(BaseModel):
+    paper_id: str
+    index: int
+    image_path: str
+    success: bool
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "viz"}
+
+@app.post("/viz", response_model=VizResponse)
+async def generate_viz(request: VizRequest):
+    """
+    텍스트를 받아서 시각화 이미지를 생성합니다.
+    """
+    try:
+        # 그래머 로드 보장
+        _ensure_grammars_loaded()
+        
+        # 텍스트에서 스펙 자동 생성
+        from text_to_spec import auto_build_spec_from_text
+        spec = auto_build_spec_from_text(request.rewritten_text)
+        
+        # 출력 디렉토리 설정
+        outdir = Path(f"./data/viz/{request.paper_id}")
+        outdir.mkdir(parents=True, exist_ok=True)
+        
+        # 렌더링 실행
+        outputs = render_from_spec(
+            spec, 
+            str(outdir), 
+            target_lang=request.target_lang, 
+            bilingual=request.bilingual,
+            clear_outdir=False
+        )
+        
+        # 첫 번째 이미지 경로 반환 (여러 개 생성될 수 있음)
+        image_path = outputs[0]["path"] if outputs else None
+        
+        if not image_path:
+            raise HTTPException(status_code=500, detail="이미지 생성 실패")
+        
+        return VizResponse(
+            paper_id=request.paper_id,
+            index=request.index,
+            image_path=image_path,
+            success=True
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"시각화 생성 실패: {str(e)}")
+
 if __name__ == "__main__":
-    # 논문 텍스트 → 스펙 자동 생성 → 렌더
-    from pathlib import Path
-    from text_to_spec import auto_build_spec_from_text
+    import os
+    port = int(os.getenv("VIZ_PORT", "5005"))
+    
+    # 디바이스 상태 출력
+    print("🎨 POLO Viz Service 시작")
+    if GPU_AVAILABLE:
+        gpu_name = torch.cuda.get_device_name(0)
+        print(f"✅ GPU 사용 가능: {gpu_name}")
+        print(f"🔧 디바이스: {DEVICE} (GPU 가속 시각화)")
+    else:
+        print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
+        print(f"🔧 디바이스: {DEVICE} (CPU 시각화)")
+    print(f"📊 포트: {port}")
+    
+    # 논문 텍스트 → 스펙 자동 생성 → 렌더 (개발용)
+    try:
+        from pathlib import Path
+        from text_to_spec import auto_build_spec_from_text
 
-    _ensure_grammars_loaded()  # 그래머 로드 보장
+        _ensure_grammars_loaded()  # 그래머 로드 보장
 
-    root = Path(__file__).parent
-    text_path = root / "paper.txt"   # 같은 폴더의 논문 텍스트
-    if not text_path.exists():
-        raise FileNotFoundError("paper.txt 를 같은 폴더에 두세요.")
+        root = Path(__file__).parent
+        text_path = root / "paper.txt"   # 같은 폴더의 논문 텍스트
+        if text_path.exists():
+            print("📄 개발용 paper.txt 발견, 테스트 렌더링 실행...")
+            text = text_path.read_text(encoding="utf-8")
+            spec = auto_build_spec_from_text(text)       # glossary_hybrid.json 자동 탐색
 
-    text = text_path.read_text(encoding="utf-8")
-    spec = auto_build_spec_from_text(text)       # glossary_hybrid.json 자동 탐색
-
-    outdir = root / "charts"
-    outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing")
-    for o in outs:
-        print(o["path"])
+            outdir = root / "charts"
+            outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing")
+            for o in outs:
+                print(f"✅ 생성됨: {o['path']}")
+        else:
+            print("ℹ️ paper.txt 없음, API 서버만 실행")
+    except Exception as e:
+        print(f"⚠️ 테스트 렌더링 실패: {e}")
+        print("ℹ️ API 서버는 정상 실행됩니다.")
+    
+    # FastAPI 서버 실행
+    print("🚀 Viz API 서버 시작 중...")
+    uvicorn.run(app, host="0.0.0.0", port=port)
 

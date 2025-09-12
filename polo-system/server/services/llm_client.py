@@ -16,15 +16,16 @@ logger.setLevel(logging.INFO)
 
 async def _send_easy_request(text: str) -> Optional[str]:
     """
-    Easy 모델의 /simplify API 호출.
+    Easy 모델의 /easy API 호출.
     """
-    url = f"{EASY_MODEL_URL}/simplify"
+    url = f"{EASY_MODEL_URL}/easy"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.post(url, json={"text": text})
             resp.raise_for_status()
             data = resp.json()
-            return data.get("simplified_text", "")
+            # 응답 키 폴백(simplified_text 또는 generated_text)
+            return data.get("simplified_text") or data.get("generated_text", "")
     except Exception as e:
         logger.error(f"❌ Easy 모델 호출 실패: {e}")
         return None
@@ -49,10 +50,17 @@ async def ingest_jsonl(paper_id: str, jsonl_path: str):
         if rewritten is None:
             rewritten = ""  # 실패 시 빈 문자열
 
+        # 콜백 URL이 베이스인 경우 자동 보정
+        callback_url = CALLBACK_URL
+        if "/generate/" not in callback_url:
+            if callback_url.endswith("/"):
+                callback_url = callback_url[:-1]
+            callback_url = f"{callback_url}/generate/easy-callback"
+
         async with httpx.AsyncClient(timeout=10) as client:
             try:
                 await client.post(
-                    CALLBACK_URL,
+                    callback_url,
                     json={
                         "paper_id": str(paper_id),
                         "index": index,

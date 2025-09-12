@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Optional
 
-from services.database import db as DB
+from services.database.db import DB
 from services import arxiv_client, preprocess_client
 
 router = APIRouter()

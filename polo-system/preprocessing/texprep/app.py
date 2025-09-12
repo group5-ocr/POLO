@@ -10,10 +10,27 @@ from __future__ import annotations
 from pathlib import Path
 import argparse, json, gzip, time, sys
 from typing import Any
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import uvicorn
 
 # 우리 모듈
 from src.texprep.utils.cfg import load_cfg  # 네가 만든 cfg 로더
 from src.texprep.pipeline import run_pipeline
+
+# FastAPI 앱 생성
+app = FastAPI(title="POLO Preprocess Service", version="1.0.0")
+
+class PreprocessRequest(BaseModel):
+    input_path: str
+    output_dir: str = "data/outputs"
+    config_path: str = "configs/default.yaml"
+
+class PreprocessResponse(BaseModel):
+    success: bool
+    message: str
+    output_path: str = None
+    file_count: int = 0
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -148,14 +165,94 @@ def main():
     save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # 요약 출력
-    print(json.dumps({
+    result = {
         "doc_id": run["doc_id"],
         "mode": run.get("mode"),
         "out_dir": run["out_dir"],
         "transport": str(save_path),
         "counts": payload["meta"]["counts"],
         "files": run.get("files", {}),
-    }, ensure_ascii=False))
+    }
+    print(json.dumps(result, ensure_ascii=False))
+    return result
+
+# FastAPI 엔드포인트
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "preprocess"}
+
+@app.post("/preprocess", response_model=PreprocessResponse)
+async def preprocess_endpoint(request: PreprocessRequest):
+    """전처리 파이프라인 실행"""
+    try:
+        # 임시 args 객체 생성
+        class Args:
+            def __init__(self, input_path, output_dir, config_path):
+                self.main = input_path
+                self.root = None
+                self.out_dir = output_dir
+                self.config = config_path
+                self.inline = True
+                self.head = 3
+                self.body_chars = 1000
+                self.save_transport = None
+        
+        args = Args(request.input_path, request.output_dir, request.config_path)
+        
+        # 전처리 실행
+        result = main_with_args(args)
+        
+        return PreprocessResponse(
+            success=True,
+            message="전처리 완료",
+            output_path=result.get("out_dir"),
+            file_count=result.get("counts", {}).get("total", 0)
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"전처리 실패: {str(e)}")
+
+def main_with_args(args):
+    """main 함수를 args 객체로 실행"""
+    # 기존 main 함수 로직을 여기에 구현
+    cfg = load_cfg(args.config)
+    
+    # main 또는 root 결정
+    if args.main:
+        anchor = str(Path(args.main).resolve())
+    elif args.root:
+        root = Path(args.root)
+        any_tex = next(root.glob("**/*.tex"), None)
+        if not any_tex:
+            raise FileNotFoundError("*.tex 없음: --root 확인해라.")
+        anchor = str(any_tex)
+    else:
+        raise ValueError("--main 또는 --root를 줘.")
+
+    # 파이프라인 실행
+    run = run_pipeline(cfg, main_tex=anchor, sink="json")
+
+    # transport payload 구성
+    payload = build_transport_payload(run, inline=args.inline, head_n=args.head, body_chars=args.body_chars)
+
+    # 저장 위치
+    out_dir = Path(run["out_dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_path = Path(args.save_transport) if args.save_transport else (out_dir / "transport.json")
+    save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 결과 반환
+    return {
+        "doc_id": run["doc_id"],
+        "mode": run.get("mode"),
+        "out_dir": run["out_dir"],
+        "transport": str(save_path),
+        "counts": payload["meta"]["counts"],
+        "files": run.get("files", {}),
+    }
 
 if __name__ == "__main__":
-    main()
+    import os
+    port = int(os.getenv("PREPROCESS_PORT", "5002"))
+    print(f"🔧 Preprocess Service 시작 (포트: {port})")
+    uvicorn.run(app, host="0.0.0.0", port=port)
