@@ -1,12 +1,14 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import { useEffect } from "react";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Upload from "./pages/Upload";
 
-export default function App() {
+function AppContent() {
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -32,12 +34,25 @@ export default function App() {
             <span className="brand-text">A!POLO</span>
           </div>
           <nav className="nav-auth">
-            <Link className="link" to="/login">
-              로그인
-            </Link>
-            <Link className="btn-primary" to="/signup">
-              회원가입
-            </Link>
+            {user ? (
+              <>
+                <span className="user-greeting">
+                  안녕하세요! {user.nickname}님
+                </span>
+                <button className="btn-secondary" onClick={logout}>
+                  로그아웃
+                </button>
+              </>
+            ) : (
+              <>
+                <Link className="link" to="/login">
+                  로그인
+                </Link>
+                <Link className="btn-primary" to="/signup">
+                  회원가입
+                </Link>
+              </>
+            )}
           </nav>
         </div>
       </header>
@@ -58,6 +73,14 @@ export default function App() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

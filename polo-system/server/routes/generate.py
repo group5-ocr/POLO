@@ -1,116 +1,155 @@
 # server/routes/generate.py
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional, Union
-import logging
-import json
-import re
-from datetime import datetime
-from pathlib import Path
+from __future__ import annotations
 
-from services.llm_client import easy_llm
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header
+from typing import Optional
 
-router = APIRouter(tags=["easy-generate"])
-logger = logging.getLogger(__name__)
+from services.database.db import DB
+from services import llm_client, math_client, viz_client
 
-# 데이터 디렉토리
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-OUTPUTS_DIR = BASE_DIR / "data" / "outputs"
-OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+# 프로젝트에 공통 스키마가 있으면 사용하고,
+# 없으면 아래 Fallback 스키마 사용.
+try:
+    from utils.schemas import PreprocessCallback, EasyChunkDone, VizDone, MathDone
+except Exception:
+    from pydantic import BaseModel
+    from typing import List, Optional
 
-class GenerateRequest(BaseModel):
-    text: str = Field(..., min_length=10, description="원문 텍스트")
-    filename: Optional[str] = Field(
-        None, description="저장시 사용할 베이스 파일명(확장자 제외)"
+    class PreprocessCallback(BaseModel):
+        paper_id: str
+        jsonl_path: str
+        math_text_path: str
+        total_chunks: int
+
+    class EasyChunkDone(BaseModel):
+        paper_id: str
+        index: int
+        rewritten_text: str
+
+    class VizDone(BaseModel):
+        paper_id: str
+        index: int
+        image_path: str
+
+    class MathDone(BaseModel):
+        paper_id: str
+        math_result_path: Optional[str] = None
+        sections: Optional[list] = None
+
+
+router = APIRouter()
+
+
+# (선택) 멱등키/서명 검증 훅 – 필요 시 구현
+async def _verify(idempotency_key: Optional[str], x_signature: Optional[str]) -> None:
+    return
+
+
+@router.post("/preprocess/callback")
+async def preprocess_done(
+    payload: PreprocessCallback,
+    bg: BackgroundTasks,
+    idempotency_key: Optional[str] = Header(default=None),
+    x_signature: Optional[str] = Header(default=None),
+):
+    """
+    전처리 완료 → 상태 초기화 → easy & math 병렬 시작
+    """
+    await _verify(idempotency_key, x_signature)
+
+    tex_id = int(payload.paper_id)
+
+    # 1) 상태 초기화
+    await DB.init_pipeline_state(
+        tex_id=tex_id,
+        total_chunks=payload.total_chunks,
+        jsonl_path=payload.jsonl_path,
+        math_text_path=payload.math_text_path,
     )
-    # 필요 시 옵션 확장
-    # return_full: bool = False
 
-def _sanitize_filename(name: str) -> str:
-    # 파일명 안전화: 한글/영문/숫자/._- 만 허용
-    name = name.strip()[:200]
-    name = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", name)
-    return name or "doc"
+    # 2) easy & math 시작 (백그라운드)
+    bg.add_task(llm_client.ingest_jsonl, payload.paper_id, payload.jsonl_path)   # easy → /generate/easy-callback
+    bg.add_task(math_client.ingest_text, payload.paper_id, payload.math_text_path)  # math → /generate/math-callback
 
-def minimize_easy_json(data: dict) -> dict:
-    try:
-        result = dict(data)
-        for section in ["abstract", "introduction", "methods", "results", "discussion", "conclusion"]:
-            sec = (result.get(section) or {})
-            if isinstance(sec, dict) and "original" in sec:
-                sec.pop("original", None)
-                result[section] = sec
-        return result
-    except Exception as e:
-        logger.warning(f"경량화 실패, 원본 저장으로 대체: {e}")
-        return data
+    return {"ok": True, "tex_id": tex_id}
 
-def _ensure_dict(result: Union[str, dict]) -> dict:
-    if isinstance(result, dict):
-        return result
-    if isinstance(result, str):
-        try:
-            return json.loads(result)
-        except Exception as e:
-            raise ValueError(f"모델이 반환한 문자열을 JSON으로 파싱하지 못했습니다: {e}")
-    raise TypeError(f"지원하지 않는 결과 타입: {type(result)}")
 
-@router.post("/generate")
-async def generate_from_text(req: GenerateRequest):
+@router.post("/easy-callback")
+async def easy_chunk_done(
+    payload: EasyChunkDone,
+    bg: BackgroundTasks,
+    idempotency_key: Optional[str] = Header(default=None),
+    x_signature: Optional[str] = Header(default=None),
+):
     """
-    원문 텍스트를 받아 모델에서 easy_json 생성 후 저장
-    - 입력: text(필수), filename(선택)
-    - 출력: 저장 경로와 경량화된 easy_json
+    easy가 index 단위로 재해석 완료 시 호출
+    - chunk 저장 / easy_done += 1
+    - viz 생성 트리거
+    - 완료 조건 검사
     """
-    # 1) 헬스체크
-    try:
-        healthy = easy_llm.health_check()
-    except Exception as e:
-        logger.error(f"easy_llm.health_check 예외: {e}")
-        raise HTTPException(status_code=503, detail="AI 모델 서비스 연결 실패(health). 프로세스 기동/포트 확인이 필요합니다.")
+    await _verify(idempotency_key, x_signature)
+    tex_id = int(payload.paper_id)
 
-    if not healthy:
-        raise HTTPException(status_code=503, detail="AI 모델 서비스가 사용 불가능합니다. 모델 프로세스를 먼저 기동하세요.")
+    await DB.save_easy_chunk(tex_id=tex_id, index=payload.index, rewritten_text=payload.rewritten_text)
+    await DB.bump_counter(tex_id=tex_id, field="easy_done")
 
-    # 2) 생성 호출
-    try:
-        raw = easy_llm.generate(req.text)  # 동기 호출 가정
-        data = _ensure_dict(raw)
-    except (ValueError, TypeError) as e:
-        logger.error(f"모델 결과 파싱 실패: {e}")
-        raise HTTPException(status_code=500, detail=f"모델 결과 파싱 실패: {e}")
-    except Exception as e:
-        # 입력 길이만 로깅(민감정보 보호)
-        logger.exception(f"easy 변환 호출 실패 (len={len(req.text)}): {e}")
-        raise HTTPException(status_code=500, detail="AI 모델 처리 중 내부 오류가 발생했습니다.")
+    # viz 생성 트리거
+    bg.add_task(viz_client.generate, payload.paper_id, payload.index, payload.rewritten_text)  # 완료 시 /generate/viz-callback
 
-    # 3) 메타데이터 보강
-    try:
-        data.setdefault("metadata", {})
-        data["metadata"]["processed_at"] = datetime.now().isoformat()
-        if req.filename:
-            data["metadata"]["original_filename"] = req.filename
-    except Exception as e:
-        logger.warning(f"메타데이터 보강 실패: {e}")
+    await _maybe_assemble(tex_id, bg)
+    return {"ok": True}
 
-    # 4) 저장(파일명 안전화)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = _sanitize_filename(req.filename) if req.filename else f"manual_{timestamp}"
 
-    minimized = minimize_easy_json(data)  # 기본 경량화
-    json_file_path = OUTPUTS_DIR / f"{timestamp}_{base_name}.json"
+@router.post("/viz-callback")
+async def viz_done(
+    payload: VizDone,
+    bg: BackgroundTasks,
+    idempotency_key: Optional[str] = Header(default=None),
+    x_signature: Optional[str] = Header(default=None),
+):
+    """
+    viz가 index 이미지 생성 완료 시 호출
+    - 이미지 경로 저장 / viz_done += 1
+    - 완료 조건 검사
+    """
+    await _verify(idempotency_key, x_signature)
+    tex_id = int(payload.paper_id)
 
-    try:
-        with open(json_file_path, "w", encoding="utf-8") as f:
-            json.dump(minimized, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"JSON 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail="결과 파일 저장에 실패했습니다.")
+    await DB.save_viz_image(tex_id=tex_id, index=payload.index, image_path=payload.image_path)
+    await DB.bump_counter(tex_id=tex_id, field="viz_done")
 
-    # 5) 응답
-    return {
-        "status": "success",
-        "json_file_path": str(json_file_path),
-        "easy_json": minimized,
-        # "full_json": data if req.return_full else None,
-    }
+    await _maybe_assemble(tex_id, bg)
+    return {"ok": True}
+
+
+@router.post("/math-callback")
+async def math_done(
+    payload: MathDone,
+    bg: BackgroundTasks,
+    idempotency_key: Optional[str] = Header(default=None),
+    x_signature: Optional[str] = Header(default=None),
+):
+    """
+    math 보조설명 완료 시 호출
+    - math 결과 저장 / math_done=true
+    - 완료 조건 검사
+    """
+    await _verify(idempotency_key, x_signature)
+    tex_id = int(payload.paper_id)
+
+    await DB.save_math_result(tex_id=tex_id, result_path=payload.math_result_path, sections=payload.sections)
+    await DB.set_flag(tex_id=tex_id, field="math_done", value=True)
+
+    await _maybe_assemble(tex_id, bg)
+    return {"ok": True}
+
+
+# ---------- 완료 조건 검사 & 최종 조립 ----------
+async def _maybe_assemble(tex_id: int, bg: BackgroundTasks) -> None:
+    st = await DB.get_state(tex_id)
+    if not st:
+        return
+    if st.total_chunks == 0:
+        return
+    if st.easy_done == st.total_chunks and st.viz_done == st.total_chunks and st.math_done:
+        bg.add_task(DB.assemble_final, tex_id)

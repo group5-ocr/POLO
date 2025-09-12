@@ -37,7 +37,7 @@ _DEFAULT_ADAPTER_DIR = os.path.abspath(
 )
 ADAPTER_DIR = os.getenv("EASY_ADAPTER_DIR", _DEFAULT_ADAPTER_DIR)
 
-MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "600"))  # 속도/안정성 기본 600
+MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "4000"))  # 가중치 4000으로 설정
 
 # -------------------- FastAPI --------------------
 app = FastAPI(title="POLO Easy Model", version="1.2.0")
@@ -45,9 +45,9 @@ app = FastAPI(title="POLO Easy Model", version="1.2.0")
 # -------------------- 전역 상태 --------------------
 model = None
 tokenizer = None
-device = "cuda"
-gpu_available = False
-safe_dtype = torch.float16
+device = "cuda" if torch.cuda.is_available() else "cpu"
+gpu_available = torch.cuda.is_available()
+safe_dtype = torch.float16 if gpu_available else torch.float32
 
 # -------------------- 모델/유틸 --------------------
 def _pick_attn_impl() -> str:
@@ -146,13 +146,21 @@ def load_model():
     global model, tokenizer, gpu_available, device, safe_dtype
 
     logger.info(f"🔄 모델 로딩 시작: {BASE_MODEL}")
-
-    # ✅ GPU 강제
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA(GPU)를 사용할 수 없습니다. GPU 환경에서만 실행하도록 강제되었습니다.")
-    gpu_available = True
-    device = "cuda"
-    safe_dtype = torch.float16
+    
+    # 디바이스 자동 선택 및 로그 출력
+    if torch.cuda.is_available():
+        gpu_available = True
+        device = "cuda"
+        safe_dtype = torch.float16
+        gpu_name = torch.cuda.get_device_name(0)
+        logger.info(f"✅ GPU 사용 가능: {gpu_name}")
+        logger.info(f"🔧 디바이스: {device}, 데이터 타입: {safe_dtype}")
+    else:
+        gpu_available = False
+        device = "cpu"
+        safe_dtype = torch.float32
+        logger.info("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
+        logger.info(f"🔧 디바이스: {device}, 데이터 타입: {safe_dtype}")
 
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
     if tokenizer.pad_token_id is None:
@@ -239,7 +247,7 @@ async def health():
 async def healthz():
     return await health()
 
-@app.post("/simplify", response_model=TextResponse)
+@app.post("/easy", response_model=TextResponse)
 async def simplify_text(request: TextRequest):
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다")
@@ -256,7 +264,7 @@ async def simplify_text(request: TextRequest):
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=4000,          # ✅ 가중치 4000으로 설정
             do_sample=False,              # ✅ 그리디(추측 억제)
             use_cache=True,
             pad_token_id=tokenizer.eos_token_id,
@@ -395,7 +403,20 @@ async def generate_json(request: TextRequest):
 
 # -------------------- main --------------------
 if __name__ == "__main__":
-    # GPU 강제 모드: CUDA 없으면 즉시 종료
-    if not torch.cuda.is_available():
-        raise SystemExit("CUDA(GPU)가 필요합니다. GPU 환경에서 실행하세요.")
-    uvicorn.run(app, host="0.0.0.0", port=5003)
+    try:
+        # 디바이스 상태 출력
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"✅ GPU 사용 가능: {gpu_name}")
+            print(f"🔧 디바이스: cuda, 데이터 타입: float16")
+        else:
+            print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
+            print(f"🔧 디바이스: cpu, 데이터 타입: float32")
+        
+        print("🚀 Easy Model 서버 시작 중...")
+        uvicorn.run(app, host="0.0.0.0", port=5003)
+    except Exception as e:
+        print(f"❌ Easy Model 시작 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")

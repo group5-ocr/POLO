@@ -9,22 +9,48 @@
 
 ## 실행 방식
 
-- 각자 전처리된 논문으로 처리 확인(테스트)할 때 아래와 같이 해주시면 됩니다.
+- 각자 전처리된 논문으로 동작 확인(테스트)할 때는 아래와 같이 실행합니다.
 
 ### 로컬 테스트 (단독 실행)
 
 ```bash
-python app.py --input <파일경로> --output <저장경로>
+# 예시: yolo_v1 논문 폴더를 입력으로 지정
+python app.py --config configs/default.yaml --root data/raw/yolo_v1
 ```
 
-- `--input`: 처리할 파일 경로
-- `--output`: 결과 저장 디렉토리
+#### 옵션 설명:
+
+--config: 파이프라인 설정 파일(YAML)
+--root: 처리할 논문 폴더 위치
+--input: 처리할 파일 경로 (옵션)
+--output: 결과 저장 디렉토리 (옵션)
 
 ### 서비스 환경
 
-- 실제 서비스에서는 \*\*`polo-system/server/services/preprocess_client.py`\*\*가 이 모듈을 호출한다.
+- 실제 서비스에서는 `polo-system/server/services/preprocess_client.py`가 이 모듈을 호출한다.
 - 따라서 운영 시 `app.py`는 직접 실행되지 않고, **테스트·디버깅 용도**로만 사용한다.
 - 산출물 저장 경로는 `preprocess_client.py`에서 지정되며, 도커 볼륨 경로로 매핑된다.
+
+---
+
+### 의존성 관리
+
+필수 패키지는 requirements.txt에 최소 단위로만 기록되어 있습니다.
+(예: `PyYAML==6.0.2`)
+
+로컬 개발에서 모듈을 직접 editable 모드로 설치하려면:
+
+```bash
+pip install -e .
+```
+
+협업자는 기본적으로:
+
+```bash
+pip install -r requirements.txt
+```
+
+만 실행하면 됩니다.
 
 ---
 
