@@ -12,6 +12,73 @@ from typing import List, Dict, Any, Tuple
 # 개념/예시 도식 트리거
 from templates.generic_rules import build_concept_specs
 
+# 스펙을 값 없이 템플릿으로 추가하지 않음
+ALLOW_FALLBACK_TEMPLATES = False
+
+# (A) 구성/비율: "Label 12%" 여러 개 → 100±5%면 parts로 채택
+_COMPOSE_PAT = re.compile(r'(?P<label>[A-Za-z가-힣0-9/+\-_. ]{2,30})\s*[:=]?\s*(?P<pct>\d{1,3})\s*%')
+def parse_composition_parts(text, max_labels=10):
+    items = [(m.group('label').strip(), int(m.group('pct'))) for m in _COMPOSE_PAT.finditer(text)]
+    if not items: return []
+    best, run, last_end = [], [], -10
+    for m in _COMPOSE_PAT.finditer(text):
+        pair = (m.group('label').strip(), int(m.group('pct')))
+        if m.start() - last_end < 50: run.append(pair)
+        else:
+            if len(run) >= 2 and 95 <= sum(p for _,p in run) <= 105: best = run; break
+            run = [pair]
+        last_end = m.end()
+    if not best:
+        items.sort(key=lambda x: -x[1])
+        if 95 <= sum(p for _,p in items[:max_labels]) <= 105: best = items[:max_labels]
+    return best
+
+# (B) 비교/벤치: "Task: A=80, B=83" 라인 모음 → (categories, series)
+_TASK = re.compile(r'(?P<task>[A-Za-z가-힣0-9._/\-+ ]{2,40})\s*[:：]\s*(?P<body>.+)')
+_PAIR = re.compile(r'(?P<name>[A-Za-z가-힣0-9._/\-+ ]{1,30})\s*[=:\(]\s*(?P<val>-?\d+(?:\.\d+)?)')
+def parse_benchmark(text, max_tasks=12, max_series=8):
+    cats, vals = [], {}
+    for line in text.splitlines():
+        m = _TASK.match(line.strip())
+        if not m: continue
+        cats.append(m.group('task').strip())
+        for n,v in _PAIR.findall(m.group('body')):
+            vals.setdefault(n.strip(), []).append(float(v))
+    cats = cats[:max_tasks]
+    series = [{"label": k, "values": (v + [0.0]*(len(cats)-len(v)))[:len(cats)]}
+              for k,v in list(vals.items())[:max_series]]
+    return (cats, series) if cats and series else ([], [])
+
+# (C) 카테고리 분해(스택): "Dataset A: Span 20%, ..." 라인 다수 → (categories, series)
+def parse_breakdown(text, max_cats=10, max_parts=10):
+    cats, row_parts, part_names = [], [], []
+    for line in text.splitlines():
+        m = _TASK.match(line.strip())
+        if not m: continue
+        cat = m.group('task').strip()
+        pairs = [(l.strip(), int(p)) for l,p in _COMPOSE_PAT.findall(m.group('body'))]
+        if len(pairs) < 2: continue
+        cats.append(cat); row_parts.append(pairs)
+        for l,_ in pairs:
+            if l not in part_names and len(part_names) < max_parts: part_names.append(l)
+    if not cats: return ([], [])
+    series = []
+    for name in part_names:
+        col = [next((p for l,p in row if l==name), 0) for row in row_parts]
+        series.append({"label": name, "values": col})
+    return (cats[:max_cats], series[:max_parts])
+
+# (D) 특수 토큰/시퀀스: 문서에 실제 등장하면만 토큰 배열 생성
+def parse_special_tokens(text):
+    tl = text.lower()
+    has_cls = "[cls]" in tl or "<s>" in text
+    has_sep = "[sep]" in tl or "</s>" in text
+    if not (has_cls or has_sep): return []
+    toks = ["[CLS]"] if has_cls else []
+    toks += ["sentA"]
+    if has_sep: toks += ["[SEP]", "sentB", "[SEP]"]
+    return toks
+
 # -------------------------------- Utilities -------------------------------- #
 def _label(en, ko): return {"en": en, "ko": ko}
 
@@ -475,64 +542,79 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         if cond:
             spec.append(item)
 
-    # bar_group (예시 템플릿 — 실제 값 파싱 붙이면 대체 가능)
-    _append_if(_has_trigger(cidx, "viz.trigger.bar_group", text), {
-        "id":"bench_auto",
-        "type":"bar_group",
-        "labels":{"ko":"성능 비교"},
-        "inputs":{
-            "title":{"ko":"성능 비교(예시)"},
-            "ylabel":{"ko":"점수/F1"},
-            "categories":["Task1","Task2","Task3"],
-            "series":[
-                {"label":{"ko":"Model A"},"values":[80,88,76]},
-                {"label":{"ko":"Model B"},"values":[83,91,80]}
-            ],
-            "annotate":True,"legend":True,"fmt":"auto"
-        }
-    })
+    # 비교/벤치마크 → 그룹 막대
+    if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
+        cats, series = parse_benchmark(text)
+        if cats and series:
+            spec.append({
+                "id":"benchmark_bars",
+                "type":"bar_group",
+                "labels":{"ko":"성능 비교"},
+                "inputs":{
+                    "title":{"ko":"성능 비교"},
+                    "ylabel":{"ko":"점수/지표"},
+                    "categories": cats,
+                    "series": series,
+                    "legend": True
+                }
+            })
 
-    # 도넛 퍼센트
-    _append_if(_has_trigger(cidx, "viz.trigger.donut_pct", text), {
-        "id":"donut_auto",
-        "type":"donut_pct",
-        "labels":{"ko":"구성 비율"},
-        "inputs":{"title":{"ko":"구성 비율"},"parts":[["A",80],["B",10],["C",10]]}
-    })
+    # 구성/비율 → 도넛
+    if _has_trigger(cidx, "viz.intent.composition", text) or _has_trigger(cidx, "viz.trigger.donut_pct", text):
+        parts = parse_composition_parts(text)
+        if parts:
+            spec.append({
+                "id":"composition_donut",
+                "type":"donut_pct",
+                "labels":{"ko":"구성 비율"},
+                "inputs":{"title":{"ko":"구성 비율"}, "parts": parts}
+            })
 
-    # 임베딩 합성
-    _append_if(_has_trigger(cidx, "viz.trigger.embedding_sum", text), {
-        "id":"embed_auto",
-        "type":"embedding_sum",
-        "labels":{"ko":"임베딩 합성"},
-        "inputs":{"title":{"ko":"임베딩 합성"}, "rows":["Token","Segment(A/B)","Position"], "right":"Encoder"}
-    })
+    # 카테고리 분해/누적 → 스택 바
+    if _has_trigger(cidx, "viz.intent.breakdown", text) or _has_trigger(cidx, "viz.trigger.stack_bar", text):
+        cats, series = parse_breakdown(text)
+        if cats and series:
+            spec.append({
+                "id":"breakdown_stack",
+                "type":"stack_bar",
+                "labels":{"ko":"분해 누적"},
+                "inputs":{
+                    "title":{"ko":"분해 누적"},
+                    "ylabel":{"ko":"비율(%)"},
+                    "categories": cats,
+                    "series": series,
+                    "normalize": True,
+                    "legend_out": True
+                }
+            })
 
-    # 토큰 시퀀스
-    _append_if(_has_trigger(cidx, "viz.trigger.token_sequence", text), {
-        "id":"tokseq_auto",
-        "type":"token_sequence",
-        "labels":{"ko":"토큰 시퀀스"},
-        "inputs":{"title":{"ko":"[CLS]/[SEP]"},
-                  "tokens":["[CLS]","sentA","[SEP]","sentB","[SEP]"],
-                  "notes":{"[CLS]":"문장 대표","[SEP]":"경계"}}
-    })
+    # 임베딩/특징 결합 → 도식 (값 파싱 불필요)
+    if _has_trigger(cidx, "viz.intent.fusion", text) or _has_trigger(cidx, "viz.trigger.embedding_sum", text):
+        spec.append({
+            "id":"fusion_sum",
+            "type":"embedding_sum",
+            "labels":{"ko":"특징/임베딩 결합"},
+            "inputs":{
+                "title":{"ko":"특징/임베딩 결합"},
+                "rows":["Feature/Embedding A","Feature/Embedding B","(optional) C"],
+                "right":"Encoder / Fusion"
+            }
+        })
 
-    # 누적 막대
-    _append_if(_has_trigger(cidx, "viz.trigger.stack_bar", text), {
-        "id":"stack_auto",
-        "type":"stack_bar",
-        "labels":{"ko":"누적 막대(예시)"},
-        "inputs":{"title":{"ko":"오류 유형 분해(예시)"},"ylabel":{"ko":"비율(%)"},
-                  "categories":["Dataset A","Dataset B","Dataset C"],
-                  "series":[
-                      {"label":"Span","values":[20,25,15]},
-                      {"label":"Negation","values":[15,10,20]},
-                      {"label":"Coref","values":[30,35,25]},
-                      {"label":"Other","values":[35,30,40]}
-                  ],
-                  "normalize":True,"annotate":True}
-    })
+    # 시퀀스 포맷/특수 토큰 → 도식 (문서에 실제 토큰 있을 때만)
+    if _has_trigger(cidx, "viz.intent.sequence_format", text) or _has_trigger(cidx, "viz.trigger.token_sequence", text):
+        tokens = parse_special_tokens(text)
+        if tokens:
+            spec.append({
+                "id":"seq_format",
+                "type":"token_sequence",
+                "labels":{"ko":"시퀀스 포맷"},
+                "inputs":{
+                    "title":{"ko":"시퀀스 포맷"},
+                    "tokens": tokens,
+                    "notes":{"[CLS]":"문서 대표","[SEP]":"경계"}
+                }
+            })
 
     # 곡선(학습/ROC/PR 템플릿)
     _append_if(_has_trigger(cidx, "viz.trigger.curve_generic", text), {
@@ -540,11 +622,11 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         "type":"curve_generic",
         "labels":{"ko":"곡선(예시)"},
         "inputs":{"title":"Learning Curve","xlabel":"epoch","ylabel":"metric",
-                  "series":[
-                      {"label":"train","x":[1,2,3,4,5],"y":[0.9,0.7,0.6,0.5,0.45]},
-                      {"label":"val","x":[1,2,3,4,5],"y":[1.0,0.8,0.7,0.62,0.60]}
-                  ],
-                  "legend_loc":"upper right","annotate_last":True}
+                "series":[
+                    {"label":"train","x":[1,2,3,4,5],"y":[0.9,0.7,0.6,0.5,0.45]},
+                    {"label":"val","x":[1,2,3,4,5],"y":[1.0,0.8,0.7,0.62,0.60]}
+                ],
+                "legend_loc":"upper right","annotate_last":True}
     })
     # === 추가 끝 ===
 

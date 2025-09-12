@@ -1,4 +1,5 @@
 # 토큰 시퀀스 라인 (CLS/SEP 강조)
+# 입력 토큰의 구성/경계를 설명하는 도식
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from registry import Grammar, register
