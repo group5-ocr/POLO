@@ -24,6 +24,9 @@ async def run(paper_id: str, source_dir: str, callback: str):
                 },
             )
             resp.raise_for_status()
-            logger.info(f"✅ 전처리 시작 요청 완료: paper_id={paper_id}")
+            result = resp.json()
+            logger.info(f"✅ 전처리 완료: paper_id={paper_id}, out_dir={result.get('out_dir')}")
+            return result
     except Exception as e:
         logger.error(f"❌ 전처리 요청 실패: {e}")
+        raise

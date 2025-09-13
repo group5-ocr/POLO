@@ -16,6 +16,11 @@ class UploadFromArxiv(BaseModel):
     arxiv_id: str = Field(..., description="예: '2408.12345'")
     title: str = Field(..., description="논문 제목 (origin_file.filename 저장용)")
 
+class PreprocessCallback(BaseModel):
+    paper_id: str
+    transport_path: str
+    status: str
+
 
 @router.post("/from-arxiv")
 async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
@@ -57,3 +62,22 @@ async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
             "main_tex": res["main_tex"],
         }
     }
+
+@router.post("/preprocess/callback")
+async def preprocess_callback(body: PreprocessCallback):
+    """
+    전처리 완료 콜백
+    """
+    try:
+        # 데이터베이스에 전처리 완료 상태 업데이트
+        # TODO: 실제 데이터베이스 업데이트 로직 구현
+        print(f"✅ 전처리 완료: paper_id={body.paper_id}, transport_path={body.transport_path}")
+        
+        return {
+            "ok": True,
+            "paper_id": body.paper_id,
+            "status": "callback_received"
+        }
+    except Exception as e:
+        print(f"❌ 콜백 처리 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"Callback processing failed: {e}")
