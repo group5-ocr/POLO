@@ -1,7 +1,8 @@
 # server/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from services.database import db as DB
+from services.database.db import DB
+
 from routes import upload, generate, results, math_generate
 
 app = FastAPI(title="POLO Orchestrator")
@@ -16,6 +17,12 @@ app.add_middleware(
 async def startup():
     await DB.init()
     print(f"현재 DB 모드: {DB.mode}")
+
+@app.on_event("shutdown")
+async def shutdown():
+    close_fn = getattr(DB, "close", None)
+    if callable(close_fn):
+        await close_fn()
 
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(generate.router, prefix="/generate", tags=["callbacks"])
