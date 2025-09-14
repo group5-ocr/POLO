@@ -28,3 +28,9 @@ app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(generate.router, prefix="/generate", tags=["callbacks"])
 app.include_router(results.router, prefix="/results", tags=["results"])
 app.include_router(math_generate.router, prefix="/math", tags=["math"])
+
+# API 엔드포인트 추가
+app.include_router(upload.router, prefix="/api", tags=["api"])
+app.include_router(generate.router, prefix="/api", tags=["api"])
+app.include_router(results.router, prefix="/api", tags=["api"])
+app.include_router(math_generate.router, prefix="/api", tags=["api"])

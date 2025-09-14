@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import os, re, unicodedata
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from pydantic import BaseModel, Field
 from typing import Optional
+import tempfile
+import shutil
+from pathlib import Path
 
 from services.database.db import DB
 from services import arxiv_client, preprocess_client
@@ -28,6 +31,116 @@ class PreprocessCallback(BaseModel):
     paper_id: str
     transport_path: str
     status: str
+
+class ConvertResponse(BaseModel):
+    filename: str
+    file_size: int
+    extracted_text_length: int
+    extracted_text_preview: str
+    easy_text: str
+    status: str
+    doc_id: Optional[str] = None
+    json_file_path: Optional[str] = None
+
+@router.post("/convert", response_model=ConvertResponse)
+async def convert_pdf(file: UploadFile = File(...)):
+    """
+    PDF 파일을 업로드하고 변환하는 엔드포인트
+    """
+    try:
+        # 파일 크기 체크 (50MB)
+        if file.size > 50 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="파일은 50MB 이하만 가능합니다.")
+        
+        # PDF 파일인지 체크
+        if not file.content_type == "application/pdf":
+            raise HTTPException(status_code=400, detail="PDF 파일만 업로드할 수 있습니다.")
+        
+        # 임시 디렉토리에 파일 저장
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / file.filename
+            with open(temp_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            # 간단한 텍스트 추출 (실제로는 PDF 파싱 라이브러리 사용해야 함)
+            try:
+                # 여기서는 간단한 시뮬레이션
+                extracted_text = f"업로드된 논문: {file.filename}\n\n이것은 PDF에서 추출된 텍스트의 예시입니다. 실제 구현에서는 PyPDF2나 pdfplumber 같은 라이브러리를 사용하여 PDF에서 텍스트를 추출해야 합니다."
+                extracted_text_length = len(extracted_text)
+                extracted_text_preview = extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
+            except Exception as e:
+                extracted_text = f"텍스트 추출 실패: {str(e)}"
+                extracted_text_length = len(extracted_text)
+                extracted_text_preview = extracted_text
+            
+            # Easy 모델 호출 시뮬레이션
+            try:
+                # 실제로는 Easy 모델 API를 호출해야 함
+                easy_text = f"이것은 AI가 변환한 쉬운 버전의 논문입니다.\n\n원본: {file.filename}\n\n복잡한 학술 용어들이 일반인도 이해할 수 있는 쉬운 말로 바뀌었습니다. 실제 구현에서는 Easy 모델 API를 호출하여 텍스트를 변환해야 합니다."
+            except Exception as e:
+                easy_text = f"변환 실패: {str(e)}"
+            
+            # 성공 응답
+            return ConvertResponse(
+                filename=file.filename,
+                file_size=file.size,
+                extracted_text_length=extracted_text_length,
+                extracted_text_preview=extracted_text_preview,
+                easy_text=easy_text,
+                status="success",
+                doc_id=f"doc_{hash(file.filename)}_{file.size}",
+                json_file_path=f"/api/download/{file.filename}.json"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"파일 처리 중 오류가 발생했습니다: {str(e)}")
+
+@router.get("/model-status")
+async def get_model_status():
+    """
+    AI 모델 상태 확인
+    """
+    try:
+        # Easy 모델 상태 확인
+        import httpx
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get("http://localhost:5003/health", timeout=5.0)
+                easy_available = response.status_code == 200
+            except:
+                easy_available = False
+        
+        # Math 모델 상태 확인
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get("http://localhost:5004/health", timeout=5.0)
+                math_available = response.status_code == 200
+        except:
+            math_available = False
+        
+        return {
+            "model_available": easy_available and math_available,
+            "easy_model": easy_available,
+            "math_model": math_available,
+            "status": "healthy" if (easy_available and math_available) else "unhealthy"
+        }
+    except Exception as e:
+        return {
+            "model_available": False,
+            "easy_model": False,
+            "math_model": False,
+            "status": "error",
+            "error": str(e)
+        }
+
+@router.get("/download/{filename}")
+async def download_file(filename: str):
+    """
+    파일 다운로드 (임시 구현)
+    """
+    raise HTTPException(status_code=501, detail="다운로드 기능은 아직 구현되지 않았습니다.")
 
 @router.post("/from-arxiv")
 async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):

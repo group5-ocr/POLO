@@ -37,7 +37,7 @@ if ROOT_ENV.exists():
 else:
     logger.info("[dotenv] no .env at repo root")
 
-HF_TOKEN   = os.getenv("HUGGINGFACE_TOKEN")
+HF_TOKEN   = os.getenv("허깅페이스 토큰")
 BASE_MODEL = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
 ADAPTER_DIR = os.getenv(
     "EASY_ADAPTER_DIR",

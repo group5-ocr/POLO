@@ -122,6 +122,18 @@ if not exist "%ACTIVATE%" (
   exit /b 1
 )
 
+REM Math 모델의 경우 의존성 설치를 다시 수행
+if "%TITLE%"=="Math" (
+  echo [MATH] Reinstalling dependencies for Math model
+  echo [MATH] venv path: %WORK_DIR%\venv
+  set "REQ_PATH=%WORK_DIR%\%REQ_FILE%"
+  if exist "%REQ_PATH%" (
+    call "%ACTIVATE%" ^&^& python -m pip install --upgrade pip --quiet
+    call "%ACTIVATE%" ^&^& python -m pip install -r "%REQ_PATH%" --force-reinstall --quiet
+  )
+  goto :skip_install
+)
+
 set "REQ_PATH=%WORK_DIR%\%REQ_FILE%"
 echo [%TITLE%] Preparing dependencies...
 if exist "%REQ_PATH%" (
@@ -140,6 +152,7 @@ if exist "%REQ_PATH%" (
   call "%ACTIVATE%" ^&^& python -m pip install %FALLBACK_PKGS% --quiet
 )
 
+:skip_install
 echo [%TITLE%] Launching (port %PORT%)...
 set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
 > "%TEMP_BAT%" (
@@ -219,7 +232,28 @@ if exist "%EASY_DIR%" (
 
 echo [2/4] Start Math Model (Port %MATH_PORT%)
 if exist "%MATH_DIR%" (
-  call :LAUNCH_PY_APP "Math" "%MATH_DIR%" "%REQ_MATH%" "app:app" "%MATH_PORT%" "yes" "%FALLBACK_MATH%"
+  echo [MATH] Using existing venv in %MATH_DIR%\venv
+  echo [MATH] Installing dependencies in existing venv...
+  cd /d "%MATH_DIR%"
+  call venv\Scripts\activate.bat
+  pip install --upgrade pip
+  pip install accelerate
+  pip install -r requirements.math.txt --force-reinstall
+  echo [MATH] Dependencies installed successfully
+  echo [MATH] Starting Math model directly...
+  
+  REM Math 모델을 직접 실행 (LAUNCH_PY_APP 함수 사용하지 않음)
+  set "TEMP_BAT=%TEMP%\polo_Math_%MATH_PORT%.bat"
+  > "%TEMP_BAT%" (
+    echo @echo off
+    echo setlocal EnableExtensions EnableDelayedExpansion
+    echo chcp 65001 ^>nul
+    echo cd /d "%MATH_DIR%"
+    echo call venv\Scripts\activate.bat
+    echo uvicorn app:app --host 0.0.0.0 --port %MATH_PORT%
+  )
+  start "Math Model" cmd /k "%TEMP_BAT%"
+  echo [MATH] Math model started on port %MATH_PORT%
 ) else (
   echo [ERROR] Math directory not found: %MATH_DIR%
   goto :end
