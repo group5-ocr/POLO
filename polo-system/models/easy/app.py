@@ -500,8 +500,7 @@ async def batch_generate(req: BatchRequest):
             idx = item["index"]
             try:
                 ko = await _rewrite_text(item["text"])
-                vz = await _send_to_viz(req.p
-aper_id, idx, ko, out_dir)
+                vz = await _send_to_viz(req.paper_id, idx, ko, out_dir)
                 results.append(vz)
             except Exception as e:
                 results.append(VizResult(ok=False, index=idx, error=str(e)))
