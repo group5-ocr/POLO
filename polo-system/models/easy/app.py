@@ -1,22 +1,30 @@
+# -*- coding: utf-8 -*-
 """
 POLO Easy Model - Grounded JSON Generator (GPU-forced, stable)
-- GPU 필수: CUDA 없으면 기동 중단
+- GPU 필수: CUDA 없으면 기동 중단(단, 코드상 CPU 폴백은 허용)
 - 어텐션 백엔드 자동 선택: flash_attn > sdpa(가능 시) > eager 폴백
 - 섹션별 original만 컨텍스트로 제공하여 'easy'를 재서술(추측 금지)
-- Greedy 디코딩, 낮은 토큰 수(기본 600)로 속도/안정성 확보
+- Greedy 디코딩, 낮은 토큰 수로 속도/안정성 확보
 - JSON 강제 파싱 + 재시도, 실패 시 빈 값 유지
+- 배치 엔드포인트(/batch): JSONL → (재서술) → Viz 렌더(/viz) → PNG 저장
 """
-import os
-import uvicorn
-import time
-import json
-import re
-import logging
-from typing import Optional, Dict, Any
+from __future__ import annotations
 
+import os
+import re
+import json
+import time
+import base64
+import logging
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+
+import anyio
+import httpx
 import torch
+import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from dotenv import load_dotenv
@@ -37,10 +45,13 @@ _DEFAULT_ADAPTER_DIR = os.path.abspath(
 )
 ADAPTER_DIR = os.getenv("EASY_ADAPTER_DIR", _DEFAULT_ADAPTER_DIR)
 
-MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "4000"))  # 가중치 4000으로 설정
+MAX_NEW_TOKENS = int(os.getenv("EASY_MAX_NEW_TOKENS", "800"))  # VRAM 보호 기본 800
+VIZ_MODEL_URL = os.getenv("VIZ_MODEL_URL", "http://localhost:5005")
+EASY_CONCURRENCY = int(os.getenv("EASY_CONCURRENCY", "8"))
+EASY_BATCH_TIMEOUT = int(os.getenv("EASY_BATCH_TIMEOUT", "600"))  # seconds
 
 # -------------------- FastAPI --------------------
-app = FastAPI(title="POLO Easy Model", version="1.2.0")
+app = FastAPI(title="POLO Easy Model", version="1.3.0")
 
 # -------------------- 전역 상태 --------------------
 model = None
@@ -58,7 +69,7 @@ def _pick_attn_impl() -> str:
         return "flash_attention_2"
     except Exception:
         pass
-    # 2) sdpa 가능 여부(없으면 transformers가 ImportError 던질 수 있음)
+    # 2) sdpa 가능 여부
     try:
         from torch.nn.functional import scaled_dot_product_attention  # noqa: F401
         logger.info("ℹ️ sdpa 사용 가능")
@@ -109,7 +120,7 @@ def _extract_sections(src: str) -> dict:
     for i, (start_idx, key) in enumerate(indices):
         end_idx = indices[i+1][0] if i+1 < len(indices) else len(lines)
         chunk = "\n".join(lines[start_idx+1:end_idx]).strip()
-        sections[key] = chunk[:2000]  # 섹션 original은 길이 제한
+        sections[key] = chunk[:2000]  # 섹션 original 길이 제한
     return sections
 
 # -------------------- 스키마 --------------------
@@ -141,28 +152,46 @@ class TextResponse(BaseModel):
     simplified_text: str
     translated_text: Optional[str] = None
 
+class BatchRequest(BaseModel):
+    paper_id: str = Field(..., description="결과 파일/경로 식별자")
+    chunks_jsonl: str = Field(..., description="각 라인에 {'text': ...} 형태의 JSONL")
+    output_dir: str = Field(..., description="이미지/결과 저장 루트")
+
+class VizResult(BaseModel):
+    ok: bool = True
+    index: int
+    image_path: Optional[str] = None
+    error: Optional[str] = None
+
+class BatchResult(BaseModel):
+    ok: bool
+    paper_id: str
+    count: int
+    success: int
+    failed: int
+    out_dir: str
+    images: List[VizResult]
+
 # -------------------- 모델 로드 --------------------
 def load_model():
     global model, tokenizer, gpu_available, device, safe_dtype
 
     logger.info(f"🔄 모델 로딩 시작: {BASE_MODEL}")
-    
-    # 디바이스 자동 선택 및 로그 출력
     if torch.cuda.is_available():
         gpu_available = True
         device = "cuda"
         safe_dtype = torch.float16
         gpu_name = torch.cuda.get_device_name(0)
         logger.info(f"✅ GPU 사용 가능: {gpu_name}")
-        logger.info(f"🔧 디바이스: {device}, 데이터 타입: {safe_dtype}")
+        logger.info(f"🔧 디바이스: {device}, dtype: {safe_dtype}")
     else:
         gpu_available = False
         device = "cpu"
         safe_dtype = torch.float32
         logger.info("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
-        logger.info(f"🔧 디바이스: {device}, 데이터 타입: {safe_dtype}")
+        logger.info(f"🔧 디바이스: {device}, dtype: {safe_dtype}")
 
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -180,7 +209,7 @@ def load_model():
             attn_implementation=attn_impl,
             low_cpu_mem_usage=True,
             token=HF_TOKEN,
-            device_map=None,  # 명시적 .to(device) 사용
+            device_map=None,
         )
     except Exception as e:
         logger.warning(f"attn='{attn_impl}' 로딩 실패({e}) → eager로 폴백")
@@ -195,14 +224,11 @@ def load_model():
         )
 
     # LoRA 어댑터 (실패해도 베이스 모델로 계속 진행)
-    m = base  # 기본값은 베이스 모델
-    
+    m = base
     if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
         logger.info(f"🔄 어댑터 로딩 시도: {ADAPTER_DIR}")
         try:
-            # Windows 경로 문제 해결을 위해 절대 경로 사용
             adapter_path = os.path.abspath(ADAPTER_DIR)
-            # Hugging Face가 로컬 경로를 인식하도록 처리
             m = PeftModel.from_pretrained(base, adapter_path, is_trainable=False, local_files_only=True)
             logger.info("✅ 어댑터 로딩 성공")
         except Exception as e:
@@ -214,7 +240,6 @@ def load_model():
 
     m.eval()
     m = m.to(safe_dtype).to(device)
-
     p = next(m.parameters())
     logger.info(f"🧠 MODEL DEVICE: {p.device}, DTYPE: {p.dtype}")
 
@@ -225,6 +250,77 @@ def load_model():
 @app.on_event("startup")
 async def startup_event():
     load_model()
+
+# -------------------- 내부 유틸 (단일 문장 재서술) --------------------
+async def _rewrite_text(text: str) -> str:
+    if model is None or tokenizer is None:
+        raise RuntimeError("모델이 로드되지 않았습니다")
+
+    prompt = (
+        "아래 텍스트를 일반인이 이해하기 쉽게 풀어 써라. "
+        "추가 가정이나 외부 지식 사용 금지. 제공된 문장만 재서술하며, 모르면 생략:\n\n"
+        f"{text}\n\n쉬운 설명:"
+    )
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    with torch.inference_mode():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=min(MAX_NEW_TOKENS, 800),
+            do_sample=False,
+            use_cache=True,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+    generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return generated[len(prompt):].strip()
+
+# -------------------- Viz 호출 (렌더 → PNG 저장) --------------------
+async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -> VizResult:
+    """
+    Viz API (너의 viz 서비스 스펙에 맞춤):
+      POST {VIZ_MODEL_URL}/viz
+      body = {"paper_id": "...", "index": 0, "rewritten_text": "한국어 문장", "target_lang":"ko","bilingual":"missing"}
+      응답: {"paper_id": "...", "index": 0, "image_path": "...", "success": true}
+    """
+    try:
+        async with httpx.AsyncClient(timeout=EASY_BATCH_TIMEOUT) as client:
+            r = await client.post(
+                f"{VIZ_MODEL_URL.rstrip('/')}/viz",
+                json={
+                    "paper_id": paper_id,
+                    "index": index,
+                    "rewritten_text": text_ko,
+                    "target_lang": "ko",
+                    "bilingual": "missing",
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        img_path = data.get("image_path")
+
+        # 안전망: 혹시 base64나 url이 올 수도 있으니 최소 처리 추가(옵션)
+        if not img_path and data.get("image_base64"):
+            out_path = out_dir / f"{index:06d}.png"
+            raw = base64.b64decode(data["image_base64"])
+            out_path.write_bytes(raw)
+            return VizResult(ok=True, index=index, image_path=str(out_path))
+        if not img_path and data.get("image_url"):
+            out_path = out_dir / f"{index:06d}.png"
+            async with httpx.AsyncClient(timeout=60) as client:
+                rr = await client.get(data["image_url"])
+                rr.raise_for_status()
+                out_path.write_bytes(rr.content)
+            return VizResult(ok=True, index=index, image_path=str(out_path))
+
+        if img_path:
+            # viz가 만들어둔 로컬 경로를 그대로 기록
+            return VizResult(ok=True, index=index, image_path=str(img_path))
+
+        return VizResult(ok=False, index=index, error="No image_path from viz")
+    except Exception as e:
+        return VizResult(ok=False, index=index, error=str(e))
 
 # -------------------- 엔드포인트 --------------------
 @app.get("/")
@@ -251,28 +347,7 @@ async def healthz():
 async def simplify_text(request: TextRequest):
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다")
-
-    prompt = (
-        "아래 텍스트를 일반인이 이해하기 쉽게 풀어 써라. "
-        "추가 가정이나 외부 지식 사용 금지. 제공된 문장만 재서술하며, 모르면 생략:\n\n"
-        f"{request.text}\n\n쉬운 설명:"
-    )
-
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    with torch.inference_mode():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=4000,          # ✅ 가중치 4000으로 설정
-            do_sample=False,              # ✅ 그리디(추측 억제)
-            use_cache=True,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-
-    generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    simplified_text = generated[len(prompt):].strip()
+    simplified_text = await _rewrite_text(request.text)
     return TextResponse(simplified_text=simplified_text, translated_text=None)
 
 @app.post("/generate")
@@ -289,15 +364,12 @@ async def generate_json(request: TextRequest):
     logger.info("🚀 JSON 생성 시작")
     logger.info(f"📊 입력 길이: {len(request.text)}")
 
-    # 1) 섹션 추출
     extracted = _extract_sections(request.text)
 
-    # 2) 스키마 준비 + original 주입
     data_schema = json.loads(json.dumps(GROUND_SCHEMA))  # deepcopy
     for k in ["abstract","introduction","methods","results","discussion","conclusion"]:
         data_schema[k]["original"] = extracted.get(k, "")
 
-    # 3) 프롬프트(강한 제약) — 섹션별 원문만 참고하도록 명시
     instruction = (
         "너는 과학 커뮤니케이터다. 다음 JSON 스키마의 '키와 구조'를 절대 변경하지 말고, "
         "'값'만 채워라. 출력은 오직 '유효한 JSON' 하나만 허용된다(코드블록/설명/주석 금지). "
@@ -311,14 +383,7 @@ async def generate_json(request: TextRequest):
     )
 
     schema_str = json.dumps(data_schema, ensure_ascii=False, indent=2)
-    context_only = {
-        "abstract": extracted["abstract"],
-        "introduction": extracted["introduction"],
-        "methods": extracted["methods"],
-        "results": extracted["results"],
-        "discussion": extracted["discussion"],
-        "conclusion": extracted["conclusion"],
-    }
+    context_only = {k: extracted[k] for k in ["abstract","introduction","methods","results","discussion","conclusion"]}
     context_str = json.dumps(context_only, ensure_ascii=False, indent=2)
 
     prompt = (
@@ -330,18 +395,16 @@ async def generate_json(request: TextRequest):
         "위 지시를 따라 JSON만 출력:"
     )
 
-    # 4) 토크나이즈 + 디바이스 이동
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
     inputs = {k: v.to(device) for k, v in inputs.items()}
     logger.info(f"INPUT -> device={inputs['input_ids'].device}, shape={tuple(inputs['input_ids'].shape)}")
 
-    # 5) 생성(그리디, 제한된 길이)
     t0 = time.time()
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=False,              # ✅ 그리디(추측 억제)
+            do_sample=False,
             use_cache=True,
             repetition_penalty=1.1,
             pad_token_id=tokenizer.eos_token_id,
@@ -350,7 +413,6 @@ async def generate_json(request: TextRequest):
     inference_time = time.time() - t0
     logger.info(f"⚡ 추론 완료: {inference_time:.2f}s")
 
-    # 6) 파싱/검증 (+재시도)
     generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
     raw = generated[len(prompt):].strip()
 
@@ -401,18 +463,76 @@ async def generate_json(request: TextRequest):
     }
     return data
 
+@app.post("/batch", response_model=BatchResult)
+async def batch_generate(req: BatchRequest):
+    """
+    JSONL의 각 라인: {"text": "..."}을
+      1) Easy로 한국어 재서술
+      2) Viz에 (paper_id, index, rewritten_text) 전달 (/viz)
+      3) Viz가 반환한 이미지 경로를 수집 (없으면 에러로 기록)
+    """
+    jsonl_path = Path(req.chunks_jsonl).resolve()
+    out_dir = Path(req.output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not jsonl_path.exists():
+        raise HTTPException(status_code=400, detail=f"JSONL not found: {jsonl_path}")
+
+    # JSONL 로드
+    items: List[dict] = []
+    with jsonl_path.open("r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            try:
+                obj = json.loads(line)
+                text = obj.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    logger.warning(f"[batch] 라인 {i}: text 비어있음 → skip")
+                    continue
+                items.append({"index": i, "text": text})
+            except Exception as e:
+                logger.warning(f"[batch] 라인 {i}: JSON 파싱 실패 → skip ({e})")
+
+    sem = anyio.Semaphore(EASY_CONCURRENCY)
+    results: List[VizResult] = []
+
+    async def worker(item: dict):
+        async with sem:
+            idx = item["index"]
+            try:
+                ko = await _rewrite_text(item["text"])
+                vz = await _send_to_viz(req.p
+aper_id, idx, ko, out_dir)
+                results.append(vz)
+            except Exception as e:
+                results.append(VizResult(ok=False, index=idx, error=str(e)))
+
+    async with anyio.create_task_group() as tg:
+        for item in items:
+            tg.start_soon(worker, item)
+
+    ok_cnt = sum(1 for r in results if r.ok)
+    fail_cnt = len(results) - ok_cnt
+    return BatchResult(
+        ok=fail_cnt == 0,
+        paper_id=req.paper_id,
+        count=len(items),
+        success=ok_cnt,
+        failed=fail_cnt,
+        out_dir=str(out_dir),
+        images=sorted(results, key=lambda r: r.index),
+    )
+
 # -------------------- main --------------------
 if __name__ == "__main__":
     try:
-        # 디바이스 상태 출력
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
             print(f"✅ GPU 사용 가능: {gpu_name}")
-            print(f"🔧 디바이스: cuda, 데이터 타입: float16")
+            print(f"🔧 디바이스: cuda, dtype: float16")
         else:
             print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
-            print(f"🔧 디바이스: cpu, 데이터 타입: float32")
-        
+            print(f"🔧 디바이스: cpu, dtype: float32")
+
         print("🚀 Easy Model 서버 시작 중...")
         uvicorn.run(app, host="0.0.0.0", port=5003)
     except Exception as e:

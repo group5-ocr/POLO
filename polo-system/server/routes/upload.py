@@ -1,6 +1,7 @@
 # server/routes/upload.py
 from __future__ import annotations
 
+import os, re, unicodedata
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -9,7 +10,14 @@ from services.database.db import DB
 from services import arxiv_client, preprocess_client
 
 router = APIRouter()
+ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}$")
 
+def slugify_filename(name: str) -> str:
+    # 간단한 파일명 안전화 (공백/특수문자 제거)
+    value = unicodedata.normalize("NFKC", name).strip()
+    value = re.sub(r"[\\/:*?\"<>|]+", "_", value)
+    value = re.sub(r"\s+", "_", value)
+    return value[:200] or "paper"
 
 class UploadFromArxiv(BaseModel):
     user_id: int = Field(..., description="업로드한 사용자 ID")
@@ -21,34 +29,53 @@ class PreprocessCallback(BaseModel):
     transport_path: str
     status: str
 
-
 @router.post("/from-arxiv")
 async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
     """
     1) origin_file 생성
-    2) arXiv tex 소스 다운로드/추출 (벤더 스크립트 활용)
-    3) tex 레코드 생성 (원본 source tar 경로 저장)
+    2) arXiv tex 소스 다운로드/추출 (벤더 스크립트)
+    3) tex 레코드 생성 (원본 tar 경로 저장)
     4) 전처리 서비스 호출 (완료 시 /generate/preprocess/callback)
     """
-    # 1) origin_file
-    origin_id = await DB.create_origin_file(user_id=body.user_id, filename=body.title)
+    if not ARXIV_ID_RE.match(body.arxiv_id):
+        raise HTTPException(status_code=400, detail="Invalid arXiv id format")
 
-    # 2) arXiv fetch & extract
+    safe_title = slugify_filename(body.title)
+
+    # 1) origin_file
+    origin_id = await DB.create_origin_file(user_id=body.user_id, filename=safe_title)
+
+    # 2) arXiv fetch & extract (항상 먼저 거침)
     try:
-        res = await arxiv_client.fetch_and_extract(arxiv_id=body.arxiv_id, out_root="data/arxiv")
+        res = await arxiv_client.fetch_and_extract(
+            arxiv_id=body.arxiv_id,
+            out_root=os.getenv("ARXIV_OUT_ROOT", "server/data/arxiv"),
+            corp_ca_pem=os.getenv("CORP_CA_PEM") or None,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"arXiv fetch failed: {e}")
 
     # 3) tex
     tex_id = await DB.create_tex(origin_id=origin_id, file_addr=res["src_tar"])
 
-    # 4) preprocess 시작
-    bg.add_task(
-        preprocess_client.run,
-        str(tex_id),
-        res["source_dir"],
-        "/generate/preprocess/callback"
-    )
+    # 4) preprocess 시작 (콜백은 절대 URL로)
+    base_cb = os.getenv("CALLBACK_URL", "http://localhost:8000").rstrip("/")
+    callback_url = f"{base_cb}/generate/preprocess/callback"
+
+    # preprocess_client.run 이 동기라면 BackgroundTasks로 충분
+    # 비동기라면 asyncio.create_task를 써야 함 → 두 경우 모두 대응
+    run_fn = getattr(preprocess_client, "run", None)
+    run_async = getattr(preprocess_client, "run_async", None)
+
+    if callable(run_fn):
+        # sync
+        bg.add_task(run_fn, str(tex_id), res["source_dir"], callback_url)
+    elif callable(run_async):
+        # async
+        import asyncio
+        asyncio.create_task(run_async(str(tex_id), res["source_dir"], callback_url))
+    else:
+        raise HTTPException(status_code=500, detail="No preprocess client entrypoint found")
 
     return {
         "ok": True,
@@ -60,7 +87,7 @@ async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
             "src_tar": res["src_tar"],
             "source_dir": res["source_dir"],
             "main_tex": res["main_tex"],
-        }
+        },
     }
 
 @router.post("/preprocess/callback")
@@ -69,15 +96,9 @@ async def preprocess_callback(body: PreprocessCallback):
     전처리 완료 콜백
     """
     try:
-        # 데이터베이스에 전처리 완료 상태 업데이트
-        # TODO: 실제 데이터베이스 업데이트 로직 구현
-        print(f"✅ 전처리 완료: paper_id={body.paper_id}, transport_path={body.transport_path}")
-        
-        return {
-            "ok": True,
-            "paper_id": body.paper_id,
-            "status": "callback_received"
-        }
+        # TODO: DB 업데이트 로직 (paper_id 기준 상태 갱신)
+        print(f"✅ 전처리 완료: paper_id={body.paper_id}, transport_path={body.transport_path}, status={body.status}")
+        return {"ok": True, "paper_id": body.paper_id, "status": "callback_received"}
     except Exception as e:
         print(f"❌ 콜백 처리 실패: {e}")
         raise HTTPException(status_code=500, detail=f"Callback processing failed: {e}")
