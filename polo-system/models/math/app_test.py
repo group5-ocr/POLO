@@ -1,15 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-LaTeX 수식 해설 API (FastAPI) + Google Cloud Translation v3 번역(ko) 후처리
+LaTeX 수식 해설 API (FastAPI)
 
-출력물(총 4개)
-- 원본 JSON:  equations_explained.json
-- 원본 TeX :  yolo_math_report.tex
-- 번역 JSON:  equations_explained.ko.json
-- 번역 TeX :  yolo_math_report.ko.tex
+실행 방법
+- 개발 모드(핫 리로드): uvicorn --reload app:app
+- 프로덕션 모드(권장):   uvicorn app:app
+
+제공 엔드포인트
+- GET  /health
+- GET  /count/{file_path:path}
+- POST /count
+- GET  /math/{file_path:path}
+- POST /math
+
+주의/특징
+- stdout 라인 버퍼링
+- pad_token 보정 + attention_mask 명시 전달
+- LLM 프롬프트(개요/해설)는 영어
+- (추가) googletrans로 한국어 번역본 JSON/TeX도 생성
 """
 
-# === 기본 환경 ===
+# === 셀 1: 환경 준비 & 모델 로드 ===
 import os, sys, json, re, textwrap, datetime, torch
 from typing import List, Dict, Tuple
 from pathlib import Path
@@ -17,27 +28,30 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-# [NEW] Google Cloud Translation v3
+# (추가) 구글 번역기
 try:
-    from google.cloud import translate
+    # pip install googletrans==4.0.0rc1 권장
+    from googletrans import Translator
+    _GT_AVAILABLE = True
 except Exception:
-    translate = None
+    Translator = None
+    _GT_AVAILABLE = False
 
-# [권장] 콘솔 출력 flush
+# [권장] 콘솔 출력 즉시화
 try:
     sys.stdout.reconfigure(line_buffering=True)
 except Exception:
     pass
 
-VERSION = "POLO-Math-API v4 + GCP-Translate (EN->KO)"
+VERSION = "POLO-Math-API v5 (EN->KO translate + math-protect)"
 print(VERSION, flush=True)
 
-# ----- 경로/상수 -----
+# ----- 경로 설정 -----
 INPUT_TEX_PATH = r"C:\\POLO\\polo-system\\models\\math\\yolo.tex"
 OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# ----- 모델/토크나이저 -----
+# ----- 모델/토크나이저 설정 -----
 MODEL_ID = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 USE_4BIT = False
 DEVICE   = "cuda" if torch.cuda.is_available() else "cpu"
@@ -46,14 +60,12 @@ print(f"Python: {sys.version.split()[0]}", flush=True)
 print(f"PyTorch: {torch.__version__}", flush=True)
 print(f"CUDA available: {torch.cuda.is_available()}", flush=True)
 if torch.cuda.is_available():
-    print(f"✅ GPU: {torch.cuda.get_device_name(0)}", flush=True)
-    print(f"🔧 Device: {DEVICE}, dtype: float16", flush=True)
-else:
-    print("⚠️ GPU 없음 → CPU 모드", flush=True)
-    print(f"🔧 Device: {DEVICE}, dtype: float32", flush=True)
+    print(f"GPU: {torch.cuda.get_device_name(0)}", flush=True)
+print(f"Device selected: {DEVICE}", flush=True)
 
 try:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+
     PAD_ADDED = False
     if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
@@ -76,8 +88,10 @@ try:
         low_cpu_mem_usage=True,
         trust_remote_code=True
     )
+
     if PAD_ADDED:
         model.resize_token_embeddings(len(tokenizer))
+
     GEN_KW = dict(max_new_tokens=512, temperature=0.2, top_p=0.9, do_sample=True)
     print("Model & tokenizer loaded.", flush=True)
 
@@ -87,23 +101,18 @@ except Exception as e:
     GEN_KW = {}
     print("[Model Load Error]", e, flush=True)
 
-# === [NEW] GCP Translation 초기화 ===
-GCP_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
-GCP_LOCATION   = os.getenv("GOOGLE_CLOUD_TRANSLATE_LOCATION", "global")
-gcp_translate_client = None
-GCP_PARENT = None
-if translate is not None and GCP_PROJECT_ID:
+# (추가) 번역기 인스턴스
+translator = None
+if _GT_AVAILABLE:
     try:
-        gcp_translate_client = translate.TranslationServiceClient()
-        GCP_PARENT = f"projects/{GCP_PROJECT_ID}/locations/{GCP_LOCATION}"
-        print(f"GCP Translation ready: parent={GCP_PARENT}", flush=True)
+        # googletrans는 기본 엔드포인트 이슈가 있을 수 있어 보조 URL을 지정
+        translator = Translator(service_urls=["translate.googleapis.com", "translate.google.com"])
+        print("Google Translator initialized.", flush=True)
     except Exception as e:
-        print("[Warn] GCP Translation init failed:", e, flush=True)
-else:
-    print("[Warn] GCP Translation not configured (missing lib or env)", flush=True)
+        print("[Translator Init Error]", e, flush=True)
+        translator = None
 
-
-# === 공통 유틸 ===
+# === 공통 유틸: 라인 오프셋 인덱스 ===
 def make_line_offsets(text: str) -> List[int]:
     lines = text.splitlines()
     offsets, pos = [], 0
@@ -124,8 +133,7 @@ def build_pos_to_line(offsets: List[int]):
         return hi + 1
     return pos_to_line
 
-
-# === 수식 추출 ===
+# === 셀 2: LaTeX 수식 추출 ===
 def extract_equations(tex: str, pos_to_line) -> List[Dict]:
     matches: List[Dict] = []
 
@@ -138,15 +146,18 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
 
     for m in re.finditer(r"\$\$(.+?)\$\$", tex, flags=re.DOTALL):
         add("display($$ $$)", m.start(), m.end(), m.group(1))
+
     for m in re.finditer(r"\\\[(.+?)\\\]", tex, flags=re.DOTALL):
         add("display(\\[ \\])", m.start(), m.end(), m.group(1))
+
     for m in re.finditer(r"\\\((.+?)\\\)", tex, flags=re.DOTALL):
         add("inline(\\( \\))", m.start(), m.end(), m.group(1))
+
     for m in re.finditer(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", tex, flags=re.DOTALL):
         add("inline($ $)", m.start(), m.end(), m.group(1))
 
     envs = ["equation","equation*","align","align*","multline","multline*",
-            "gather","gather*","flalign","flalign*","eqnarray","eqnarray*","split","cases"]
+            "gather","gather*","flalign","flalign*","eqnarray","eqnarray*","split"]
     for env in envs:
         pattern = rf"\\begin{{{re.escape(env)}}}(.+?)\\end{{{re.escape(env)}}}"
         for m in re.finditer(pattern, tex, flags=re.DOTALL):
@@ -157,12 +168,12 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
         key = (it["start"], it["end"])
         if key not in uniq:
             uniq[key] = it
+
     out = list(uniq.values())
     out.sort(key=lambda x: x["start"])
     return out
 
-
-# === 난이도 휴리스틱 ===
+# === 셀 3: 난이도 휴리스틱 ===
 ADV_TOKENS = [
     r"\\sum", r"\\prod", r"\\int", r"\\lim", r"\\nabla", r"\\partial",
     r"\\mathbb", r"\\mathcal", r"\\mathbf", r"\\boldsymbol",
@@ -192,8 +203,7 @@ def is_advanced(eq: str) -> bool:
         return True
     return False
 
-
-# === LLM ===
+# === 셀 4: 개요 생성 ===
 def take_slices(text: str, head_chars=4000, mid_chars=2000, tail_chars=4000):
     n = len(text)
     head = text[:min(head_chars, n)]
@@ -226,6 +236,7 @@ def chat_overview(prompt: str) -> str:
     text = _generate_with_mask_from_messages(messages)
     return text.split(messages[-1]["content"])[-1].strip()
 
+# === 셀 5: 수식 해설 생성 ===
 EXPLAIN_SYSTEM = (
     "You are a teacher who explains math/AI research equations in clear, simple English. "
     "Always be precise, polite, and easy to understand."
@@ -253,8 +264,7 @@ def explain_equation_with_llm(eq_latex: str) -> str:
     text = _generate_with_mask_from_messages(messages)
     return text.split(messages[-1]["content"])[-1].strip()
 
-
-# === TeX 리포트 생성 ===
+# === 셀 6: LaTeX 리포트(.tex) 생성 ===
 def latex_escape_verbatim(s: str) -> str:
     s = s.replace("\\", r"\\")
     s = s.replace("#", r"\#").replace("$", r"\$")
@@ -287,14 +297,99 @@ def build_report(overview: str, items: List[Dict]) -> str:
     for it in items:
         title = f"Lines {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
         parts.append(f"\\section*{{{latex_escape_verbatim(title)}}}")
+        # 설명 텍스트는 (의도적으로) verbatim 이스케이프하지 않음:
+        # - 수식 블록(예: \[...\])이 그대로 LaTeX로 렌더되도록
         parts.append(it["explanation"])
         parts.append("\n")
 
     parts.append("\\end{document}\n")
     return "\n".join(parts)
 
+# (추가) 한국어 리포트 빌더
+def build_report_ko(overview_ko: str, items_ko: List[Dict]) -> str:
+    header = (r"""\\documentclass[11pt]{article}
+\\usepackage[margin=1in]{geometry}
+\\usepackage{amsmath, amssymb, amsfonts}
+\\usepackage{hyperref}
+\\usepackage{kotex}
+\\setlength{\\parskip}{6pt}
+\\setlength{\\parindent}{0pt}
+\\title{LaTeX 수식 해설 리포트 (중학생 이상)}
+\\author{자동 생성 파이프라인}
+\\date{""" + datetime.date.today().isoformat() + r"""}
+\\begin{document}
+\\maketitle
+\\tableofcontents
+\\newpage
+""")
+    parts = [header]
+    parts.append(r"\\section*{문서 개요}")
+    parts.append(latex_escape_verbatim(overview_ko))
+    parts.append("\n\\newpage\n")
 
-# === 보조: 수식 개수 ===
+    for it in items_ko:
+        title = f"라인 {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
+        parts.append(f"\\section*{{{latex_escape_verbatim(title)}}}")
+        parts.append(it["explanation"])  # 수식은 보호/복원되어 LaTeX 유지
+        parts.append("\n")
+
+    parts.append("\\end{document}\n")
+    return "\n".join(parts)
+
+# === (추가) 번역 유틸: 수식 보호/복원 + 번역 ===
+# === (수정) 번역 유틸: 수식 보호/복원 + 번역 ===
+_MATH_ENV_NAMES = r"(?:equation|align|gather|multline|eqnarray|cases|split)\*?"
+_MATH_PATTERN = re.compile(
+    r"(?P<D2>\${2}[\s\S]*?\${2})"           # $$ ... $$
+    r"|(?P<D1>(?<!\\)\$[\s\S]*?(?<!\\)\$)"  # $ ... $ (이스케이프 제외)
+    r"|(?P<LB>\\\[[\s\S]*?\\\])"            # \[ ... \]
+    r"|(?P<LP>\\\([\s\S]*?\\\))"            # \( ... \)
+    r"|(?P<ENV>\\begin\{" + _MATH_ENV_NAMES + r"\}[\s\S]*?\\end\{" + _MATH_ENV_NAMES + r"\})",
+    re.MULTILINE
+)
+
+
+def protect_math(text: str) -> Tuple[str, Dict[str, str]]:
+    """
+    수식 블록을 보호 토큰으로 치환하여 번역 시 변형을 방지합니다.
+    """
+    placeholders = {}
+    def _repl(m):
+        key = f"⟦MATH{len(placeholders)}⟧"
+        placeholders[key] = m.group(0)
+        return key
+    protected = _MATH_PATTERN.sub(_repl, text)
+    return protected, placeholders
+
+def restore_math(text: str, placeholders: Dict[str, str]) -> str:
+    for k, v in placeholders.items():
+        text = text.replace(k, v)
+    return text
+
+def translate_text_ko(text: str) -> str:
+    """
+    영문 설명/개요를 한국어로 번역합니다.
+    - 수식 보호 후 번역 → 복원
+    - googletrans 사용 불가 시 원문 그대로 반환(로그만 출력)
+    """
+    if translator is None:
+        print("[Translate] Translator unavailable; returning original.", flush=True)
+        return text
+
+    # 문단 단위로 쪼개 번역(googletrans 길이 제한/안정성 보완)
+    paras = text.split("\n\n")
+    out_paras = []
+    for para in paras:
+        prot, ph = protect_math(para)
+        try:
+            t = translator.translate(prot, dest="ko").text
+        except Exception as e:
+            print("[Translate Error]", e, flush=True)
+            t = prot  # 실패 시 원문 유지
+        out_paras.append(restore_math(t, ph))
+    return "\n\n".join(out_paras)
+
+# === 보조: 수식 개수만 빠르게 세기 ===
 def count_equations_only(input_tex_path: str) -> Dict[str, int]:
     p = Path(input_tex_path)
     if not p.exists():
@@ -312,173 +407,7 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
     return {"총 수식": len(equations_all),
             "중학생 수준 이상": len(equations_advanced)}
 
-
-# ======================================================================
-# ======================= [NEW] 번역 유틸 섹션 ==========================
-# ======================================================================
-
-# 수식 보호 (디스플레이/인라인/환경)
-_MATH_ENV_NAMES = r"(?:equation|align|gather|multline|eqnarray|cases|split)\*?"
-_MATH_PATTERN = re.compile(
-    r"(?P<D2>\${2}[\s\S]*?\${2})"      # $$ ... $$
-    r"|(?P<D1>(?<!\\)\$[\s\S]*?(?<!\\)\$)"  # $ ... $
-    r"|(?P<LB>\\\[[\s\S]*?\\\])"       # \[ ... \]
-    r"|(?P<LP>\\\([\s\S]*?\\\))"       # \( ... \)
-    r"|(?P<ENV>\\begin\{" + _MATH_ENV_NAMES + r"\}[\s\S]*?\\end\{" + _MATH_ENV_NAMES + r"\})",
-    re.MULTILINE
-)
-
-def protect_math(text: str) -> Tuple[str, Dict[str, str]]:
-    holders = {}
-    def _repl(m):
-        key = f"⟦MATH{len(holders)}⟧"
-        holders[key] = m.group(0)
-        return key
-    return _MATH_PATTERN.sub(_repl, text), holders
-
-def restore_math(text: str, holders: Dict[str, str]) -> str:
-    for k, v in holders.items():
-        text = text.replace(k, v)
-    return text
-
-# 괄호 보호: 중첩 대응을 위해 반복 적용
-def protect_parens(text: str) -> Tuple[str, Dict[str, str]]:
-    holders = {}
-    idx = 0
-    pat = re.compile(r"\([^()\n]*\)")
-    out = text
-    while True:
-        changed = False
-        def _repl(m):
-            nonlocal idx, changed
-            key = f"⟦P{idx}⟧"
-            holders[key] = m.group(0)
-            idx += 1
-            changed = True
-            return key
-        out2 = pat.sub(_repl, out)
-        out = out2
-        if not changed:
-            break
-    return out, holders
-
-def restore_parens(text: str, holders: Dict[str, str]) -> str:
-    for k, v in holders.items():
-        text = text.replace(k, v)
-    return text
-
-def split_into_paragraphs(s: str) -> List[str]:
-    # 빈 줄(두 줄 이상) 기준으로 문단 분리, 앞뒤 공백은 보존
-    # 번역 정확도를 위해 문단 단위로 번역
-    parts = re.split(r"\n\s*\n", s)
-    return parts
-
-def join_paragraphs(paragraphs: List[str]) -> str:
-    return "\n\n".join(paragraphs)
-
-def translate_paragraphs_gcp(paragraphs: List[str], target_lang="ko") -> List[str]:
-    """
-    - 수식/괄호 보호 후 번역
-    - 빈 문단은 API 호출에서 제외
-    - 번역 실패 시 원문 유지
-    """
-    if gcp_translate_client is None or GCP_PARENT is None:
-        print("[Warn] GCP Translation not ready; return original.", flush=True)
-        return paragraphs[:]
-
-    prot_list, holders_math, holders_paren = [], [], []
-    for para in paragraphs:
-        if not para.strip():
-            prot_list.append("")
-            holders_math.append({})
-            holders_paren.append({})
-            continue
-        p1, h_m = protect_math(para)
-        p2, h_p = protect_parens(p1)
-        prot_list.append(p2)
-        holders_math.append(h_m)
-        holders_paren.append(h_p)
-
-    out_list = [""] * len(paragraphs)
-
-    BATCH = 32
-    def _flush_batch(idxs: List[int]):
-        if not idxs:
-            return
-        nonempty = [i for i in idxs if prot_list[i].strip() != ""]
-        if not nonempty:
-            for i in idxs:
-                out_list[i] = prot_list[i]
-            return
-        contents = [prot_list[i] for i in nonempty]
-        try:
-            resp = gcp_translate_client.translate_text(
-                request={
-                    "parent": GCP_PARENT,
-                    "contents": contents,
-                    "mime_type": "text/plain",
-                    "target_language_code": target_lang,
-                }
-            )
-            translated = [t.translated_text for t in resp.translations]
-        except Exception as e:
-            print("[Translate Error][GCP]", e, file=sys.stderr)
-            translated = contents  # 실패 시 원문
-
-        for j, idx in enumerate(nonempty):
-            t = translated[j]
-            t = restore_parens(t, holders_paren[idx])
-            t = restore_math(t, holders_math[idx])
-            out_list[idx] = t
-
-        for i in set(idxs) - set(nonempty):
-            out_list[i] = prot_list[i]
-
-    buf = []
-    for i in range(len(paragraphs)):
-        buf.append(i)
-        if len(buf) >= BATCH:
-            _flush_batch(buf); buf.clear()
-    _flush_batch(buf)
-    return out_list
-
-def translate_text_gcp(text: str, target_lang="ko") -> str:
-    """단일 문자열 번역: 문단 분리 → 배치 번역 → 병합"""
-    paras = split_into_paragraphs(text)
-    out_paras = translate_paragraphs_gcp(paras, target_lang=target_lang)
-    return join_paragraphs(out_paras)
-
-def translate_tex_file(in_path: str, out_path: str, target_lang="ko") -> None:
-    s = Path(in_path).read_text(encoding="utf-8", errors="ignore")
-    paras = split_into_paragraphs(s)
-    out_paras = translate_paragraphs_gcp(paras, target_lang=target_lang)
-    out_text = join_paragraphs(out_paras)
-    Path(out_path).write_text(out_text, encoding="utf-8")
-    print(f"[OK] 번역본 TeX 저장: {out_path}", flush=True)
-
-def translate_json_payload(in_json_path: str, out_json_path: str, target_lang="ko") -> None:
-    data = json.loads(Path(in_json_path).read_text(encoding="utf-8"))
-    # overview 번역
-    overview_en = data.get("overview", "")
-    overview_ko = translate_text_gcp(overview_en, target_lang=target_lang) if overview_en else ""
-
-    items_ko = []
-    for it in data.get("items", []):
-        exp_en = it.get("explanation", "")
-        # 수식(it["equation"])은 보호 → 번역 대상이 아님 (영문 그대로 유지), 설명만 번역
-        exp_ko = translate_text_gcp(exp_en, target_lang=target_lang) if exp_en else ""
-        it_ko = dict(it)
-        it_ko["explanation"] = exp_ko
-        items_ko.append(it_ko)
-
-    out_obj = {"overview": overview_ko, "items": items_ko}
-    Path(out_json_path).write_text(json.dumps(out_obj, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[OK] 번역본 JSON 저장: {out_json_path}", flush=True)
-
-
-# ======================================================================
-# ========================== 메인 파이프라인 ============================
-# ======================================================================
+# === 메인 파이프라인 ===
 def run_pipeline(input_tex_path: str) -> Dict:
     p = Path(input_tex_path)
     if not p.exists():
@@ -486,16 +415,21 @@ def run_pipeline(input_tex_path: str) -> Dict:
 
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
+    # 1) 파일 읽기
     src = p.read_text(encoding="utf-8", errors="ignore")
+
+    # 2) 라인 인덱스
     offsets = make_line_offsets(src)
     pos_to_line = build_pos_to_line(offsets)
 
+    # 3) 수식 추출 & 고난도 분류
     equations_all = extract_equations(src, pos_to_line)
     equations_advanced = [e for e in equations_all if is_advanced(e["body"])]
 
     print(f"총 수식: {len(equations_all)}", flush=True)
     print(f"중학생 수준 이상: {len(equations_advanced)} / {len(equations_all)}", flush=True)
 
+    # 4) 문서 개요(영어)
     head, mid, tail = take_slices(src)
     overview_prompt = textwrap.dedent(f"""
     You will be given three slices of a LaTeX document (head / middle / tail).
@@ -515,6 +449,7 @@ def run_pipeline(input_tex_path: str) -> Dict:
     """).strip()
     doc_overview = chat_overview(overview_prompt)
 
+    # 5) 고난도 수식 해설(영어)
     explanations: List[Dict] = []
     for idx, item in enumerate(equations_advanced, start=1):
         print(f"[{idx}/{len(equations_advanced)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
@@ -529,32 +464,44 @@ def run_pipeline(input_tex_path: str) -> Dict:
             "explanation": exp
         })
 
-    # === 원본 저장 ===
+    # 6) JSON 저장 (영문)
     json_path = os.path.join(OUT_DIR, "equations_explained.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"overview": doc_overview, "items": explanations}, f, ensure_ascii=False, indent=2)
     print(f"저장된 JSON: {json_path}", flush=True)
 
+    # 7) LaTeX 리포트(.tex) 저장 (영문)
     report_tex_path = os.path.join(OUT_DIR, "yolo_math_report.tex")
     report_tex = build_report(doc_overview, explanations)
     Path(report_tex_path).write_text(report_tex, encoding="utf-8")
     print(f"저장된 TeX: {report_tex_path}", flush=True)
 
-    # === [NEW] 번역본 생성 ===
-    json_ko_path  = os.path.join(OUT_DIR, "equations_explained.ko.json")
-    tex_ko_path   = os.path.join(OUT_DIR, "yolo_math_report.ko.tex")
+    # 8) (추가) 한국어 번역본 생성 및 저장
+    # 8-1) 개요 번역
+    overview_ko = translate_text_ko(doc_overview)
 
-    try:
-        translate_json_payload(json_path, json_ko_path, target_lang="ko")
-    except Exception as e:
-        print("[Translate JSON Error]", e, file=sys.stderr)
+    # 8-2) 각 해설 번역 (수식 보호)
+    ko_items: List[Dict] = []
+    for it in explanations:
+        exp_ko = translate_text_ko(it["explanation"])
+        ko_items.append({
+            **{k: it[k] for k in ["index","line_start","line_end","kind","env","equation"]},
+            "explanation": exp_ko
+        })
 
-    try:
-        translate_tex_file(report_tex_path, tex_ko_path, target_lang="ko")
-    except Exception as e:
-        print("[Translate TeX Error]", e, file=sys.stderr)
+    # 8-3) JSON 저장 (한국어)
+    json_ko_path = os.path.join(OUT_DIR, "equations_explained.ko.json")
+    with open(json_ko_path, "w", encoding="utf-8") as f:
+        json.dump({"overview": overview_ko, "items": ko_items}, f, ensure_ascii=False, indent=2)
+    print(f"저장된 한국어 JSON: {json_ko_path}", flush=True)
 
-    # === 반환 ===
+    # 8-4) LaTeX 리포트(.tex) 저장 (한국어)
+    report_ko_tex_path = os.path.join(OUT_DIR, "yolo_math_report.ko.tex")
+    report_ko_tex = build_report_ko(overview_ko, ko_items)
+    Path(report_ko_tex_path).write_text(report_ko_tex, encoding="utf-8")
+    print(f"저장된 한국어 TeX: {report_ko_tex_path}", flush=True)
+
+    # 9) 처리 요약 반환
     return {
         "input": str(p),
         "counts": {
@@ -565,14 +512,16 @@ def run_pipeline(input_tex_path: str) -> Dict:
             "json": json_path,
             "report_tex": report_tex_path,
             "json_ko": json_ko_path,
-            "report_tex_ko": tex_ko_path,
+            "report_tex_ko": report_ko_tex_path,
             "out_dir": OUT_DIR
+        },
+        "translate": {
+            "googletrans_available": (_GT_AVAILABLE and translator is not None)
         }
     }
 
-
-# === FastAPI ===
-app = FastAPI(title="POLO Math Explainer API", version="1.1.0")
+# === FastAPI 앱 정의 ===
+app = FastAPI(title="POLO Math Explainer API", version="1.0.0")
 
 class MathRequest(BaseModel):
     path: str
@@ -586,8 +535,7 @@ async def health():
         "cuda": torch.cuda.is_available(),
         "device": DEVICE,
         "model_loaded": (tokenizer is not None and model is not None),
-        "gcp_translate_ready": (gcp_translate_client is not None and GCP_PARENT is not None),
-        "gcp_parent": GCP_PARENT
+        "googletrans": (_GT_AVAILABLE and translator is not None)
     }
 
 @app.get("/count/{file_path:path}")
@@ -628,12 +576,5 @@ async def math_post(req: MathRequest):
 
 # 직접 실행
 if __name__ == "__main__":
-    try:
-        import uvicorn
-        print("🚀 Math Model 서버 시작...")
-        uvicorn.run("app:app", host="0.0.0.0", port=5004, reload=False)
-    except Exception as e:
-        print(f"❌ 시작 실패: {e}")
-        import traceback
-        traceback.print_exc()
-        input("Press Enter to exit...")
+    import uvicorn
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
