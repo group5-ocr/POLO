@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header
 from typing import Optional
 
-from services.database import db as DB
+from services.database.db import DB
 from services import llm_client, math_client, viz_client
 
 # 프로젝트에 공통 스키마가 있으면 사용하고,
