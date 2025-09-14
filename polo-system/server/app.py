@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from services.database import db as DB
-from routes import upload, generate, results
+from routes import upload, generate, results, math_generate
 
 app = FastAPI(title="POLO Orchestrator")
 
@@ -20,3 +20,4 @@ async def startup():
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(generate.router, prefix="/generate", tags=["callbacks"])
 app.include_router(results.router, prefix="/results", tags=["results"])
+app.include_router(math_generate.router, prefix="/math", tags=["math"])

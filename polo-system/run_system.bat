@@ -3,30 +3,30 @@ setlocal EnableExtensions EnableDelayedExpansion
 title POLO Launcher (Easy Docker + Others Local)
 goto :main
 
-:: ------------------------------
+:: ================================
 :: UTIL: Check if port is in use
-:: ------------------------------
+:: ================================
 :CHECK_PORT_IN_USE
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr /R /C:":%1 " /C:":%1$" /C:":%1:" 2^>NUL') do exit /b 0
 exit /b 1
 
-:: ------------------------------
+:: ================================
 :: UTIL: Find a free port from base
-:: ------------------------------
+:: ================================
 :FIND_FREE_PORT
 set "_p=%1"
 :__find_loop
 call :CHECK_PORT_IN_USE !_p!
-if %errorlevel%==0 (
+if !errorlevel! == 0 (
   set /a _p=!_p!+1
   goto :__find_loop
 )
 call set "%2=!_p!"
 exit /b 0
 
-:: ------------------------------
-:: Patch server\.env with dynamic ports
-:: ------------------------------
+:: ==========================================
+:: Patch server\.env with dynamically chosen ports
+:: ==========================================
 :PATCH_ENV_FILE
 if not exist "%ENV_FILE%" (
   echo [ENV] %ENV_FILE% not found. Creating...
@@ -34,60 +34,55 @@ if not exist "%ENV_FILE%" (
 )
 
 set "TMP_FILE=%ENV_FILE%.tmp"
-findstr /V /B ^
- /C:"SERVER_PORT=" ^
- /C:"PREPROCESS_URL=" ^
- /C:"EASY_MODEL_URL=" ^
- /C:"MATH_MODEL_URL=" ^
- /C:"VIZ_MODEL_URL=" ^
- /C:"CALLBACK_URL=" "%ENV_FILE%" > "%TMP_FILE%"
 
->>"%TMP_FILE%" echo SERVER_PORT=%SERVER_PORT%
->>"%TMP_FILE%" echo PREPROCESS_URL=http://localhost:%PREPROCESS_PORT%
->>"%TMP_FILE%" echo EASY_MODEL_URL=http://localhost:%EASY_PORT%
->>"%TMP_FILE%" echo MATH_MODEL_URL=http://localhost:%MATH_PORT%
->>"%TMP_FILE%" echo VIZ_MODEL_URL=http://localhost:%VIZ_PORT%
->>"%TMP_FILE%" echo CALLBACK_URL=http://localhost:%SERVER_PORT%
+:: 배치 파서가 깨지지 않도록 한 줄씩 유지 (줄연속 캐럿 주의)
+> "%TMP_FILE%" (
+  for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    if not "%%a"=="" if /I not "%%a"=="SERVER_PORT" if /I not "%%a"=="PREPROCESS_URL" if /I not "%%a"=="EASY_MODEL_URL" if /I not "%%a"=="MATH_MODEL_URL" if /I not "%%a"=="VIZ_MODEL_URL" if /I not "%%a"=="CALLBACK_URL" (
+      echo %%a=%%b
+    )
+  )
+  echo SERVER_PORT=%SERVER_PORT%
+  echo PREPROCESS_URL=http://localhost:%PREPROCESS_PORT%
+  echo EASY_MODEL_URL=http://localhost:%EASY_PORT%
+  echo MATH_MODEL_URL=http://localhost:%MATH_PORT%
+  echo VIZ_MODEL_URL=http://localhost:%VIZ_PORT%
+  echo CALLBACK_URL=http://localhost:%SERVER_PORT%
+)
 
 move /Y "%TMP_FILE%" "%ENV_FILE%" >nul
 echo [ENV] Patched %ENV_FILE% with dynamic ports.
 exit /b 0
 
-:: ------------------------------
-:: Resolve / create venv  (NO quotes stored in variables)
-:: ------------------------------
+:: =================================
+:: Resolve / create venv (safe quotes)
+:: =================================
 :RESOLVE_VENV
 set "VENV_PATH=%~1"
-
 if not exist "%VENV_PATH%" (
-  echo [VENV] Creating %VENV_PATH%
+  echo [VENV] Creating "%VENV_PATH%"
   python -m venv "%VENV_PATH%"
 )
-
 if exist "%VENV_PATH%\Scripts\activate.bat" (
   set "ACTIVATE=%VENV_PATH%\Scripts\activate.bat"
 ) else (
   set "ACTIVATE=%VENV_PATH%\Scripts\activate"
 )
-
 echo [DEBUG] VENV_PATH=%VENV_PATH%
 echo [DEBUG] ACTIVATE=%ACTIVATE%
 exit /b 0
 
-:: ------------------------------
+:: =================================
 :: Launch a Python app (uvicorn)
-:: ------------------------------
+:: =================================
 :LAUNCH_PY_APP
-set "TITLE=%1"
-set "WORK_DIR=%2"
-set "REQ_FILE=%3"
-set "MODULE_APP=%4"
-set "PORT=%5"
-set "NEED_HF=%6"
-set "FALLBACK_PKGS=%7"
-
-:: sanitize quotes if someone passed them
-set "WORK_DIR=%WORK_DIR:"=%"
+set "TITLE=%~1"
+set "WORK_DIR=%~2"
+set "REQ_FILE=%~3"
+set "MODULE_APP=%~4"
+set "PORT=%~5"
+set "NEED_HF=%~6"
+set "FALLBACK_PKGS=%~7"
 
 echo [DEBUG] LAUNCH_PY_APP called with:
 echo [DEBUG]   TITLE=%TITLE%
@@ -97,8 +92,8 @@ echo [DEBUG]   MODULE_APP=%MODULE_APP%
 echo [DEBUG]   PORT=%PORT%
 echo [DEBUG]   NEED_HF=%NEED_HF%
 
-:: resolve venv (pass without quotes; no spaces in path)
-call :RESOLVE_VENV %WORK_DIR%\venv
+:: venv 구성 (인자에 따옴표 포함해서 전달 → 내부에서 %~1로 제거)
+call :RESOLVE_VENV "%WORK_DIR%\venv"
 echo [DEBUG] RESOLVE_VENV completed, ACTIVATE=%ACTIVATE%
 if not exist "%ACTIVATE%" (
   echo [ERROR] Virtual environment not found: %ACTIVATE%
@@ -109,54 +104,45 @@ echo [%TITLE%] Starting on port %PORT%...
 set "REQ_PATH=%WORK_DIR%\%REQ_FILE%"
 echo [DEBUG] Looking for requirements file: %REQ_PATH%
 
-:: ===== avoid nested IF/ELSE (batch parser-safe) =====
-if exist "%REQ_PATH%" goto :REQ_FOUND
-goto :REQ_NOT_FOUND
-
-:REQ_FOUND
-echo [%TITLE%] Requirements file found: %REQ_FILE%
-if /I "%REQ_FILE%"=="pyproject.toml" goto :REQ_PYPROJECT
-goto :REQ_TXT
-
-:REQ_PYPROJECT
-pushd "%WORK_DIR%"
-call "%ACTIVATE%" && python -m pip install . --quiet
-popd
-goto :LAUNCH_SERVICE
-
-:REQ_TXT
-call "%ACTIVATE%" && python -m pip install -r "%REQ_PATH%" --quiet
-goto :LAUNCH_SERVICE
-
-:REQ_NOT_FOUND
-echo [%TITLE%] Requirements file not found: %REQ_PATH%
-if not defined FALLBACK_PKGS set "FALLBACK_PKGS=fastapi uvicorn"
-call "%ACTIVATE%" && python -m pip install %FALLBACK_PKGS% --quiet
-goto :LAUNCH_SERVICE
-
-:LAUNCH_SERVICE
-echo [%TITLE%] Launching in separate window...
-set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
-> "%TEMP_BAT%" echo @echo off
->>"%TEMP_BAT%" echo cd /d "%WORK_DIR%"
->>"%TEMP_BAT%" echo call "%ACTIVATE%"
-
-if /I "%NEED_HF%"=="yes" (
-  >>"%TEMP_BAT%" echo set HF_HOME=%%TEMP%%\hf_cache
-  >>"%TEMP_BAT%" echo set TRANSFORMERS_CACHE=%%TEMP%%\hf_cache
-  >>"%TEMP_BAT%" echo set HF_DATASETS_CACHE=%%TEMP%%\hf_cache
-  >>"%TEMP_BAT%" echo if defined HUGGINGFACE_TOKEN set HUGGINGFACE_TOKEN=%%HUGGINGFACE_TOKEN%%
+if exist "%REQ_PATH%" (
+  echo [%TITLE%] Requirements file found: %REQ_FILE%
+  if /I "%REQ_FILE%"=="pyproject.toml" (
+    pushd "%WORK_DIR%"
+    call "%ACTIVATE%" ^&^& python -m pip install . --quiet
+    popd
+  ) else (
+    call "%ACTIVATE%" ^&^& python -m pip install -r "%REQ_PATH%" --quiet
+  )
+) else (
+  echo [%TITLE%] Requirements file not found: %REQ_PATH%
+  if not defined FALLBACK_PKGS set "FALLBACK_PKGS=fastapi uvicorn"
+  call "%ACTIVATE%" ^&^& python -m pip install %FALLBACK_PKGS% --quiet
 )
 
->>"%TEMP_BAT%" echo uvicorn --app-dir "%WORK_DIR%" %MODULE_APP% --host 0.0.0.0 --port %PORT%
->>"%TEMP_BAT%" echo pause
+echo [%TITLE%] Launching in separate window...
+set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
+> "%TEMP_BAT%" (
+  echo @echo off
+  echo setlocal
+  echo cd /d "%WORK_DIR%"
+  echo call "%ACTIVATE%"
+  if /I "%NEED_HF%"=="yes" (
+    echo set HF_HOME=%%TEMP%%\hf_cache
+    echo set TRANSFORMERS_CACHE=%%TEMP%%\hf_cache
+    echo set HF_DATASETS_CACHE=%%TEMP%%\hf_cache
+    echo if defined HUGGINGFACE_TOKEN set HUGGINGFACE_TOKEN=%%HUGGINGFACE_TOKEN%%
+  )
+  echo echo [%TITLE%] Environment ready, starting uvicorn...
+  echo uvicorn --app-dir "%WORK_DIR%" %MODULE_APP% --host 0.0.0.0 --port %PORT%
+  echo pause
+)
 
 start "POLO %TITLE% (Port %PORT%)" cmd /k "%TEMP_BAT%"
 exit /b 0
 
-:: ------------------------------
+:: ================================
 :: MAIN
-:: ------------------------------
+:: ================================
 :main
 set "ROOT=%~dp0"
 set "ENV_FILE=%ROOT%server\.env"
@@ -199,9 +185,9 @@ set "REQ_MATH=requirements.math.txt"
 set "FALLBACK_SERVER=fastapi uvicorn httpx pydantic asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
 set "FALLBACK_MATH=fastapi uvicorn transformers torch"
 
-echo [1/6] Start Easy Model (Local, port %EASY_PORT%)
+echo [1/6] Start Easy Model (Port %EASY_PORT%)
 if exist "%EASY_DIR%" (
-  call :LAUNCH_PY_APP Easy %EASY_DIR% %REQ_EASY% app:app %EASY_PORT% yes "fastapi uvicorn transformers torch peft"
+  call :LAUNCH_PY_APP "Easy" "%EASY_DIR%" "%REQ_EASY%" "app:app" "%EASY_PORT%" "yes" "fastapi uvicorn transformers torch peft"
 ) else (
   echo [ERROR] Easy directory not found: %EASY_DIR%
   exit /b 1
@@ -209,15 +195,15 @@ if exist "%EASY_DIR%" (
 
 echo [2/6] Start Math Model (Port %MATH_PORT%)
 if exist "%MATH_DIR%" (
-  call :LAUNCH_PY_APP Math %MATH_DIR% %REQ_MATH% app:app %MATH_PORT% yes "%FALLBACK_MATH%"
+  call :LAUNCH_PY_APP "Math" "%MATH_DIR%" "%REQ_MATH%" "app:app" "%MATH_PORT%" "yes" "%FALLBACK_MATH%"
 ) else (
   echo [ERROR] Math directory not found: %MATH_DIR%
   exit /b 1
 )
 
-echo [3/6] Starting Backend Server (Local, port %SERVER_PORT%)
+echo [3/6] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
-  call :LAUNCH_PY_APP Server %SERVER_DIR% %REQ_SERVER% app:app %SERVER_PORT% no "%FALLBACK_SERVER%"
+  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER%"
 ) else (
   echo [ERROR] Server directory not found: %SERVER_DIR%
   exit /b 1
@@ -227,8 +213,10 @@ echo [6/6] Start Frontend
 if exist "%FRONTEND_DIR%" (
   pushd "%FRONTEND_DIR%"
   if not exist "node_modules" (
-    npm install
+    echo [FRONTEND] Installing dependencies...
+    call npm install
   )
+  echo [FRONTEND] Starting development server...
   start "POLO Frontend" cmd /k "npm run dev"
   popd
 ) else (
