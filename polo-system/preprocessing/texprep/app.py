@@ -315,8 +315,8 @@ def main():
 async def health():
     return {"status": "ok", "service": "preprocess"}
 
-@app.post("/preprocess", response_model=PreprocessResponse)
-async def preprocess_endpoint(request: PreprocessRequest):
+@app.post("/preprocess", response_model=ProcessResponse)
+async def preprocess_endpoint(request: ProcessResponse):
     """전처리 파이프라인 실행"""
     try:
         # 임시 args 객체 생성
@@ -336,7 +336,7 @@ async def preprocess_endpoint(request: PreprocessRequest):
         # 전처리 실행
         result = main_with_args(args)
         
-        return PreprocessResponse(
+        return ProcessResponse(
             success=True,
             message="전처리 완료",
             output_path=result.get("out_dir"),
