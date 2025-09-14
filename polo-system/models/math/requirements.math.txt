@@ -1,4 +1,6 @@
 # 수학 모델
+fastapi==0.116.1
+uvicorn==0.35.0
 accelerate==0.33.0
 asttokens==3.0.0
 certifi==2025.8.3
@@ -39,18 +41,19 @@ PyYAML==6.0.2
 pyzmq==27.0.2
 regex==2025.9.1
 requests==2.32.5
-safetensors==0.6.2
+safetensors==0.4.4
 six==1.17.0
 stack-data==0.6.3
 sympy==1.13.1
 tokenizers==0.22.0
-torch==2.6.0+cu124
-torchaudio==2.6.0+cu124
-torchvision==0.21.0+cu124
+torch==2.5.1+cu121
+torchaudio==2.5.1+cu121
+torchvision==0.20.1+cu121
 tornado==6.5.2
 tqdm==4.67.1
 traitlets==5.14.3
-transformers==4.56.0
+transformers==4.44.2
 typing_extensions==4.15.0
 urllib3==2.5.0
 wcwidth==0.2.13
+python-dotenv==1.0.1

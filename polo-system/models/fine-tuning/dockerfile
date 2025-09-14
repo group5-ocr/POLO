@@ -26,7 +26,8 @@ RUN python -m pip install accelerate==0.33.0
 
 # 5. 학습 관련 requirements
 COPY requirements.train.txt ./requirements.train.txt
-RUN python -m pip install -r requirements.train.txt
+RUN python -m pip install -r requirements.train.txt \
+    && python -m pip install fastapi uvicorn  # 서빙 패키지
 
 # 6. 학습 코드 복사
 COPY training ./training

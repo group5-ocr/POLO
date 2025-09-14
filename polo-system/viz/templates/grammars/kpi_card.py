@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 핵심 지표(KPI) 카드 문법 (큰 숫자 강조)
 import matplotlib.pyplot as plt
 from registry import Grammar, register

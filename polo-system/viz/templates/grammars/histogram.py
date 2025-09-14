@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 히스토그램 문법
 import matplotlib.pyplot as plt
 from registry import Grammar, register

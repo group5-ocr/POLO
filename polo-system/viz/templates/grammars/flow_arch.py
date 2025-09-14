@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 흐름/아키텍처 다이어그램 문법. pos가 없으면 자동 일렬 배치.
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, Rectangle

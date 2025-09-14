@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 2D 임베딩 맵 문법 (점 + 선택적 라벨)
 import matplotlib.pyplot as plt
 from registry import Grammar, register

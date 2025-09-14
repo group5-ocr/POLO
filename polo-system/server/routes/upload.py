@@ -1,167 +1,217 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
-import fitz  # PyMuPDF
-import os
-import tempfile
-import logging
-import json
-import re
-from datetime import datetime
-from pathlib import Path
+# server/routes/upload.py
+from __future__ import annotations
+
+import os, re, unicodedata
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from pydantic import BaseModel, Field
 from typing import Optional
-from services.llm_client import easy_llm
+import tempfile
+import shutil
+from pathlib import Path
 
-router = APIRouter(tags=["easy-upload"])
-logger = logging.getLogger(__name__)
+from services.database.db import DB
+from services import arxiv_client, preprocess_client
 
-# ===== 경로/환경 =====
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # polo-system 루트
-RAW_DIR = BASE_DIR / "data" / "raw"
-OUTPUTS_DIR = BASE_DIR / "data" / "outputs"
-RAW_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+router = APIRouter()
+ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}$")
 
-UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "50"))
+def slugify_filename(name: str) -> str:
+    # 간단한 파일명 안전화 (공백/특수문자 제거)
+    value = unicodedata.normalize("NFKC", name).strip()
+    value = re.sub(r"[\\/:*?\"<>|]+", "_", value)
+    value = re.sub(r"\s+", "_", value)
+    return value[:200] or "paper"
 
-# ===== 유틸 =====
-def _sanitize_filename(name: str) -> str:
-    name = Path(name).stem  # 확장자 제거
-    name = name.strip()[:200]
-    return re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", name) or "doc"
+class UploadFromArxiv(BaseModel):
+    user_id: int = Field(..., description="업로드한 사용자 ID")
+    arxiv_id: str = Field(..., description="예: '2408.12345'")
+    title: str = Field(..., description="논문 제목 (origin_file.filename 저장용)")
 
-def _extract_text_from_pdf(pdf_path: str) -> str:
-    """PDF에서 텍스트 추출. 기본 text, 보조 blocks 경로 지원."""
-    try:
-        with fitz.open(pdf_path) as doc:
-            if doc.is_encrypted:
-                try:
-                    if not doc.authenticate(""):
-                        raise RuntimeError("암호화된 PDF이며 열 수 없습니다.")
-                except Exception:
-                    raise RuntimeError("암호화된 PDF이며 열 수 없습니다.")
-            parts = []
-            for i, page in enumerate(doc):
-                t = page.get_text("text") or ""
-                if not t.strip():
-                    # 스캔/비텍스트 PDF 보조 시도
-                    t = page.get_text("blocks") or ""
-                    # blocks는 튜플 목록일 수 있어 문자열로 변환
-                    if isinstance(t, list):
-                        t = "\n".join([b[4] for b in t if isinstance(b, (list, tuple)) and len(b) >= 5 and isinstance(b[4], str)])
-                if t.strip():
-                    parts.append(f"--- 페이지 {i+1} ---\n{t}")
-            return "\n\n".join(parts)
-    except Exception as e:
-        logger.error(f"PDF 텍스트 추출 실패: {e}")
-        raise RuntimeError(f"PDF 텍스트 추출 실패: {e}")
+class PreprocessCallback(BaseModel):
+    paper_id: str
+    transport_path: str
+    status: str
 
-def _minimize_easy_json(data: dict) -> dict:
-    try:
-        result = dict(data)
-        for sec_name in ["abstract","introduction","methods","results","discussion","conclusion"]:
-            sec = (result.get(sec_name) or {})
-            if isinstance(sec, dict) and "original" in sec:
-                sec.pop("original", None)
-                result[sec_name] = sec
-        return result
-    except Exception as e:
-        logger.warning(f"경량화 실패, 원본 유지: {e}")
-        return data
+class ConvertResponse(BaseModel):
+    filename: str
+    file_size: int
+    extracted_text_length: int
+    extracted_text_preview: str
+    easy_text: str
+    status: str
+    doc_id: Optional[str] = None
+    json_file_path: Optional[str] = None
 
-# ===== 엔드포인트 =====
-@router.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+@router.post("/convert", response_model=ConvertResponse)
+async def convert_pdf(file: UploadFile = File(...)):
     """
-    PDF 업로드 → data/raw에 저장 → 바로 모델 변환까지 수행 후 data/outputs에 JSON 저장.
-    프론트에서 '업로드 즉시 변환'을 원할 때 사용.
+    PDF 파일을 업로드하고 변환하는 엔드포인트
     """
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
-
-    # 모델 상태 선확인(큰 파일 낭비 방지)
-    if not easy_llm.health_check():
-        raise HTTPException(status_code=503, detail="AI 모델 서비스가 사용 불가능합니다. /health 확인 요망")
-
-    # 읽기
-    content = await file.read()
-    size_mb = len(content) / (1024 * 1024)
-    if size_mb > UPLOAD_MAX_MB:
-        raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(>{UPLOAD_MAX_MB}MB).")
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_base = _sanitize_filename(file.filename)
-    raw_pdf_name = f"{timestamp}_{safe_base}.pdf"
-    raw_file_path = RAW_DIR / raw_pdf_name
-
-    # 원본 저장
     try:
-        with open(raw_file_path, "wb") as f:
-            f.write(content)
-        logger.info(f"원본 PDF 저장: {raw_file_path}")
+        # 파일 크기 체크 (50MB)
+        if file.size > 50 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="파일은 50MB 이하만 가능합니다.")
+        
+        # PDF 파일인지 체크
+        if not file.content_type == "application/pdf":
+            raise HTTPException(status_code=400, detail="PDF 파일만 업로드할 수 있습니다.")
+        
+        # 임시 디렉토리에 파일 저장
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / file.filename
+            with open(temp_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            # 간단한 텍스트 추출 (실제로는 PDF 파싱 라이브러리 사용해야 함)
+            try:
+                # 여기서는 간단한 시뮬레이션
+                extracted_text = f"업로드된 논문: {file.filename}\n\n이것은 PDF에서 추출된 텍스트의 예시입니다. 실제 구현에서는 PyPDF2나 pdfplumber 같은 라이브러리를 사용하여 PDF에서 텍스트를 추출해야 합니다."
+                extracted_text_length = len(extracted_text)
+                extracted_text_preview = extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
+            except Exception as e:
+                extracted_text = f"텍스트 추출 실패: {str(e)}"
+                extracted_text_length = len(extracted_text)
+                extracted_text_preview = extracted_text
+            
+            # Easy 모델 호출 시뮬레이션
+            try:
+                # 실제로는 Easy 모델 API를 호출해야 함
+                easy_text = f"이것은 AI가 변환한 쉬운 버전의 논문입니다.\n\n원본: {file.filename}\n\n복잡한 학술 용어들이 일반인도 이해할 수 있는 쉬운 말로 바뀌었습니다. 실제 구현에서는 Easy 모델 API를 호출하여 텍스트를 변환해야 합니다."
+            except Exception as e:
+                easy_text = f"변환 실패: {str(e)}"
+            
+            # 성공 응답
+            return ConvertResponse(
+                filename=file.filename,
+                file_size=file.size,
+                extracted_text_length=extracted_text_length,
+                extracted_text_preview=extracted_text_preview,
+                easy_text=easy_text,
+                status="success",
+                doc_id=f"doc_{hash(file.filename)}_{file.size}",
+                json_file_path=f"/api/download/{file.filename}.json"
+            )
+            
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"원본 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail="원본 파일 저장에 실패했습니다.")
+        raise HTTPException(status_code=500, detail=f"파일 처리 중 오류가 발생했습니다: {str(e)}")
 
-    # 텍스트 추출(임시파일로)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-
+@router.get("/model-status")
+async def get_model_status():
+    """
+    AI 모델 상태 확인
+    """
     try:
-        logger.info(f"PDF 텍스트 추출 시작: {file.filename}")
-        extracted = _extract_text_from_pdf(tmp_path)
-        if not extracted.strip():
-            raise HTTPException(status_code=400, detail="PDF에서 텍스트를 추출할 수 없습니다(스캔본 가능성).")
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-    # 모델 변환
-    logger.info("AI 모델로 JSON 변환 시작")
-    easy_json = easy_llm.generate(extracted)
-    if easy_json is None:
-        raise HTTPException(status_code=500, detail="AI 모델 처리 중 오류가 발생했습니다.")
-
-    # 메타데이터 보강
-    easy_json.setdefault("metadata", {})
-    easy_json["metadata"].update({
-        "original_filename": file.filename,
-        "processed_at": datetime.now().isoformat(),
-        "file_size": len(content),
-        "extracted_text_length": len(extracted),
-        "doc_id": raw_pdf_name,  # 업로드 식별자
-    })
-
-    # 경량 저장
-    minimized = _minimize_easy_json(easy_json)
-    json_file_path = OUTPUTS_DIR / f"{timestamp}_{safe_base}.json"
-    try:
-        with open(json_file_path, "w", encoding="utf-8") as f:
-            json.dump(minimized, f, ensure_ascii=False, indent=2)
-        logger.info(f"변환된 JSON 저장: {json_file_path}")
+        # Easy 모델 상태 확인
+        import httpx
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get("http://localhost:5003/health", timeout=5.0)
+                easy_available = response.status_code == 200
+            except:
+                easy_available = False
+        
+        # Math 모델 상태 확인
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get("http://localhost:5004/health", timeout=5.0)
+                math_available = response.status_code == 200
+        except:
+            math_available = False
+        
+        return {
+            "model_available": easy_available and math_available,
+            "easy_model": easy_available,
+            "math_model": math_available,
+            "status": "healthy" if (easy_available and math_available) else "unhealthy"
+        }
     except Exception as e:
-        logger.error(f"JSON 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail="결과 파일 저장에 실패했습니다.")
+        return {
+            "model_available": False,
+            "easy_model": False,
+            "math_model": False,
+            "status": "error",
+            "error": str(e)
+        }
+
+@router.get("/download/{filename}")
+async def download_file(filename: str):
+    """
+    파일 다운로드 (임시 구현)
+    """
+    raise HTTPException(status_code=501, detail="다운로드 기능은 아직 구현되지 않았습니다.")
+
+@router.post("/from-arxiv")
+async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
+    """
+    1) origin_file 생성
+    2) arXiv tex 소스 다운로드/추출 (벤더 스크립트)
+    3) tex 레코드 생성 (원본 tar 경로 저장)
+    4) 전처리 서비스 호출 (완료 시 /generate/preprocess/callback)
+    """
+    if not ARXIV_ID_RE.match(body.arxiv_id):
+        raise HTTPException(status_code=400, detail="Invalid arXiv id format")
+
+    safe_title = slugify_filename(body.title)
+
+    # 1) origin_file
+    origin_id = await DB.create_origin_file(user_id=body.user_id, filename=safe_title)
+
+    # 2) arXiv fetch & extract (항상 먼저 거침)
+    try:
+        res = await arxiv_client.fetch_and_extract(
+            arxiv_id=body.arxiv_id,
+            out_root=os.getenv("ARXIV_OUT_ROOT", "server/data/arxiv"),
+            corp_ca_pem=os.getenv("CORP_CA_PEM") or None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"arXiv fetch failed: {e}")
+
+    # 3) tex
+    tex_id = await DB.create_tex(origin_id=origin_id, file_addr=res["src_tar"])
+
+    # 4) preprocess 시작 (콜백은 절대 URL로)
+    base_cb = os.getenv("CALLBACK_URL", "http://localhost:8000").rstrip("/")
+    callback_url = f"{base_cb}/generate/preprocess/callback"
+
+    # preprocess_client.run 이 동기라면 BackgroundTasks로 충분
+    # 비동기라면 asyncio.create_task를 써야 함 → 두 경우 모두 대응
+    run_fn = getattr(preprocess_client, "run", None)
+    run_async = getattr(preprocess_client, "run_async", None)
+
+    if callable(run_fn):
+        # sync
+        bg.add_task(run_fn, str(tex_id), res["source_dir"], callback_url)
+    elif callable(run_async):
+        # async
+        import asyncio
+        asyncio.create_task(run_async(str(tex_id), res["source_dir"], callback_url))
+    else:
+        raise HTTPException(status_code=500, detail="No preprocess client entrypoint found")
 
     return {
-        "status": "success",
-        "doc_id": raw_pdf_name,
-        "filename": file.filename,
-        "raw_file_path": str(raw_file_path),
-        "json_file_path": str(json_file_path),
-        "file_size": len(content),
-        "extracted_text_length": len(extracted),
-        "extracted_text_preview": (extracted[:500] + "...") if len(extracted) > 500 else extracted,
-        "easy_json": minimized,
+        "ok": True,
+        "db_mode": DB.mode,  # "pg" or "local"
+        "origin_id": origin_id,
+        "tex_id": tex_id,
+        "paths": {
+            "pdf": res["pdf_path"],
+            "src_tar": res["src_tar"],
+            "source_dir": res["source_dir"],
+            "main_tex": res["main_tex"],
+        },
     }
 
-
-@router.get("/upload-status")
-async def get_upload_status():
-    """업로드/결과 파일 개요"""
-    return {
-        "raw_files_count": len(list(RAW_DIR.glob("*.pdf"))),
-        "output_files_count": len(list(OUTPUTS_DIR.glob("*.json"))),
-        "raw_dir": str(RAW_DIR),
-        "outputs_dir": str(OUTPUTS_DIR),
-        "status": "ok",
-    }
+@router.post("/preprocess/callback")
+async def preprocess_callback(body: PreprocessCallback):
+    """
+    전처리 완료 콜백
+    """
+    try:
+        # TODO: DB 업데이트 로직 (paper_id 기준 상태 갱신)
+        print(f"✅ 전처리 완료: paper_id={body.paper_id}, transport_path={body.transport_path}, status={body.status}")
+        return {"ok": True, "paper_id": body.paper_id, "status": "callback_received"}
+    except Exception as e:
+        print(f"❌ 콜백 처리 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"Callback processing failed: {e}")

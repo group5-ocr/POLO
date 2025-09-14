@@ -3,36 +3,46 @@
 # Target: CUDA 12.1 (PyTorch cu121)
 # =============================
 
-# PyTorch (CUDA 12.1 전용 wheel)
+# ---- PyTorch (CUDA 12.1 전용 wheel) 반드시 맨 위에 유지 ----
 -f https://download.pytorch.org/whl/cu121
 
+# ---- PyTorch core ----
 torch==2.5.1+cu121
 torchvision==0.20.1+cu121
 torchaudio==2.5.1+cu121
 
-# Core LLM / fine-tuning stack
-transformers==4.44.2         # 최신 + 안정
-accelerate==0.33.0           # transformers 4.44.2와 호환
-peft==0.11.1                 # QLoRA-compatible
-trl==0.9.6                   # SFTTrainer 안정 버전
-datasets==2.20.0             # 데이터셋 로딩
-bitsandbytes==0.42.0         # CUDA 12.1 정상 작동 확인됨
+# ---- Core LLM / fine-tuning ----
+transformers==4.44.2
+tokenizers==0.19.1            # ↑ transformers 4.44.x 안정 호환
+accelerate==0.33.0
+peft==0.11.1
+trl==0.9.6
+datasets==2.20.0
+bitsandbytes==0.42.0          # CUDA 12.1에서 확인됨
 
-# Utilities / training
-sentencepiece==0.1.99        # Tokenizer (LLaMA 등)
-einops==0.8.0                # tensor 조작
-evaluate==0.4.2              # metrics (BLEU, accuracy 등)
-scipy==1.13.1                # 수치 계산
-tqdm==4.66.4                 # 진행바
-pyyaml==6.0.2                # config 처리
-tensorboard==2.17.0          # 시각화
-# wandb==0.17.9              # Optional: logging
+# ---- Utilities / training ----
+sentencepiece==0.1.99
+einops==0.8.0
+evaluate==0.4.2
+scipy==1.13.1
+tqdm==4.66.4
+pyyaml==6.0.2
+tensorboard==2.17.0
+psutil==5.9.8                 # accelerate가 내부에서 자주 사용
 
-# Data / numerical
+# ---- Data / numerical ----
 pandas==2.2.2
-numpy==1.26.4                # ✅ 핵심! 모든 huggingface lib 호환 최고 버전
+numpy==1.26.4                 # ✅ bitsandbytes 및 HF 스택과 가장 충돌 적음
 scikit-learn==1.5.1
+protobuf==4.25.3              # HF/onnx 계열과 무난한 상한 (<5 이슈 회피)
 
-# Hugging Face ecosystem
+# ---- Hugging Face ----
 huggingface_hub==0.24.6
 safetensors==0.4.4
+
+# ---- Serving / API (서빙 컨테이너도 같은 Dockerfile 쓸 경우) ----
+fastapi==0.114.2
+uvicorn[standard]==0.30.6     # uvloop/httptools 포함
+pydantic==2.9.2
+python-dotenv==1.0.1
+httpx==0.27.2
