@@ -46,8 +46,8 @@
 
 .form-group input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
 }
 
 .form-group input:disabled {
@@ -514,7 +514,7 @@
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .btn-secondary:hover {
@@ -651,7 +651,7 @@ body,
   padding: 8px 16px;
   border-radius: 12px;
   font-weight: 600;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   border: none;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
@@ -948,7 +948,7 @@ body,
   font-size: 1.2rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   box-shadow: 0 8px 24px rgba(245, 158, 11, 0.3);
   text-decoration: none;
   min-width: 200px;
@@ -2059,7 +2059,7 @@ body,
   font-size: 1.2rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
   text-decoration: none;
   display: inline-block;
@@ -2131,7 +2131,7 @@ body,
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   text-decoration: none;
   display: inline-block;
   box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
@@ -2161,30 +2161,30 @@ body,
   justify-content: center;
   background: radial-gradient(
       1200px 400px at 10% 5%,
-      rgba(167, 139, 250, 0.25),
+      rgba(250, 250, 250, 0.4),
       transparent 70%
     ),
     radial-gradient(
       1000px 350px at 90% 15%,
-      rgba(59, 130, 246, 0.2),
+      rgba(248, 250, 252, 0.3),
       transparent 70%
     ),
     radial-gradient(
       800px 300px at 20% 85%,
-      rgba(52, 211, 153, 0.22),
+      rgba(245, 158, 11, 0.08),
       transparent 70%
     ),
     radial-gradient(
       900px 280px at 80% 90%,
-      rgba(168, 85, 247, 0.18),
+      rgba(251, 191, 36, 0.06),
       transparent 70%
     ),
     radial-gradient(
       600px 200px at 50% 50%,
-      rgba(34, 197, 94, 0.15),
+      rgba(254, 243, 199, 0.2),
       transparent 60%
     ),
-    linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    linear-gradient(135deg, #fefefe 0%, #f8fafc 100%);
   overflow: hidden;
   padding: 24px;
   position: relative;
@@ -2198,22 +2198,22 @@ body,
   inset: -20% -10% -10% -10%;
   background: radial-gradient(
       800px 300px at 15% 25%,
-      rgba(99, 102, 241, 0.12),
+      rgba(250, 250, 250, 0.15),
       transparent 65%
     ),
     radial-gradient(
       700px 250px at 85% 35%,
-      rgba(20, 184, 166, 0.1),
+      rgba(248, 250, 252, 0.12),
       transparent 65%
     ),
     radial-gradient(
       600px 200px at 25% 75%,
-      rgba(168, 85, 247, 0.08),
+      rgba(245, 158, 11, 0.05),
       transparent 60%
     ),
     radial-gradient(
       500px 180px at 75% 85%,
-      rgba(34, 197, 94, 0.09),
+      rgba(251, 191, 36, 0.04),
       transparent 60%
     );
   animation: drift 24s linear infinite;
@@ -2318,7 +2318,11 @@ body,
   right: 5%;
   width: 200px;
   height: 200px;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.1), transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(250, 250, 250, 0.2),
+    transparent 70%
+  );
   border-radius: 50%;
   animation: float 6s ease-in-out infinite;
   pointer-events: none;
@@ -2333,7 +2337,7 @@ body,
   height: 150px;
   background: radial-gradient(
     circle,
-    rgba(168, 85, 247, 0.08),
+    rgba(245, 158, 11, 0.06),
     transparent 70%
   );
   border-radius: 50%;
@@ -2413,15 +2417,15 @@ body,
 
 .auth-container {
   position: relative;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border-radius: 28px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), 0 8px 25px rgba(0, 0, 0, 0.04);
   padding: 48px;
   width: 100%;
   max-width: 520px;
-  border: 1px solid rgba(229, 231, 235, 0.55);
+  border: 1px solid rgba(245, 158, 11, 0.15);
 }
 
 /* 그라디언트 보더 링 */
@@ -2433,8 +2437,8 @@ body,
   padding: 2px;
   background: linear-gradient(
     135deg,
-    rgba(99, 102, 241, 0.5),
-    rgba(16, 185, 129, 0.5)
+    rgba(245, 158, 11, 0.2),
+    rgba(251, 191, 36, 0.2)
   );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -2496,30 +2500,30 @@ body,
   font-size: 0.9rem;
 }
 
-.form-group input {
+.auth-form .form-group input {
   width: 100%;
   padding: 12px 16px;
   border: 2px solid #e2e8f0;
   border-radius: 12px;
   font-size: 1rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: #f8fafc;
+  background: #fefefe;
   position: relative;
 }
 
-.form-group input:focus {
+.auth-form .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #f59e0b;
   background: white;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1),
-    0 4px 12px rgba(102, 126, 234, 0.15);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1),
+    0 4px 12px rgba(245, 158, 11, 0.15);
   transform: translateY(-1px);
 }
 
-.form-group input:hover {
-  border-color: #c7d2fe;
+.auth-form .form-group input:hover {
+  border-color: #fed7aa;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1);
 }
 
 /* 유효 입력 감지 시 미세한 상태 표현 */
@@ -2529,14 +2533,14 @@ body,
 }
 
 /* 직종 드롭다운 스타일 */
-.form-group select {
+.auth-form .form-group select {
   width: 100%;
   padding: 12px 40px 12px 16px;
   border: 2px solid #e2e8f0;
   border-radius: 12px;
   font-size: 1rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: #f8fafc;
+  background: #fefefe;
   position: relative;
   appearance: none;
   -webkit-appearance: none;
@@ -2555,19 +2559,19 @@ body,
   font-style: italic;
 }
 
-.form-group select:focus {
+.auth-form .form-group select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #f59e0b;
   background: white;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1),
-    0 4px 12px rgba(102, 126, 234, 0.15);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1),
+    0 4px 12px rgba(245, 158, 11, 0.15);
   transform: translateY(-1px);
 }
 
-.form-group select:hover {
-  border-color: #c7d2fe;
+.auth-form .form-group select:hover {
+  border-color: #fed7aa;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1);
 }
 
 .form-group select:valid {
@@ -2600,12 +2604,19 @@ body,
 }
 
 .auth-form .btn-primary {
-  background: linear-gradient(135deg, #60a5fa, #3b82f6);
-  box-shadow: 0 10px 26px rgba(96, 165, 250, 0.28);
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.25),
+    0 4px 8px rgba(245, 158, 11, 0.15);
+  border: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .auth-form .btn-primary:hover {
-  box-shadow: 0 14px 34px rgba(96, 165, 250, 0.38);
+  background: linear-gradient(135deg, #d97706, #f59e0b);
+  box-shadow: 0 12px 28px rgba(245, 158, 11, 0.35),
+    0 6px 12px rgba(245, 158, 11, 0.2);
+  transform: translateY(-1px);
 }
 
 /* 버튼 쉬머 효과 */
@@ -2676,8 +2687,8 @@ body,
   transition: all 0.3s ease;
 }
 
-.form-group:focus-within label {
-  color: #667eea;
+.auth-form .form-group:focus-within label {
+  color: #f59e0b;
   transform: translateY(-2px);
 }
 
@@ -2691,7 +2702,7 @@ body,
 }
 
 .link-button:hover {
-  color: #4f46e5;
+  color: #d97706;
   transform: translateY(-1px);
 }
 
@@ -2728,7 +2739,7 @@ body,
 .link-button {
   background: none;
   border: none;
-  color: #667eea;
+  color: #f59e0b;
   font-weight: 600;
   cursor: pointer;
   text-decoration: underline;
@@ -2830,6 +2841,55 @@ body,
   justify-content: center;
   font-size: 0.9rem;
   color: #a0aec0;
+}
+
+.selected-file-name {
+  color: #1f2937;
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 8px;
+}
+
+.selected-file-size {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+}
+
+.conversion-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 24px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(229, 231, 235, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+.btn-convert {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: white;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(249, 115, 22, 0.3);
+}
+
+.btn-convert:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(249, 115, 22, 0.4);
+  background: linear-gradient(135deg, #ea580c 0%, #dc2626 100%);
+}
+
+.btn-convert:active {
+  transform: translateY(0);
 }
 
 .upload-spinner {
