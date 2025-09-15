@@ -5,24 +5,51 @@ pip install bitsandbytes==0.44.1
 python install accelerate==0.33.0
 후 프로그램 종료 후 다시 벤브
 
+# GCP 설정
+
+moldel 안에 stone-booking-466716-n6-f6fff7380e05.json 을 넣는다!!
+
+cmd에
+set GOOGLE_APPLICATION_CREDENTIALS=C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json
+경로는 자기걸로 설정!
+
+set GOOGLE_CLOUD_PROJECT=stone-booking-466716-n6
+
+C:\POLO>set GOOGLE_CLOUD_TRANSLATE_LOCATION=global
+
+를 순서대로 입력
+
 # 실행
 
 cd polo-system/models/math
 uvicorn app:app --host 0.0.0.0 --port 5004
 
-
 # 호출
 
 - 수식만 세기
-  http://127.0.0.1:8000/count/C:/POLO/polo-system/models/math/yolo.tex
-  http://127.0.0.1:8000/count/C:\POLO\polo-system\models\math\iclr2022_conference.tex
+  http://127.0.0.1:5004/count/C:/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/count/C:\POLO\polo-system\models\math\iclr2022_conference.tex
 
-- JSON/tex 파일 보기
-  http://127.0.0.1:8000/math/C:/POLO/polo-system/models/math/yolo.tex
-  http://127.0.0.1:8000/math/C:\POLO\polo-system\models\math\iclr2022_conference.tex
+- JSON/tex 파일 받기
+  http://127.0.0.1:5004/math/C:/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/math/C:\POLO\polo-system\models\math\iclr2022_conference.tex
 
 - 건강상태? 확인
-  http://127.0.0.1:8000/health
+  http://127.0.0.1:5004/health
+
+  이때 결과가
+  {
+  "status": "ok",
+  "python": "3.11.9",
+  "torch": "2.5.1+cu121",
+  "cuda": true,
+  "device": "cuda",
+  "model_loaded": true,
+  "gcp_translate_ready": true,
+  "gcp_parent": "projects/stone-booking-466716-n6/locations/global"
+  }
+
+이렇게 나오면 성공!
 
 ---
 
