@@ -56,6 +56,7 @@ export default function Upload() {
     "preview"
   );
   const [downloadInfo, setDownloadInfo] = useState<any>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // 로그인 체크
   useEffect(() => {
@@ -135,7 +136,9 @@ export default function Upload() {
       return;
     }
 
-    uploadFile(file);
+    setSelectedFile(file);
+    setError(null);
+    setResult(null);
   };
 
   const onChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
@@ -161,6 +164,12 @@ export default function Upload() {
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const startConversion = () => {
+    if (selectedFile) {
+      uploadFile(selectedFile);
     }
   };
 
@@ -377,6 +386,19 @@ export default function Upload() {
                 <h3>AI가 논문을 분석하고 있습니다...</h3>
                 <p>잠시만 기다려주세요!</p>
               </>
+            ) : selectedFile ? (
+              <>
+                <div className="upload-icon">📄</div>
+                <h3>선택된 파일</h3>
+                <p className="selected-file-name">{selectedFile.name}</p>
+                <p className="selected-file-size">
+                  {(selectedFile.size / 1024).toFixed(2)} KB
+                </p>
+                <div className="upload-info">
+                  <span>• PDF 파일만 지원</span>
+                  <span>• 최대 50MB</span>
+                </div>
+              </>
             ) : (
               <>
                 <div className="upload-icon">📁</div>
@@ -390,6 +412,27 @@ export default function Upload() {
             )}
           </div>
         </div>
+
+        {selectedFile && !uploading && (
+          <div className="conversion-actions">
+            <button
+              onClick={startConversion}
+              className="btn-primary btn-convert"
+            >
+              논문 변환하기
+            </button>
+            <button
+              onClick={() => {
+                setSelectedFile(null);
+                setError(null);
+                setResult(null);
+              }}
+              className="btn-secondary"
+            >
+              파일 다시 선택
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="error-message">
