@@ -14,9 +14,11 @@ import re
 import json
 import time
 import base64
+import gzip
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from googletrans import Translator
 
 import anyio
 import httpx
@@ -75,6 +77,7 @@ tokenizer = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 gpu_available = torch.cuda.is_available()
 safe_dtype = torch.float16 if gpu_available else torch.float32
+translator = Translator()
 
 # -------------------- 유틸 --------------------
 def _pick_attn_impl() -> str:
@@ -104,6 +107,22 @@ def _is_meaningful(d: dict) -> bool:
         return any(len((d.get(s, {}) or {}).get("easy", "")) > 10 for s in sections)
     except Exception:
         return False
+
+def _translate_to_korean(text: str) -> str:
+    """Google Translator를 사용해서 한국어로 번역"""
+    try:
+        if not text or not text.strip():
+            return ""
+        
+        # 텍스트가 너무 길면 잘라서 번역
+        if len(text) > 4000:  # Google Translator 제한
+            text = text[:4000] + "..."
+        
+        result = translator.translate(text, dest='ko', src='en')
+        return result.text
+    except Exception as e:
+        logger.warning(f"번역 실패: {e}")
+        return text  # 번역 실패 시 원본 반환
 
 def _extract_sections(src: str) -> dict:
     sections = {k: "" for k in ["abstract","introduction","methods","results","discussion","conclusion"]}
@@ -167,6 +186,8 @@ class VizResult(BaseModel):
     index: int
     image_path: Optional[str] = None
     error: Optional[str] = None
+    easy_text: Optional[str] = None
+    section_title: Optional[str] = None
 
 class BatchResult(BaseModel):
     ok: bool
@@ -274,27 +295,163 @@ async def startup_event():
 # -------------------- 내부 유틸 (재해석) --------------------
 def _build_easy_prompt(text: str) -> str:
     return (
-        "다음 텍스트를 **중학생도 이해할 수 있게 쉽고 재미있게** 변환해라.\n\n"
+        "다음 논문 텍스트를 **일반인도 쉽게 이해할 수 있게** 재해석해주세요.\n\n"
         "🎯 변환 원칙:\n"
-        "- 전문 용어는 일상 용어로 바꾸기 (예: '알고리즘' → '문제 해결 방법')\n"
-        "- 복잡한 문장은 짧고 명확하게 나누기\n"
-        "- 추상적인 개념은 구체적인 비유로 설명하기\n"
-        "- 수식이나 기호는 '이것은 ~을 의미해요'로 풀어쓰기\n"
-        "- 핵심 내용은 '요약하면'으로 정리하기\n"
-        "- 어려운 부분은 '쉽게 말하면'으로 다시 설명하기\n\n"
+        "- 논문의 핵심 내용을 그대로 유지하되, 전문 용어를 쉬운 말로 바꿔주세요\n"
+        "- 복잡한 문장은 여러 개의 짧은 문장으로 나누어 설명해주세요\n"
+        "- 수식이나 기호는 '이것은 ~을 의미합니다'로 풀어쓰세요\n"
+        "- 논문에서 설명하는 방법이나 과정을 단계별로 명확하게 설명해주세요\n"
+        "- 논문의 결론이나 핵심 아이디어를 강조해주세요\n"
+        "- LaTeX 명령어(\\begin, \\end, \\ref 등)는 무시하고 실제 내용만 설명해주세요\n"
+        "- 논문에 없는 내용을 추가하거나 추측하지 마세요\n"
+        "- 논문의 원래 의미를 정확히 전달해주세요\n"
+        "- 반복적인 내용은 한 번만 설명해주세요\n"
+        "- 2-3문장으로 간결하게 설명해주세요\n\n"
         "📝 작성 스타일:\n"
-        "- 친근하고 대화하는 톤으로 작성\n"
-        "- '~합니다', '~입니다' 같은 존댓말 사용 (단, '~요'로 끝나지 않게)\n"
-        "- 중요한 내용은 **굵게** 표시\n"
-        "- 단계별 설명은 1), 2), 3) 형태로 정리\n\n"
-        f"[원문]\n{text}\n\n[쉬운 설명]\n"
+        "- 친근하고 이해하기 쉬운 톤으로 작성해주세요\n"
+        "- '~합니다', '~입니다' 같은 존댓말을 사용해주세요 (단, '~요'로 끝나지 않게)\n"
+        "- 중요한 내용은 **굵게** 표시해주세요\n"
+        "- 논문의 논리적 흐름을 따라 설명해주세요\n"
+        "- 구체적인 예시나 비유를 사용해서 설명해주세요\n\n"
+        f"[논문 원문]\n{text}\n\n[쉬운 재해석]\n"
     )
+
+def _clean_latex_text(text: str) -> str:
+    """LaTeX 명령어를 정리하고 읽기 쉽게 만듭니다"""
+    import re
+    
+    # LaTeX 명령어를 의미있는 텍스트로 변환
+    text = re.sub(r'\\title\{([^}]*)\}', r'제목: \1', text)  # \title{content} → 제목: content
+    text = re.sub(r'\\author\{([^}]*)\}', r'저자: \1', text)  # \author{content} → 저자: content
+    text = re.sub(r'\\section\{([^}]*)\}', r'섹션: \1', text)  # \section{content} → 섹션: content
+    text = re.sub(r'\\subsection\{([^}]*)\}', r'하위섹션: \1', text)  # \subsection{content} → 하위섹션: content
+    text = re.sub(r'\\textbf\{([^}]*)\}', r'**\1**', text)  # \textbf{content} → **content**
+    text = re.sub(r'\\textit\{([^}]*)\}', r'*\1*', text)  # \textit{content} → *content*
+    
+    # 수식 환경을 의미있는 텍스트로 변환
+    text = re.sub(r'\$([^$]*)\$', r'수식: \1', text)  # $수식$ → 수식: 수식
+    text = re.sub(r'\$\$([^$]*)\$\$', r'수식: \1', text)  # $$수식$$ → 수식: 수식
+    
+    # LaTeX 환경을 의미있는 텍스트로 변환
+    text = re.sub(r'\\begin\{itemize\}', '목록:', text)
+    text = re.sub(r'\\item\s*', '• ', text)
+    text = re.sub(r'\\end\{itemize\}', '', text)
+    
+    text = re.sub(r'\\begin\{enumerate\}', '번호목록:', text)
+    text = re.sub(r'\\end\{enumerate\}', '', text)
+    
+    # 특수 문자 정리 (LRB, RRB 등)
+    text = re.sub(r'LRB', '(', text)  # LRB → (
+    text = re.sub(r'RRB', ')', text)  # RRB → )
+    text = re.sub(r'\\ref\{([^}]*)\}', r'그림 \1', text)  # \ref{system} → 그림 system
+    text = re.sub(r'\\cite\{([^}]*)\}', '', text)  # \cite{paper} → 제거 (참고문헌)
+    
+    # 나머지 LaTeX 명령어 제거
+    text = re.sub(r'\\[a-zA-Z]+\{[^}]*\}', '', text)  # \command{content}
+    text = re.sub(r'\\[a-zA-Z]+', '', text)  # \command
+    text = re.sub(r'\\[^a-zA-Z]', '', text)  # \특수문자
+    
+    # 특수 문자 정리
+    text = re.sub(r'[{}]', '', text)  # 중괄호 제거
+    text = re.sub(r'\\[a-zA-Z]', '', text)  # 남은 백슬래시 명령어
+    
+    # 연속된 공백 정리
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
+
+def _parse_latex_sections(tex_path: Path) -> List[dict]:
+    """LaTeX 파일을 섹션별로 파싱합니다"""
+    import re
+    
+    with open(tex_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    sections = []
+    current_section = None
+    current_content = []
+    
+    lines = content.split('\n')
+    
+    for line in lines:
+        # 섹션 시작 감지
+        if re.match(r'\\section\{([^}]*)\}', line):
+            # 이전 섹션 저장
+            if current_section and current_content:
+                sections.append({
+                    "index": len(sections),
+                    "title": current_section,
+                    "content": '\n'.join(current_content).strip()
+                })
+            
+            # 새 섹션 시작
+            title_match = re.match(r'\\section\{([^}]*)\}', line)
+            current_section = title_match.group(1) if title_match else "Unknown Section"
+            current_content = [line]
+            
+        elif re.match(r'\\subsection\{([^}]*)\}', line):
+            # 서브섹션도 섹션으로 처리
+            if current_section and current_content:
+                sections.append({
+                    "index": len(sections),
+                    "title": current_section,
+                    "content": '\n'.join(current_content).strip()
+                })
+            
+            title_match = re.match(r'\\subsection\{([^}]*)\}', line)
+            current_section = title_match.group(1) if title_match else "Unknown Subsection"
+            current_content = [line]
+            
+        elif re.match(r'\\begin\{abstract\}', line):
+            # Abstract 섹션
+            if current_section and current_content:
+                sections.append({
+                    "index": len(sections),
+                    "title": current_section,
+                    "content": '\n'.join(current_content).strip()
+                })
+            
+            current_section = "Abstract"
+            current_content = [line]
+            
+        elif re.match(r'\\begin\{document\}', line):
+            # Document 시작
+            if current_section and current_content:
+                sections.append({
+                    "index": len(sections),
+                    "title": current_section,
+                    "content": '\n'.join(current_content).strip()
+                })
+            
+            current_section = "Introduction"
+            current_content = [line]
+            
+        else:
+            # 일반 내용
+            if current_section:
+                current_content.append(line)
+    
+    # 마지막 섹션 저장
+    if current_section and current_content:
+        sections.append({
+            "index": len(sections),
+            "title": current_section,
+            "content": '\n'.join(current_content).strip()
+        })
+    
+    # 빈 섹션 제거
+    sections = [s for s in sections if s["content"].strip()]
+    
+    return sections
 
 async def _rewrite_text(text: str) -> str:
     if model is None or tokenizer is None:
         raise RuntimeError("모델이 로드되지 않았습니다")
 
-    prompt = _build_easy_prompt(text)
+    # LaTeX 텍스트 정리 (의미있는 텍스트로 변환)
+    cleaned_text = _clean_latex_text(text)
+
+    prompt = _build_easy_prompt(cleaned_text)
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
     inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.inference_mode():
@@ -302,12 +459,13 @@ async def _rewrite_text(text: str) -> str:
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=True,
-            temperature=float(os.getenv("EASY_TEMPERATURE", "0.6")),
+            temperature=float(os.getenv("EASY_TEMPERATURE", "0.7")),
             top_p=float(os.getenv("EASY_TOP_P", "0.9")),
             use_cache=True,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.05,
+            repetition_penalty=1.2,  # 반복 방지 강화
+            no_repeat_ngram_size=3,  # 3-gram 반복 방지
         )
     generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
     return generated[len(prompt):].strip()
@@ -315,7 +473,24 @@ async def _rewrite_text(text: str) -> str:
 # -------------------- Viz 호출 --------------------
 async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -> VizResult:
     try:
-        async with httpx.AsyncClient(timeout=EASY_BATCH_TIMEOUT) as client:
+        print(f"🔍 [DEBUG] Viz 모델 호출: {VIZ_MODEL_URL}/viz")
+        print(f"🔍 [DEBUG] 전송 데이터: paper_id={paper_id}, index={index}, text_length={len(text_ko)}")
+        print(f"🔍 [DEBUG] 전송 텍스트 미리보기: {text_ko[:200]}...")
+        
+        # Viz 모델이 실행 중인지 먼저 확인
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                health_response = await client.get(f"{VIZ_MODEL_URL.rstrip('/')}/health")
+                if health_response.status_code != 200:
+                    print(f"❌ [ERROR] Viz 모델 헬스체크 실패: {health_response.status_code}")
+                    return VizResult(ok=False, index=index, error="Viz 모델이 실행되지 않음")
+                print(f"✅ [SUCCESS] Viz 모델 헬스체크 성공")
+        except Exception as e:
+            print(f"❌ [ERROR] Viz 모델 헬스체크 실패: {e}")
+            return VizResult(ok=False, index=index, error=f"Viz 모델 연결 불가: {e}")
+        
+        # 실제 Viz 요청
+        async with httpx.AsyncClient(timeout=60) as client:  # 타임아웃 증가
             r = await client.post(
                 f"{VIZ_MODEL_URL.rstrip('/')}/viz",
                 json={
@@ -327,14 +502,25 @@ async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -
                     "text_type": "easy_korean",  # 쉽게 변환된 한국어임을 명시
                 },
             )
-            r.raise_for_status()
-            data = r.json()
+            print(f"🔍 [DEBUG] Viz 모델 응답: {r.status_code}")
+            
+            if r.status_code != 200:
+                print(f"❌ [ERROR] Viz 모델 응답 실패: {r.status_code} - {r.text}")
+                return VizResult(ok=False, index=index, error=f"Viz 모델 응답 실패: {r.status_code}")
+            
+            try:
+                data = r.json()
+                print(f"🔍 [DEBUG] Viz 모델 응답 데이터: {data}")
+            except Exception as json_error:
+                print(f"❌ [ERROR] Viz 모델 응답 JSON 파싱 실패: {json_error}")
+                return VizResult(ok=False, index=index, error=f"Viz 모델 응답 파싱 실패: {json_error}")
 
         img_path = data.get("image_path")
 
         if not img_path and data.get("image_base64"):
             out_path = out_dir / f"{index:06d}.png"
             out_path.write_bytes(base64.b64decode(data["image_base64"]))
+            print(f"✅ [SUCCESS] 이미지 저장: {out_path}")
             return VizResult(ok=True, index=index, image_path=str(out_path))
 
         if not img_path and data.get("image_url"):
@@ -343,13 +529,25 @@ async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -
                 rr = await client.get(data["image_url"])
                 rr.raise_for_status()
                 out_path.write_bytes(rr.content)
+            print(f"✅ [SUCCESS] 이미지 저장: {out_path}")
             return VizResult(ok=True, index=index, image_path=str(out_path))
 
         if img_path:
+            print(f"✅ [SUCCESS] 이미지 경로: {img_path}")
             return VizResult(ok=True, index=index, image_path=str(img_path))
 
+        print(f"❌ [ERROR] 이미지 경로 없음: {data}")
         return VizResult(ok=False, index=index, error="No image_path from viz")
+    except httpx.ConnectError as e:
+        print(f"❌ [ERROR] Viz 모델 연결 실패: {e}")
+        return VizResult(ok=False, index=index, error=f"Viz 모델 연결 실패: {e}")
+    except httpx.TimeoutException as e:
+        print(f"❌ [ERROR] Viz 모델 타임아웃: {e}")
+        return VizResult(ok=False, index=index, error=f"Viz 모델 타임아웃: {e}")
     except Exception as e:
+        print(f"❌ [ERROR] Viz 모델 처리 실패: {e}")
+        import traceback
+        traceback.print_exc()
         return VizResult(ok=False, index=index, error=str(e))
 
 # -------------------- 엔드포인트 --------------------
@@ -475,55 +673,141 @@ async def generate_json(request: TextRequest):
 
 @app.post("/batch", response_model=BatchResult)
 async def batch_generate(req: BatchRequest):
-    jsonl_path = Path(req.chunks_jsonl).resolve()
+    print(f"🔍 [DEBUG] Easy /batch 엔드포인트 호출됨")
+    print(f"🔍 [DEBUG] 요청 데이터:")
+    print(f"  - paper_id: {req.paper_id}")
+    print(f"  - chunks_jsonl: {req.chunks_jsonl}")
+    print(f"  - output_dir: {req.output_dir}")
+    
+    # merged_body.tex 파일 경로로 변경
+    tex_path = Path(req.chunks_jsonl).parent / "merged_body.tex"
     out_dir = Path(req.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if not jsonl_path.exists():
-        raise HTTPException(status_code=400, detail=f"JSONL not found: {jsonl_path}")
+    print(f"🔍 [DEBUG] 파일 경로 확인:")
+    print(f"  - tex_path: {tex_path}")
+    print(f"  - tex_path 존재: {tex_path.exists()}")
+    print(f"  - out_dir: {out_dir}")
+    print(f"  - out_dir 생성됨: {out_dir.exists()}")
 
-    # JSONL 로드
-    items: List[dict] = []
-    with jsonl_path.open("r", encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            try:
-                obj = json.loads(line)
-                text = obj.get("text")
-                if not isinstance(text, str) or not text.strip():
-                    logger.warning(f"[batch] 라인 {i}: text 비어있음 → skip")
-                    continue
-                items.append({"index": i, "text": text})
-            except Exception as e:
-                logger.warning(f"[batch] 라인 {i}: JSON 파싱 실패 → skip ({e})")
+    if not tex_path.exists():
+        print(f"❌ [ERROR] merged_body.tex 파일이 존재하지 않음: {tex_path}")
+        raise HTTPException(status_code=400, detail=f"merged_body.tex not found: {tex_path}")
+
+    # LaTeX 파일을 섹션별로 분할
+    sections = _parse_latex_sections(tex_path)
+    print(f"🔍 [DEBUG] 총 {len(sections)}개 섹션 파싱됨")
+    
+    if not sections:
+        print(f"❌ [ERROR] 유효한 섹션이 없음")
+        raise HTTPException(status_code=400, detail="No valid sections found in merged_body.tex")
+
+    # 모델 상태 확인
+    if model is None or tokenizer is None:
+        print(f"❌ [ERROR] 모델이 로드되지 않음")
+        raise HTTPException(status_code=500, detail="Model not loaded")
+
+    print(f"🔍 [DEBUG] 모델 상태: model={model is not None}, tokenizer={tokenizer is not None}")
+    print(f"🔍 [DEBUG] 디바이스: {device}, GPU 사용: {gpu_available}")
 
     sem = anyio.Semaphore(EASY_CONCURRENCY)
     results: List[VizResult] = []
 
-    async def worker(item: dict):
+    async def worker(section: dict):
         async with sem:
-            idx = item["index"]
+            idx = section["index"]
             try:
-                ko = await _rewrite_text(item["text"])
-                vz = await _send_to_viz(req.paper_id, idx, ko, out_dir)
+                print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 처리 시작: {section['title']}")
+                ko = await _rewrite_text(section["content"])
+                print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 변환 완료: {ko[:100]}...")
+                
+                # Google Translator로 한국어 번역
+                print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 한국어 번역 시작...")
+                ko_translated = _translate_to_korean(ko)
+                print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 한국어 번역 완료: {ko_translated[:100]}...")
+                
+                # 한국어 번역본으로 Viz 처리
+                vz = await _send_to_viz(req.paper_id, idx, ko_translated, out_dir)
+                print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} Viz 완료: {vz.ok}")
+                
+                # 결과에 번역된 텍스트 저장
+                vz.easy_text = ko_translated
+                vz.section_title = section["title"]
                 results.append(vz)
+                
+                # 진행률 표시
+                completed = len(results)
+                progress = (completed / len(sections)) * 100
+                print(f"📊 [PROGRESS] {completed}/{len(sections)} ({progress:.1f}%) 완료")
+                
             except Exception as e:
+                print(f"❌ [ERROR] 섹션 {idx}/{len(sections)} 처리 실패: {e}")
                 results.append(VizResult(ok=False, index=idx, error=str(e)))
 
+    print(f"🔍 [DEBUG] 배치 처리 시작...")
     async with anyio.create_task_group() as tg:
-        for item in items:
-            tg.start_soon(worker, item)
+        for section in sections:
+            tg.start_soon(worker, section)
 
     ok_cnt = sum(1 for r in results if r.ok)
     fail_cnt = len(results) - ok_cnt
-    return BatchResult(
+    
+    print(f"🔍 [DEBUG] 배치 처리 완료:")
+    print(f"  - 총 섹션: {len(sections)}")
+    print(f"  - 성공: {ok_cnt}")
+    print(f"  - 실패: {fail_cnt}")
+    
+    result = BatchResult(
         ok=fail_cnt == 0,
         paper_id=req.paper_id,
-        count=len(items),
+        count=len(sections),
         success=ok_cnt,
         failed=fail_cnt,
         out_dir=str(out_dir),
         images=sorted(results, key=lambda r: r.index),
     )
+    
+    # JSON 결과 파일 생성 (프론트엔드용)
+    json_result = {
+        "paper_id": req.paper_id,
+        "total_sections": len(sections),
+        "success_count": ok_cnt,
+        "failed_count": fail_cnt,
+        "sections": []
+    }
+    
+    # 각 섹션별 결과 추가
+    for i, section in enumerate(sections):
+        section_result = {
+            "index": i,
+            "title": section["title"],
+            "original_content": section["content"][:200] + "..." if len(section["content"]) > 200 else section["content"],
+            "easy_text": "",
+            "korean_translation": "",
+            "image_path": "",
+            "status": "failed"
+        }
+        
+        # 해당 인덱스의 결과 찾기
+        for r in results:
+            if r.index == i:
+                section_result["status"] = "success" if r.ok else "failed"
+                if r.ok and r.image_path:
+                    section_result["image_path"] = r.image_path
+                if hasattr(r, 'easy_text') and r.easy_text:
+                    section_result["korean_translation"] = r.easy_text
+                break
+        
+        json_result["sections"].append(section_result)
+    
+    # JSON 파일 저장
+    json_file_path = out_dir / "easy_results.json"
+    with open(json_file_path, "w", encoding="utf-8") as f:
+        json.dump(json_result, f, ensure_ascii=False, indent=2)
+    
+    print(f"📄 [JSON] 결과 파일 저장: {json_file_path}")
+    print(f"✅ [SUCCESS] Easy 모델 배치 처리 완료: {result}")
+    return result
 
 @app.post("/from-transport", response_model=BatchResult)
 async def generate_from_transport(req: TransportRequest):

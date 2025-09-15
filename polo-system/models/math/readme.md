@@ -23,8 +23,8 @@ uvicorn app:app --port 5004
   http://127.0.0.1:5004/count/C:\POLO\polo-system\models\math\iclr2022_conference.tex
 
 - JSON/tex 파일 받기
-  http://127.0.0.1:5004/math/C:/POLO/polo-system/models/math/yolo.tex
-  http://127.0.0.1:5004/math/C:\POLO\polo-system\models\math\iclr2022_conference.tex
+  http://127.0.0.1:5004/math/C:/POLO/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/math/C:\POLO\POLO\polo-system\models\math\iclr2022_conference.tex
 
 - 건강상태? 확인
   http://127.0.0.1:5004/health

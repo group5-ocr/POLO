@@ -124,29 +124,59 @@ async def process_paper(request: ProcessRequest):
 
 async def send_to_models(paper_id: str, payload: dict, out_dir: Path):
     """easy 모델로 결과 전송 (Math 모델 제외)"""
+    print(f"🔍 [DEBUG] send_to_models 시작: paper_id={paper_id}, out_dir={out_dir}")
+    print(f"🔍 [DEBUG] EASY_URL: {EASY_URL}")
+    
     try:
         # easy 모델로 JSONL 파일 경로 전송 (배치 처리)
         chunks_path = out_dir / "chunks.jsonl"
         if not chunks_path.exists():
             chunks_path = out_dir / "chunks.jsonl.gz"
         
+        print(f"🔍 [DEBUG] chunks_path 확인: {chunks_path}")
+        print(f"🔍 [DEBUG] chunks_path 존재 여부: {chunks_path.exists()}")
+        
         if chunks_path.exists():
             print(f"📤 Easy 모델로 전송: {chunks_path}")
+            print(f"🔍 [DEBUG] 전송할 데이터:")
+            print(f"  - paper_id: {paper_id}")
+            print(f"  - chunks_jsonl: {str(chunks_path)}")
+            print(f"  - output_dir: {str(out_dir / 'easy_outputs')}")
+            
             try:
                 async with httpx.AsyncClient(timeout=60) as client:
+                    print(f"🔍 [DEBUG] HTTP 요청 시작: {EASY_URL}/batch")
                     response = await client.post(f"{EASY_URL}/batch", json={
                         "paper_id": paper_id,
                         "chunks_jsonl": str(chunks_path),
                         "output_dir": str(out_dir / "easy_outputs")
                     })
                     print(f"✅ Easy 모델 응답: {response.status_code}")
+                    print(f"🔍 [DEBUG] 응답 내용: {response.text[:500]}...")
+                    
+                    if response.status_code != 200:
+                        print(f"❌ [ERROR] Easy 모델 응답 실패: {response.status_code}")
+                        print(f"❌ [ERROR] 응답 내용: {response.text}")
+                        
+            except httpx.ConnectError as e:
+                print(f"❌ [ERROR] Easy 모델 연결 실패: {e}")
+                print(f"❌ [ERROR] Easy 모델이 실행 중인지 확인하세요: {EASY_URL}")
+            except httpx.TimeoutException as e:
+                print(f"❌ [ERROR] Easy 모델 타임아웃: {e}")
             except Exception as e:
-                print(f"Warning: Failed to send to models: {e}")
+                print(f"❌ [ERROR] Easy 모델 요청 실패: {e}")
+                print(f"❌ [ERROR] 에러 타입: {type(e).__name__}")
         else:
             print(f"⚠️ chunks.jsonl 파일을 찾을 수 없습니다: {out_dir}")
+            print(f"🔍 [DEBUG] out_dir 내용:")
+            for item in out_dir.iterdir():
+                print(f"  - {item.name} ({'dir' if item.is_dir() else 'file'})")
                 
     except Exception as e:
-        print(f"Warning: Failed to send to models: {e}")
+        print(f"❌ [ERROR] send_to_models 전체 실패: {e}")
+        print(f"❌ [ERROR] 에러 타입: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
 
 async def send_callback(callback_url: str, paper_id: str, transport_path: str):
     """콜백 호출"""

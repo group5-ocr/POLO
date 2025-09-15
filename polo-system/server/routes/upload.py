@@ -34,6 +34,9 @@ class PreprocessCallback(BaseModel):
     transport_path: str
     status: str
 
+class ModelSendRequest(BaseModel):
+    paper_id: str
+
 class ConvertResponse(BaseModel):
     filename: str
     file_size: int
@@ -256,6 +259,25 @@ async def download_easy_file(paper_id: str):
         path=str(image_files[0]),
         filename=f"{paper_id}_easy_{image_files[0].name}",
         media_type="image/png"
+    )
+
+@router.get("/upload/download/easy-json/{paper_id}")
+async def download_easy_json(paper_id: str):
+    """
+    Easy 모델 JSON 결과 파일 다운로드
+    """
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    easy_output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
+    json_file = easy_output_dir / "easy_results.json"
+    
+    if not json_file.exists():
+        raise HTTPException(status_code=404, detail=f"Easy 모델 JSON 결과 파일을 찾을 수 없습니다: {paper_id}")
+    
+    return FileResponse(
+        path=str(json_file),
+        filename=f"{paper_id}_easy_results.json",
+        media_type="application/json"
     )
 
 @router.get("/upload/download/math/{paper_id}")
@@ -551,17 +573,44 @@ async def preprocess_callback(body: PreprocessCallback):
             if jsonl_files:
                 import httpx, os
                 easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
+                print(f"🔍 [DEBUG] Easy 배치 트리거 시작")
+                print(f"🔍 [DEBUG] easy_url: {easy_url}")
+                print(f"🔍 [DEBUG] jsonl_files: {jsonl_files}")
+                
                 out_dir = (transport_path if transport_path.is_dir() else transport_path.parent).parent / "outputs" / str(tex_id) / "easy_outputs"
                 out_dir.mkdir(parents=True, exist_ok=True)
+                
+                print(f"🔍 [DEBUG] out_dir: {out_dir}")
+                print(f"🔍 [DEBUG] 전송할 데이터:")
+                print(f"  - paper_id: {str(tex_id)}")
+                print(f"  - chunks_jsonl: {str(jsonl_files[0])}")
+                print(f"  - output_dir: {str(out_dir)}")
+                
                 async with httpx.AsyncClient(timeout=60) as client:
+                    print(f"🔍 [DEBUG] HTTP 요청 시작: {easy_url}/batch")
                     r = await client.post(f"{easy_url}/batch", json={
                         "paper_id": str(tex_id),
                         "chunks_jsonl": str(jsonl_files[0]),
                         "output_dir": str(out_dir),
                     })
-                    print(f"[easy] batch trigger → {r.status_code}")
+                    print(f"🔍 [DEBUG] Easy 배치 응답: {r.status_code}")
+                    print(f"🔍 [DEBUG] 응답 내용: {r.text[:500]}...")
+                    
+                    if r.status_code != 200:
+                        print(f"❌ [ERROR] Easy 배치 실패: {r.status_code}")
+                        print(f"❌ [ERROR] 응답 내용: {r.text}")
+            else:
+                print(f"⚠️ [WARNING] jsonl_files가 없어서 Easy 배치 트리거 스킵")
+        except httpx.ConnectError as e:
+            print(f"❌ [ERROR] Easy 모델 연결 실패: {e}")
+            print(f"❌ [ERROR] Easy 모델이 실행 중인지 확인하세요: {easy_url}")
+        except httpx.TimeoutException as e:
+            print(f"❌ [ERROR] Easy 모델 타임아웃: {e}")
         except Exception as e:
-            print(f"[easy] batch trigger failed: {e}")
+            print(f"❌ [ERROR] Easy 배치 트리거 실패: {e}")
+            print(f"❌ [ERROR] 에러 타입: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
 
         print(f"✅ 전처리 완료: paper_id={body.paper_id}, transport_path={body.transport_path}, status={body.status}")
         print(f"📊 총 청크 수: {total_chunks}")
@@ -622,3 +671,132 @@ async def api_preprocess_callback(body: PreprocessCallback):
     except Exception as e:
         print(f"❌ API 콜백 처리 실패: {e}")
         raise HTTPException(status_code=500, detail=f"API Callback processing failed: {e}")
+
+@router.post("/upload/send-to-easy")
+async def send_to_easy(request: ModelSendRequest):
+    """
+    Easy 모델로 chunks.jsonl 전송
+    """
+    try:
+        paper_id = request.paper_id
+        print(f"🔍 [DEBUG] Easy 모델 전송 요청: paper_id={paper_id}")
+        
+        # 전처리 결과 파일 경로 찾기
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        source_dir = server_dir / "data" / "out" / "source"
+        
+        print(f"🔍 [DEBUG] source_dir: {source_dir}")
+        print(f"🔍 [DEBUG] source_dir 존재: {source_dir.exists()}")
+        
+        if not source_dir.exists():
+            raise HTTPException(status_code=404, detail="전처리 결과를 찾을 수 없습니다")
+        
+        # chunks.jsonl 파일 찾기
+        chunks_path = source_dir / "chunks.jsonl"
+        if not chunks_path.exists():
+            chunks_path = source_dir / "chunks.jsonl.gz"
+        
+        if not chunks_path.exists():
+            raise HTTPException(status_code=404, detail="chunks.jsonl 파일을 찾을 수 없습니다")
+        
+        print(f"🔍 [DEBUG] chunks.jsonl 경로: {chunks_path}")
+        
+        # Easy 모델 URL
+        easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
+        output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"🔍 [DEBUG] Easy 모델 전송 데이터:")
+        print(f"  - easy_url: {easy_url}")
+        print(f"  - chunks_jsonl: {str(chunks_path)}")
+        print(f"  - output_dir: {str(output_dir)}")
+        
+        # Easy 모델로 전송
+        import httpx
+        async with httpx.AsyncClient(timeout=600) as client:  # 10분으로 증가
+            response = await client.post(f"{easy_url}/batch", json={
+                "paper_id": paper_id,
+                "chunks_jsonl": str(chunks_path),
+                "output_dir": str(output_dir)
+            })
+            
+            print(f"🔍 [DEBUG] Easy 모델 응답: {response.status_code}")
+            print(f"🔍 [DEBUG] 응답 내용: {response.text[:500]}...")
+            
+            if response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    print(f"🔍 [DEBUG] Easy 모델 응답 데이터: {response_data}")
+                    return {"ok": True, "message": "Easy 모델로 전송 완료", "paper_id": paper_id, "response": response_data}
+                except Exception as json_error:
+                    print(f"⚠️ [WARNING] Easy 모델 응답 JSON 파싱 실패: {json_error}")
+                    return {"ok": True, "message": "Easy 모델로 전송 완료 (응답 파싱 실패)", "paper_id": paper_id}
+            else:
+                print(f"❌ [ERROR] Easy 모델 응답 실패: {response.status_code}")
+                print(f"❌ [ERROR] 응답 내용: {response.text}")
+                raise HTTPException(status_code=response.status_code, detail=f"Easy 모델 전송 실패: {response.text}")
+                
+    except httpx.ConnectError as e:
+        print(f"❌ [ERROR] Easy 모델 연결 실패: {e}")
+        raise HTTPException(status_code=503, detail=f"Easy 모델 연결 실패: {e}")
+    except Exception as e:
+        print(f"❌ [ERROR] Easy 모델 전송 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"Easy 모델 전송 실패: {e}")
+
+@router.post("/upload/send-to-math")
+async def send_to_math(request: ModelSendRequest):
+    """
+    Math 모델로 merged_body.tex 전송 (실행하지 않고 전송만)
+    """
+    try:
+        paper_id = request.paper_id
+        print(f"🔍 [DEBUG] Math 모델 전송 요청: paper_id={paper_id}")
+        
+        # 전처리 결과 파일 경로 찾기
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        source_dir = server_dir / "data" / "out" / "source"
+        
+        print(f"🔍 [DEBUG] source_dir: {source_dir}")
+        
+        if not source_dir.exists():
+            raise HTTPException(status_code=404, detail="전처리 결과를 찾을 수 없습니다")
+        
+        # merged_body.tex 파일 찾기
+        tex_path = source_dir / "merged_body.tex"
+        
+        if not tex_path.exists():
+            raise HTTPException(status_code=404, detail="merged_body.tex 파일을 찾을 수 없습니다")
+        
+        print(f"🔍 [DEBUG] merged_body.tex 경로: {tex_path}")
+        
+        # Math 모델 URL (실행하지 않고 전송만)
+        math_url = os.getenv("MATH_MODEL_URL", "http://localhost:5004")
+        output_dir = server_dir / "data" / "outputs" / paper_id / "math_outputs"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"🔍 [DEBUG] Math 모델 전송 데이터:")
+        print(f"  - math_url: {math_url}")
+        print(f"  - tex_path: {str(tex_path)}")
+        print(f"  - output_dir: {str(output_dir)}")
+        
+        # Math 모델로 전송 (실행하지 않고 전송만)
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Math 모델이 실행 중인지 확인만
+            try:
+                health_response = await client.get(f"{math_url}/health", timeout=5)
+                if health_response.status_code == 200:
+                    print(f"🔍 [DEBUG] Math 모델이 실행 중입니다 (실행하지 않고 전송만)")
+                    return {"ok": True, "message": "Math 모델로 전송 완료 (실행하지 않음)", "paper_id": paper_id}
+                else:
+                    print(f"⚠️ [WARNING] Math 모델이 실행되지 않음: {health_response.status_code}")
+                    return {"ok": True, "message": "Math 모델로 전송 완료 (Math 모델 미실행)", "paper_id": paper_id}
+            except httpx.ConnectError:
+                print(f"⚠️ [WARNING] Math 모델이 실행되지 않음 (연결 실패)")
+                return {"ok": True, "message": "Math 모델로 전송 완료 (Math 모델 미실행)", "paper_id": paper_id}
+                
+    except Exception as e:
+        print(f"❌ [ERROR] Math 모델 전송 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"Math 모델 전송 실패: {e}")

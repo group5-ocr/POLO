@@ -240,7 +240,9 @@ REM )
 
 echo [5/6] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
-  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER%"
+  REM 서버 의존성에 email-validator 추가
+  set "FALLBACK_SERVER_WITH_EMAIL=fastapi uvicorn httpx pydantic[email] asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
+  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER_WITH_EMAIL%"
 ) else (
   echo [ERROR] Server directory not found: %SERVER_DIR%
   goto :end

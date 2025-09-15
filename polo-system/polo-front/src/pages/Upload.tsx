@@ -48,6 +48,180 @@ export default function Upload() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [debugLogs, setDebugLogs] = useState<Array<{time: string, message: string}>>([]);
+  const [easyResults, setEasyResults] = useState<any>(null);
+  const [isLoadingEasy, setIsLoadingEasy] = useState(false);
+
+  // 디버그 로그 함수
+  const pushDebug = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    console.log(logMessage);
+    setDebugLogs(prev => [...prev.slice(-9), {time: timestamp, message}]); // 최근 10개만 유지
+  };
+
+  // Easy 결과 로드 함수
+  const loadEasyResults = async (paperId: string) => {
+    setIsLoadingEasy(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/upload/download/easy-json/${paperId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setEasyResults(data);
+        pushDebug(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
+      } else {
+        pushDebug(`[Easy 결과] 로드 실패: ${response.status}`);
+      }
+    } catch (error) {
+      pushDebug(`[Easy 결과] 로드 에러: ${error}`);
+    } finally {
+      setIsLoadingEasy(false);
+    }
+  };
+
+  // Easy 모델로 전송하는 함수
+  const handleSendToEasy = async () => {
+    if (!result?.doc_id) {
+      pushDebug('[Easy 모델] 논문 ID가 없습니다');
+      return;
+    }
+
+    setIsLoadingEasy(true);
+    pushDebug('[Easy 모델] 전송 시작...');
+
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/upload/send-to-easy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          paper_id: result.doc_id
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        pushDebug(`[Easy 모델] 전송 성공: ${data.message || '처리 시작됨'}`);
+        
+        // 결과 로드 시도
+        setTimeout(() => {
+          loadEasyResults(result.doc_id!);
+        }, 2000);
+      } else {
+        const errorData = await response.json();
+        pushDebug(`[Easy 모델] 전송 실패: ${errorData.detail || response.statusText}`);
+      }
+    } catch (error) {
+      pushDebug(`[Easy 모델] 전송 에러: ${error}`);
+    } finally {
+      setIsLoadingEasy(false);
+    }
+  };
+
+  // Easy 결과를 HTML로 다운로드하는 함수
+  const downloadEasyResultsAsHTML = () => {
+    if (!easyResults) return;
+    
+    const html = generateEasyResultsHTML(easyResults);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `easy_results_${easyResults.paper_id}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Easy 결과 HTML 생성 함수
+  const generateEasyResultsHTML = (easyResults: any) => {
+    const sections = easyResults.sections || easyResults.chunks || [];
+    const totalSections = easyResults.total_sections || easyResults.total_chunks || 0;
+    
+    return `
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy 결과 - 논문 ${easyResults.paper_id}</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+        .header h1 { margin: 0; font-size: 2.5em; }
+        .stats { display: flex; justify-content: center; gap: 30px; margin-top: 20px; }
+        .stat { text-align: center; }
+        .stat-number { font-size: 2em; font-weight: bold; }
+        .content { padding: 30px; }
+        .section { margin-bottom: 30px; padding: 25px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #ddd; }
+        .section-title { font-size: 18px; font-weight: bold; color: #2c3e50; }
+        .section-status { padding: 6px 12px; border-radius: 4px; font-size: 12px; }
+        .status-success { background: #4caf50; color: white; }
+        .status-failed { background: #f44336; color: white; }
+        .original-content { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 15px; font-size: 0.9em; line-height: 1.6; }
+        .korean-translation { background: #f3e5f5; padding: 15px; border-radius: 5px; margin-bottom: 15px; line-height: 1.8; }
+        .image-container { text-align: center; margin-top: 15px; }
+        .image-container img { max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .no-image { color: #666; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Easy 모델 결과</h1>
+            <p>논문 ID: ${easyResults.paper_id}</p>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-number">${totalSections}</div>
+                    <div>총 섹션</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">${easyResults.success_count}</div>
+                    <div>성공</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">${easyResults.failed_count}</div>
+                    <div>실패</div>
+                </div>
+            </div>
+        </div>
+        <div class="content">
+            ${sections.map((section: any, index: number) => `
+                <div class="section">
+                    <div class="section-header">
+                        <span class="section-title">${section.title || `섹션 ${section.index + 1}`}</span>
+                        <span class="section-status ${section.status === 'success' ? 'status-success' : 'status-failed'}">
+                            ${section.status === 'success' ? '✅ 성공' : '❌ 실패'}
+                        </span>
+                    </div>
+                    <div class="original-content">
+                        <strong>원본 내용:</strong><br>
+                        ${(section.original_content || section.original_text || '').substring(0, 500)}${(section.original_content || section.original_text || '').length > 500 ? '...' : ''}
+                    </div>
+                    ${section.korean_translation ? `
+                        <div class="korean-translation">
+                            <strong>쉬운 설명:</strong><br>
+                            ${section.korean_translation}
+                        </div>
+                    ` : ''}
+                    <div class="image-container">
+                        ${section.image_path ? 
+                            `<img src="${section.image_path}" alt="시각화 이미지">` : 
+                            '<div class="no-image">이미지 없음</div>'
+                        }
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    </div>
+</body>
+</html>`;
+  };
   const [dragActive, setDragActive] = useState(false);
   const [arxivId, setArxivId] = useState("");
   const [arxivTitle, setArxivTitle] = useState("");
@@ -488,6 +662,7 @@ export default function Upload() {
                   {(result.file_size / 1024).toFixed(2)} KB
                 </span>
               </div>
+
               <div className="info-item">
                 <span className="info-label">추출된 텍스트</span>
                 <span className="info-value">
@@ -496,130 +671,6 @@ export default function Upload() {
               </div>
             </div>
 
-            <div className="result-tabs">
-              <button
-                className={`tab-button ${
-                  activeTab === "preview" ? "active" : ""
-                }`}
-                onClick={() => setActiveTab("preview")}
-              >
-                미리보기
-              </button>
-              <button
-                className={`tab-button ${
-                  activeTab === "jsonl" ? "active" : ""
-                }`}
-                onClick={() => setActiveTab("jsonl")}
-              >
-                JSONL 데이터
-              </button>
-              <button
-                className={`tab-button ${activeTab === "math" ? "active" : ""}`}
-                onClick={() => setActiveTab("math")}
-              >
-                수식 해설
-              </button>
-            </div>
-
-            <div className="result-sections">
-              {activeTab === "preview" && (
-                <>
-                  <div className="result-section">
-                    <h4>원본 텍스트 미리보기</h4>
-                    <div className="text-preview">
-                      {result.extracted_text_preview}
-                    </div>
-                  </div>
-
-                  <div className="result-section">
-                    <h4>🤖 AI 쉬운 변환 결과</h4>
-                    <p className="conversion-description">
-                      복잡한 학술 용어들을 중학생도 이해할 수 있게 쉽고 재미있게 변환했습니다.
-                    </p>
-                    <div className="converted-text">{result.easy_text}</div>
-                  </div>
-                </>
-              )}
-
-              {activeTab === "jsonl" && (
-                <div className="result-section">
-                  <h4>📝 JSONL 데이터 (AI 쉬운 변환 결과)</h4>
-                  <p className="conversion-description">
-                    각 텍스트 청크를 중학생도 이해할 수 있게 쉽게 변환한 결과입니다.
-                  </p>
-                  {result.jsonl_data && result.jsonl_data.length > 0 ? (
-                    <div className="jsonl-container">
-                      {result.jsonl_data.map((item, index) => (
-                        <div key={index} className="jsonl-item">
-                          <div className="jsonl-header">
-                            <span className="jsonl-index">#{item.index}</span>
-                            {item.image_path && (
-                              <span className="jsonl-image">
-                                🖼️ 이미지 생성됨
-                              </span>
-                            )}
-                          </div>
-                          <div className="jsonl-content">
-                            <div className="jsonl-original">
-                              <strong>원본:</strong>
-                              <p>{item.text}</p>
-                            </div>
-                            {item.easy_text && (
-                              <div className="jsonl-easy">
-                                <strong>🤖 AI 쉬운 변환:</strong>
-                                <p className="easy-conversion">{item.easy_text}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="no-data">
-                      <p>JSONL 데이터가 아직 처리되지 않았습니다.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "math" && (
-                <div className="result-section">
-                  <h4>수식 해설 (Math 모델 출력)</h4>
-                  {result.math_result ? (
-                    <div className="math-container">
-                      <div className="math-overview">
-                        <h5>문서 개요</h5>
-                        <p>{result.math_result.overview}</p>
-                      </div>
-                      <div className="math-equations">
-                        <h5>수식 해설</h5>
-                        {result.math_result.items.map((item, index) => (
-                          <div key={index} className="math-item">
-                            <div className="math-header">
-                              <span className="math-index">#{item.index}</span>
-                              <span className="math-kind">{item.kind}</span>
-                              <span className="math-lines">
-                                라인 {item.line_start}-{item.line_end}
-                              </span>
-                            </div>
-                            <div className="math-equation">
-                              <code>{item.equation}</code>
-                            </div>
-                            <div className="math-explanation">
-                              <p>{item.explanation}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="no-data">
-                      <p>수식 해설이 아직 처리되지 않았습니다.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
 
             {downloadInfo && (
               <div className="download-info">
@@ -707,50 +758,73 @@ export default function Upload() {
               </div>
             )}
 
-            <div className="result-actions">
-              <div className="download-buttons">
-                <button
-                  className="btn-download"
-                  onClick={() => {
-                    if (result.doc_id) {
-                      // Easy 모델 출력 이미지 다운로드
-                      downloadFile(result.doc_id, "easy");
-                    }
-                  }}
-                  disabled={!result.doc_id}
-                >
-                  🖼️ 쉬운 버전 이미지 다운로드
-                </button>
-                <button
-                  className="btn-download"
-                  onClick={() => {
-                    if (result.doc_id) {
-                      // Math 모델 출력 파일 다운로드
-                      downloadFile(result.doc_id, "math");
-                    }
-                  }}
-                  disabled={!result.doc_id}
-                >
-                  📐 수식 해설 파일 다운로드
-                </button>
-                <button
-                  className="btn-download"
-                  onClick={() => {
-                    if (result.doc_id) {
-                      // 원본 파일 다운로드
-                      downloadFile(result.filename, "raw");
-                    }
-                  }}
-                  disabled={!result.doc_id}
-                >
-                  📄 원본 파일 다운로드
-                </button>
+            {/* 디버그 로그 섹션 */}
+            {debugLogs.length > 0 && (
+              <div className="debug-section">
+                <h4>🔍 디버그 로그</h4>
+                <div className="debug-logs">
+                  {debugLogs.map((log, index) => (
+                    <div key={index} className="debug-log">
+                      <span className="log-time">[{log.time}]</span>
+                      <span className="log-message">{log.message}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="action-buttons">
-                <button className="btn-secondary" onClick={() => navigate("/")}>
-                  홈으로 돌아가기
-                </button>
+            )}
+
+            {/* 모델 전송 버튼 */}
+            <div className="model-buttons">
+              <button
+                className="btn-primary"
+                onClick={handleSendToEasy}
+                disabled={!result.doc_id || isLoadingEasy}
+              >
+                {isLoadingEasy ? "처리 중..." : "🤖 Easy 모델로 전송"}
+              </button>
+            </div>
+
+            {/* Easy 결과 표시 */}
+            {easyResults && (
+              <div className="easy-results">
+                <h4>📊 Easy 모델 결과</h4>
+                <div className="results-stats">
+                  <div className="stat-item">
+                    <span className="stat-number">{easyResults.total_sections || easyResults.total_chunks}</span>
+                    <span className="stat-label">총 섹션</span>
+                  </div>
+                  <div className="stat-item success">
+                    <span className="stat-number">{easyResults.success_count}</span>
+                    <span className="stat-label">성공</span>
+                  </div>
+                  <div className="stat-item failed">
+                    <span className="stat-number">{easyResults.failed_count}</span>
+                    <span className="stat-label">실패</span>
+                  </div>
+                </div>
+                
+                <div className="download-section">
+                  <button 
+                    onClick={downloadEasyResultsAsHTML}
+                    className="btn btn-secondary"
+                  >
+                    📄 Easy 결과 HTML 다운로드
+                  </button>
+                </div>
               </div>
+            )}
+
+            {/* 로딩 상태 */}
+            {isLoadingEasy && (
+              <div className="loading-easy">
+                <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
+              </div>
+            )}
+
+            <div className="action-buttons">
+              <button className="btn-secondary" onClick={() => navigate("/")}>
+                홈으로 돌아가기
+              </button>
             </div>
           </div>
         )}
