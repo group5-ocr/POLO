@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 interface UploadResult {
   filename: string;
@@ -42,6 +43,8 @@ interface UploadResult {
 }
 
 export default function Upload() {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +56,14 @@ export default function Upload() {
     "preview"
   );
   const [downloadInfo, setDownloadInfo] = useState<any>(null);
-  const navigate = useNavigate();
+
+  // 로그인 체크
+  useEffect(() => {
+    if (!isLoading && !user) {
+      alert("로그아웃 되었습니다.");
+      navigate("/");
+    }
+  }, [user, isLoading, navigate]);
 
   const uploadFile = async (file: File) => {
     setUploading(true);
@@ -266,6 +276,25 @@ export default function Upload() {
       alert("다운로드 중 오류가 발생했습니다.");
     }
   };
+
+  // 로딩 중이거나 로그인하지 않은 경우 로딩 화면 표시
+  if (isLoading) {
+    return (
+      <div className="upload-page">
+        <div className="upload-container">
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <div className="upload-spinner"></div>
+            <p>로딩 중...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 로그인하지 않은 경우 빈 화면 (useEffect에서 리다이렉트 처리)
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="upload-page">
