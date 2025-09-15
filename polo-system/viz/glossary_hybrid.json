@@ -1468,23 +1468,6 @@
     "value_type": "scalar"
   },
   {
-    "concept_id": "viz.hist.trigger",
-    "labels": {
-      "en": "Histogram trigger",
-      "ko": "히스토그램 트리거"
-    },
-    "aliases": {
-      "en": ["histogram", "distribution"],
-      "ko": ["히스토그램", "분포"]
-    },
-    "regex": {
-      "en": ["\\bhistogram\\b", "\\bdistribution\\b"],
-      "ko": ["히스토그램", "분포"]
-    },
-    "category": "viz.trigger.histogram",
-    "value_type": "scalar"
-  },
-  {
     "concept_id": "viz.trigger.bar_group",
     "labels": {
       "en": "Bar group trigger",
@@ -1622,5 +1605,14 @@
     },
     "category": "viz.trigger.curve_generic",
     "value_type": "scalar"
+  },
+  {
+    "concept_id": "viz.intent.distribution",
+    "labels": { "en": "distribution / histogram", "ko": "분포 / 히스토그램" },
+    "regex": {
+      "en": ["\\bdistribution\\b", "\\bhistogram\\b", "\\bdensity\\b"],
+      "ko": ["분포", "히스토그램", "밀도"]
+    },
+    "category": "viz.intent.distribution"
   }
 ]

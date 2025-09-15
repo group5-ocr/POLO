@@ -20,6 +20,7 @@ import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 GPU_AVAILABLE = torch.cuda.is_available()
 
+
 # matplotlib 설정
 mpl.rcParams["savefig.dpi"] = 220
 mpl.rcParams["figure.dpi"]  = 220

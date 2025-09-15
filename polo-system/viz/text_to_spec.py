@@ -5,7 +5,7 @@
 - 나머지 개념 도식은 templates/generic_rules.build_concept_specs 에서 추가
 """
 from __future__ import annotations
-import re, json, math, random, hashlib
+import re, json, math, random, hashlib, statistics
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
@@ -15,7 +15,42 @@ from templates.generic_rules import build_concept_specs
 # 스펙을 값 없이 템플릿으로 추가하지 않음
 ALLOW_FALLBACK_TEMPLATES = False
 
-# (A) 구성/비율: "Label 12%" 여러 개 → 100±5%면 parts로 채택
+# 히스토그램 필터
+_NUM = r"-?\d+(?:\.\d+)?"
+_LIST_LINE = re.compile(
+    rf"(?:values?|data|list|측정값|데이터)\s*[:：]\s*(?P<body>(?:{_NUM}(?:\s*[,，]\s*{_NUM})+))",
+    re.I,
+)
+_INLINE_LIST = re.compile(rf"\[\s*(?P<body>{_NUM}(?:\s*[,，]\s*{_NUM})+)\s*\]")
+
+def _to_floats(s): 
+    return [float(x) for x in re.findall(_NUM, s)]
+def _looks_like_year(x): 
+    return 1900 <= x <= 2100 and float(x).is_integer()
+def _is_percent_ctx(s): 
+    return "%" in s or re.search(r"(비율|퍼센트|percentage|ratio)", s, re.I)
+
+def parse_hist_values(text, min_n=20, min_unique=8):
+    cands=[]
+    for m in _LIST_LINE.finditer(text):
+        if _is_percent_ctx(m.group(0)): continue
+        cands.append(_to_floats(m.group("body")))
+    for m in _INLINE_LIST.finditer(text):
+        ctx = text[max(0, m.start()-30): m.end()+30]
+        if _is_percent_ctx(ctx): continue
+        cands.append(_to_floats(m.group("body")))
+    for vals in cands:
+        vals = [v for v in vals if not _looks_like_year(v)]
+        if len(vals) < min_n or len(set(vals)) < min_unique: continue
+        try:
+            if statistics.pstdev(vals) == 0: continue
+        except statistics.StatisticsError:
+            continue
+        return vals
+    return []
+
+
+# 구성/비율: "Label 12%" 여러 개 → 100±5%면 parts로 채택
 _COMPOSE_PAT = re.compile(r'(?P<label>[A-Za-z가-힣0-9/+\-_. ]{2,30})\s*[:=]?\s*(?P<pct>\d{1,3})\s*%')
 def parse_composition_parts(text, max_labels=10):
     items = [(m.group('label').strip(), int(m.group('pct'))) for m in _COMPOSE_PAT.finditer(text)]
@@ -33,7 +68,7 @@ def parse_composition_parts(text, max_labels=10):
         if 95 <= sum(p for _,p in items[:max_labels]) <= 105: best = items[:max_labels]
     return best
 
-# (B) 비교/벤치: "Task: A=80, B=83" 라인 모음 → (categories, series)
+# 비교/벤치: "Task: A=80, B=83" 라인 모음 → (categories, series)
 _TASK = re.compile(r'(?P<task>[A-Za-z가-힣0-9._/\-+ ]{2,40})\s*[:：]\s*(?P<body>.+)')
 _PAIR = re.compile(r'(?P<name>[A-Za-z가-힣0-9._/\-+ ]{1,30})\s*[=:\(]\s*(?P<val>-?\d+(?:\.\d+)?)')
 def parse_benchmark(text, max_tasks=12, max_series=8):
@@ -49,7 +84,7 @@ def parse_benchmark(text, max_tasks=12, max_series=8):
               for k,v in list(vals.items())[:max_series]]
     return (cats, series) if cats and series else ([], [])
 
-# (C) 카테고리 분해(스택): "Dataset A: Span 20%, ..." 라인 다수 → (categories, series)
+# 카테고리 분해(스택): "Dataset A: Span 20%, ..." 라인 다수 → (categories, series)
 def parse_breakdown(text, max_cats=10, max_parts=10):
     cats, row_parts, part_names = [], [], []
     for line in text.splitlines():
@@ -68,7 +103,7 @@ def parse_breakdown(text, max_cats=10, max_parts=10):
         series.append({"label": name, "values": col})
     return (cats[:max_cats], series[:max_parts])
 
-# (D) 특수 토큰/시퀀스: 문서에 실제 등장하면만 토큰 배열 생성
+# 특수 토큰/시퀀스: 문서에 실제 등장하면만 토큰 배열 생성
 def parse_special_tokens(text):
     tl = text.lower()
     has_cls = "[cls]" in tl or "<s>" in text
@@ -79,7 +114,7 @@ def parse_special_tokens(text):
     if has_sep: toks += ["[SEP]", "sentB", "[SEP]"]
     return toks
 
-# -------------------------------- Utilities -------------------------------- #
+# 유틸리티(라벨 한글화, 값 정규화)
 def _label(en, ko): return {"en": en, "ko": ko}
 
 def _stable_seed(text: str, salt: str = "") -> int:
@@ -92,7 +127,7 @@ def _rng_from(text: str, salt: str = "") -> random.Random:
 def _clip(v, lo=0.05, hi=0.95):
     return max(lo, min(hi, v))
 
-# -------------------------------- Glossary IO -------------------------------- #
+# 용어 IO
 def _find_glossary_path():
     here = Path(__file__).parent
     for p in (here / "glossary_hybrid.json", here / "glossary.json"):
@@ -133,7 +168,7 @@ def build_concept_index(glossary):
         }
     return idx
 
-# ------------------------------- Number parsing ------------------------------ #
+# 숫자 파서
 _NUM     = r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 _PERCENT = rf"{_NUM}\s*%"
 _EQ      = r"(=|:)"
@@ -172,7 +207,7 @@ def _looks_like_grid_or_range(text: str, pos: int) -> bool:
         return True
     return False
 
-# ------------------------------ Fallback ranges ------------------------------ #
+# 평가지표 범위
 # (glossary에 norm_range/min_reasonable가 없을 때만 사용)
 METRIC_RANGES = {
     "metric.accuracy": (0.0, 1.0), "metric.top5_accuracy": (0.0, 1.0),
@@ -194,7 +229,7 @@ MIN_REASONABLE = {
 }
 BAR_ALLOWED_CIDS = set(METRIC_RANGES.keys())
 
-# -------------------------- Glossary-driven helpers ------------------------- #
+# Glossary-driven 핼퍼
 def _g_aliases(meta, key="aliases"):
     al = meta.get("entry", {}).get(key, {})
     out = []
@@ -284,7 +319,7 @@ def _coerce_metric_value(cid: str, meta: dict, val: float, is_pct: bool):
     if b <= 1.0 and val > 1.0:          return None
     return None
 
-# ------------------------------ Method token pick ---------------------------- #
+# 특수 토큰 필터
 def _pick_method_token(chunk: str, stopwords: set[str],
                        cand_rx: re.Pattern, forbid: set[str]) -> str | None:
     def _in_parens_near(idx: int) -> bool:
@@ -307,7 +342,7 @@ def _pick_method_token(chunk: str, stopwords: set[str],
         return t
     return None
 
-# --------------------------- Metric extraction core -------------------------- #
+# Metric extraction core 
 def extract_metric_mentions(text: str, concept_idx):
     stopwords = _stopwords_from_glossary(concept_idx)
     cand_rx   = _candidate_method_regex(concept_idx)
@@ -355,7 +390,7 @@ def extract_metric_mentions(text: str, concept_idx):
 
     return results, numeric_cids
 
-# -------------------------- Chart builders (bars/kpi) ------------------------ #
+# 차트 빌더 (bars/kpi)
 def make_kpi_card(cid: str, meta: dict, val01: float):
     label = _label(meta["labels_en"], meta["labels_ko"])
     return {
@@ -388,7 +423,7 @@ def make_bar_group(cid: str, meta: dict, series_map: Dict[str, float]):
         }
     }
 
-# ------------------------------- Rubric tables ------------------------------- #
+# 루브릭 테이블
 RUBRICS: dict[str, dict] = {
     "metric.accuracy": {"mode": "up", "title": "Accuracy rubric",
                         "col": "min score",
@@ -472,7 +507,7 @@ def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None
         if rub:
             _append_table(cid, rub)
 
-# ----------------------------- Learning curve util --------------------------- #
+# 학습 곡선 빌더
 ALLOW_IMPUTED_CURVES = False
 ALLOW_CURVE_FRONT_IMPUTE = True
 MIN_POINTS_FOR_CURVE = 3
@@ -513,17 +548,17 @@ def _dedup(spec):
         seen.add(it["id"]); out.append(it)
     return out
 
-# ---------------------------------- Builder ---------------------------------- #
+# 빌더
 def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
-    gl   = load_glossary_any(glossary_path)
+    gl   = load_glossary_any(glossary_path) # glossary 매칭/인덱스 생성
     cidx = build_concept_index(gl)
-
-    # (A) 텍스트에서 숫자 추출 + '숫자값 있는 지표' 집합
-    mentions, numeric_cids = extract_metric_mentions(text, cidx)
 
     spec: list[dict] = []
 
-    # (B) Bar: 같은 지표에 '방법이 2개 이상'일 때만 생성 + 허용 지표만
+    # 텍스트에서 숫자 추출 + '숫자값 있는 지표' 집합
+    mentions, numeric_cids = extract_metric_mentions(text, cidx)
+
+    # Bar: 같은 지표에 '방법이 2개 이상'일 때만 생성 + 허용 지표만
     for cid, by_method in mentions.items():
         if cid not in BAR_ALLOWED_CIDS:
             continue
@@ -533,14 +568,14 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
             if bg:
                 spec.append(bg)
 
-    # (C) 루브릭 표: 실제 숫자가 잡힌 지표에만 추가
-    _add_rubric_tables(spec, mentions, numeric_cids)
-
-    # (D) 히스토그램: glossary 트리거 + 충분한 숫자일 때만
-    # === 추가: 새 viz 트리거 처리 (bar_group / donut_pct / embedding_sum / token_sequence / stack_bar / curve_generic) ===
+    # 히스토그램: glossary 트리거 + 충분한 숫자일 때만
+    # 추가: 새 viz 트리거 처리 (bar_group / donut_pct / embedding_sum / token_sequence / stack_bar / curve_generic)
     def _append_if(cond, item):
         if cond:
             spec.append(item)
+
+    # 루브릭 표: 실제 숫자가 잡힌 지표에만 추가
+    _add_rubric_tables(spec, mentions, numeric_cids)
 
     # 비교/벤치마크 → 그룹 막대
     if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
@@ -628,24 +663,24 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
                 ],
                 "legend_loc":"upper right","annotate_last":True}
     })
-    # === 추가 끝 ===
 
-    if _has_trigger(cidx, "viz.trigger.histogram", text):
-        nums = []
-        for m in re.finditer(r"[-+]?\d+(?:\.\d+)?", text):
-            try: nums.append(float(m.group(0)))
-            except: pass
-        if len(nums) >= 20:
-            spec.append({
-                "id": "values_hist",
-                "type": "histogram",
-                "labels": _label("Histogram", "히스토그램"),
-                "inputs": {
-                    "values": nums, "bins": 20,
-                    "xlabel": _label("value", "값"),
-                    "title": _label("Histogram", "히스토그램")
-                }
-            })
+    # 분포/히스토그램: 의도 트리거 + 값 파싱 성공 시에만
+    vals = parse_hist_values(text)
+    _append_if(
+        _has_trigger(cidx, "viz.intent.distribution", text) and bool(vals),
+        {
+            "id": "dist_hist",
+            "type": "histogram",
+            "labels": _label("Histogram", "히스토그램"),
+            "inputs": {
+                "values": vals,
+                "bins": "fd",  # Freedman–Diaconis
+                "xlabel": _label("value", "값"),
+                "title":  _label("Histogram", "히스토그램")
+            }
+        }
+    )
+        # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
     # (E) 개념/예시 도식들
     spec += build_concept_specs(text, spec, mentions, numeric_cids)
