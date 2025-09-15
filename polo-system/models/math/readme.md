@@ -11,6 +11,7 @@ moldel 안에 stone-booking-466716-n6-f6fff7380e05.json 을 넣는다!!
 
 cmd에
 set GOOGLE_APPLICATION_CREDENTIALS=C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json
+경로는 자기걸로 설정!
 
 set GOOGLE_CLOUD_PROJECT=stone-booking-466716-n6
 

@@ -8,42 +8,57 @@ LaTeX 수식 해설 API (FastAPI)
 
 제공 엔드포인트
 - GET  /health
+  : 서버/모델 상태 점검용 엔드포인트입니다.
+
 - GET  /count/{file_path:path}
+  : 특정 TeX 파일의 수식을 추출해 "총 수식 개수"와 "고난도(중학생 이상) 수식 개수"만 빠르게 계산합니다.
+    콘솔에도 즉시 출력(printf)되며, JSON으로 개수만 반환합니다.
+
 - POST /count
+  : {"path": "C:\\...\\yolo.tex"} 형식의 JSON으로 위와 동일한 기능을 제공합니다.
+
 - GET  /math/{file_path:path}
+  : 전체 파이프라인 실행(수식 추출/분류 → 문서 개요(영어) 생성 → 고난도 수식에 대한 해설(영어) 생성 → JSON/TeX 저장)
+
 - POST /math
+  : {"path": "C:\\...\\yolo.tex"} 형식의 JSON으로 위와 동일한 기능을 제공합니다.
 
 주의/특징
-- stdout 라인 버퍼링
-- pad_token 보정 + attention_mask 명시 전달
-- LLM 프롬프트(개요/해설)는 영어
-- (추가) googletrans로 한국어 번역본 JSON/TeX도 생성
+- 콘솔 출력이 지연되지 않도록 stdout 라인 버퍼링 + print(..., flush=True)를 사용합니다.
+- 일부 모델에서 pad_token과 eos_token이 같을 때 뜨는 경고를 피하기 위해,
+  pad 토큰이 없거나 eos와 같으면 [PAD] 토큰을 추가하고, generate 시 attention_mask를 명시적으로 전달합니다.
+- LLM 프롬프트(문서 개요/수식 해설)는 요청에 따라 영어로 작성되어 있습니다.
 """
 
 # === 셀 1: 환경 준비 & 모델 로드 ===
 import os, sys, json, re, textwrap, datetime, torch
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+# dotenv 없이 간단하게 환경변수 로드
+def load_env_file(env_path):
+    """간단한 .env 파일 로드"""
+    if not os.path.exists(env_path):
+        return
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
+    except Exception as e:
+        print(f"Warning: Could not load .env file: {e}")
 
-# (추가) 구글 번역기
-try:
-    # pip install googletrans==4.0.0rc1 권장
-    from googletrans import Translator
-    _GT_AVAILABLE = True
-except Exception:
-    Translator = None
-    _GT_AVAILABLE = False
-
-# [권장] 콘솔 출력 즉시화
+# [권장] 콘솔 출력이 바로 보이도록 stdout을 줄 단위로 버퍼링합니다.
 try:
     sys.stdout.reconfigure(line_buffering=True)
 except Exception:
     pass
 
-VERSION = "POLO-Math-API v5 (EN->KO translate + math-protect)"
+VERSION = "POLO-Math-API v4 (EN-prompts + flush + mask + pad)"
 print(VERSION, flush=True)
 
 # ----- 경로 설정 -----
@@ -60,57 +75,127 @@ print(f"Python: {sys.version.split()[0]}", flush=True)
 print(f"PyTorch: {torch.__version__}", flush=True)
 print(f"CUDA available: {torch.cuda.is_available()}", flush=True)
 if torch.cuda.is_available():
-    print(f"GPU: {torch.cuda.get_device_name(0)}", flush=True)
-print(f"Device selected: {DEVICE}", flush=True)
+    gpu_name = torch.cuda.get_device_name(0)
+    print(f"✅ GPU 사용 가능: {gpu_name}", flush=True)
+    print(f"🔧 디바이스: {DEVICE}, 데이터 타입: float16", flush=True)
+else:
+    print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.", flush=True)
+    print(f"🔧 디바이스: {DEVICE}, 데이터 타입: float32", flush=True)
 
-try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+# --- 간단한 .env 로드 ---
+ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+load_env_file(str(ROOT_ENV))
+print(f"[env] .env loaded from: {ROOT_ENV}", flush=True)
 
-    PAD_ADDED = False
-    if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-        PAD_ADDED = True
+SAFE_CACHE_DIR = Path(__file__).resolve().parent / "hf_cache"
+SAFE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    bnb_config = None
-    if USE_4BIT:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float16
+def _force_safe_hf_cache():
+    for k in ("HF_HOME", "TRANSFORMERS_CACHE", "HF_DATASETS_CACHE", "HUGGINGFACE_HUB_CACHE"):
+        os.environ[k] = str(SAFE_CACHE_DIR)
+    print(f"[hf_cache] forced → {SAFE_CACHE_DIR}", flush=True)
+
+_force_safe_hf_cache()
+# Hugging Face 토큰 설정 (여러 가능한 이름으로 시도)
+HF_TOKEN = os.getenv("허깅페이스 토큰") or os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
+print(f"HF_TOKEN={'설정됨' if HF_TOKEN else '없음'} (환경변수: '허깅페이스 토큰' 또는 'HUGGINGFACE_TOKEN')", flush=True)
+
+def load_model():
+    """모델 로드 함수"""
+    global tokenizer, model, GEN_KW
+    
+    try:
+        print(f"🔄 Math 모델 로딩 시작: {MODEL_ID}", flush=True)
+        print(f"HF_HOME={os.getenv('HF_HOME')}", flush=True)
+        print(f"HF_TOKEN={'설정됨' if HF_TOKEN else '없음'} (환경변수: '허깅페이스 토큰')", flush=True)
+        
+        # 1) 토크나이저 (캐시/토큰 명시)
+        print("📝 토크나이저 로딩 중...", flush=True)
+        print(f"📝 MODEL_ID: {MODEL_ID}", flush=True)
+        print(f"📝 CACHE_DIR: {SAFE_CACHE_DIR}", flush=True)
+        print(f"📝 HF_TOKEN: {'설정됨' if HF_TOKEN else '없음'} (환경변수: '허깅페이스 토큰')", flush=True)
+        
+        tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_ID,
+            trust_remote_code=True,
+            token=HF_TOKEN,
+            cache_dir=str(SAFE_CACHE_DIR),
+        )
+        print("✅ 토크나이저 로딩 완료", flush=True)
+
+        # 2) pad 토큰 보정
+        PAD_ADDED = False
+        if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            PAD_ADDED = True
+            print("🔧 PAD 토큰 추가됨", flush=True)
+
+        # 3) 모델 로드 (필요 시 4bit)
+        print("🧠 모델 로딩 중...", flush=True)
+        print(f"🧠 DEVICE: {DEVICE}", flush=True)
+        print(f"🧠 USE_4BIT: {USE_4BIT}", flush=True)
+        
+        bnb_config = None
+        if USE_4BIT:
+            print("🔧 4bit 양자화 설정 적용", flush=True)
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
+            )
+
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            device_map="auto",
+            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+            quantization_config=bnb_config,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+            token=HF_TOKEN,
+            cache_dir=str(SAFE_CACHE_DIR),
         )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        device_map="auto",
-        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-        quantization_config=bnb_config,
-        low_cpu_mem_usage=True,
-        trust_remote_code=True
-    )
+        if PAD_ADDED:
+            model.resize_token_embeddings(len(tokenizer))
+            print("🔧 토큰 임베딩 크기 조정됨", flush=True)
 
-    if PAD_ADDED:
-        model.resize_token_embeddings(len(tokenizer))
+        GEN_KW = dict(
+            max_new_tokens=512,
+            temperature=0.2,
+            top_p=0.9,
+            do_sample=True
+        )
+        print("✅ Math 모델 로딩 완료", flush=True)
+        print(f"✅ 모델 디바이스: {next(model.parameters()).device}", flush=True)
+        print(f"✅ 모델 dtype: {next(model.parameters()).dtype}", flush=True)
+        return True
 
-    GEN_KW = dict(max_new_tokens=512, temperature=0.2, top_p=0.9, do_sample=True)
-    print("Model & tokenizer loaded.", flush=True)
-
-except Exception as e:
-    tokenizer = None
-    model = None
-    GEN_KW = {}
-    print("[Model Load Error]", e, flush=True)
-
-# (추가) 번역기 인스턴스
-translator = None
-if _GT_AVAILABLE:
-    try:
-        # googletrans는 기본 엔드포인트 이슈가 있을 수 있어 보조 URL을 지정
-        translator = Translator(service_urls=["translate.googleapis.com", "translate.google.com"])
-        print("Google Translator initialized.", flush=True)
     except Exception as e:
-        print("[Translator Init Error]", e, flush=True)
-        translator = None
+        print(f"❌ Math 모델 로딩 실패: {e}", flush=True)
+        print(f"❌ 에러 타입: {type(e).__name__}", flush=True)
+        print(f"❌ 에러 상세: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+        tokenizer = None
+        model = None
+        GEN_KW = {}
+        return False
+
+# 모델 로드 시도
+print("🚀 Math 모델 로딩 시작...", flush=True)
+model_loaded = load_model()
+if not model_loaded:
+    print("⚠️ 모델 로딩 실패 - 서버는 시작되지만 기능이 제한됩니다.", flush=True)
+    print("⚠️ 가능한 원인:", flush=True)
+    print("  - '허깅페이스 토큰' 환경변수가 설정되지 않음", flush=True)
+    print("  - 인터넷 연결 문제", flush=True)
+    print("  - 모델 다운로드 실패", flush=True)
+    print("  - 메모리 부족", flush=True)
+    print("  - CUDA/GPU 문제", flush=True)
+else:
+    print("🎉 Math 모델 로딩 성공!", flush=True)
+
 
 # === 공통 유틸: 라인 오프셋 인덱스 ===
 def make_line_offsets(text: str) -> List[int]:
@@ -118,7 +203,7 @@ def make_line_offsets(text: str) -> List[int]:
     offsets, pos = [], 0
     for ln in lines:
         offsets.append(pos)
-        pos += len(ln) + 1
+        pos += len(ln) + 1  # '\n' 포함
     return offsets
 
 def build_pos_to_line(offsets: List[int]):
@@ -130,8 +215,9 @@ def build_pos_to_line(offsets: List[int]):
                 lo = mid + 1
             else:
                 hi = mid - 1
-        return hi + 1
+        return hi + 1  # 1-based
     return pos_to_line
+
 
 # === 셀 2: LaTeX 수식 추출 ===
 def extract_equations(tex: str, pos_to_line) -> List[Dict]:
@@ -144,18 +230,20 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
             "body": body.strip()
         })
 
+    # $$ ... $$
     for m in re.finditer(r"\$\$(.+?)\$\$", tex, flags=re.DOTALL):
         add("display($$ $$)", m.start(), m.end(), m.group(1))
-
+    # \[ ... \]
     for m in re.finditer(r"\\\[(.+?)\\\]", tex, flags=re.DOTALL):
         add("display(\\[ \\])", m.start(), m.end(), m.group(1))
-
+    # \( ... \)
     for m in re.finditer(r"\\\((.+?)\\\)", tex, flags=re.DOTALL):
         add("inline(\\( \\))", m.start(), m.end(), m.group(1))
-
+    # inline $...$ (but not $$)
     for m in re.finditer(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", tex, flags=re.DOTALL):
         add("inline($ $)", m.start(), m.end(), m.group(1))
 
+    # environments
     envs = ["equation","equation*","align","align*","multline","multline*",
             "gather","gather*","flalign","flalign*","eqnarray","eqnarray*","split"]
     for env in envs:
@@ -173,15 +261,16 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
     out.sort(key=lambda x: x["start"])
     return out
 
+
 # === 셀 3: 난이도 휴리스틱 ===
 ADV_TOKENS = [
     r"\\sum", r"\\prod", r"\\int", r"\\lim", r"\\nabla", r"\\partial",
     r"\\mathbb", r"\\mathcal", r"\\mathbf", r"\\boldsymbol",
     r"\\argmax", r"\\argmin", r"\\operatorname", r"\\mathrm\{KL\}",
     r"\\mathbb\{E\}", r"\\Pr", r"\\sigma", r"\\mu", r"\\Sigma", r"\\theta",
-    r"\\frac\{[^{}]*\{[^{}]*\}[^{}]*\}",
+    r"\\frac\{[^{}]*\{[^{}]*\}[^{}]*\}",  # nested fraction
     r"\\hat\{", r"\\tilde\{", r"\\bar\{", r"\\widehat\{", r"\\widetilde\{",
-    r"\\sqrt\{[^{}]*\{",
+    r"\\sqrt\{[^{}]*\{",                  # nested sqrt
     r"\\left", r"\\right",
     r"\\in", r"\\subset", r"\\forall", r"\\exists",
     r"\\cdot", r"\\times", r"\\otimes",
@@ -203,7 +292,8 @@ def is_advanced(eq: str) -> bool:
         return True
     return False
 
-# === 셀 4: 개요 생성 ===
+
+# === 셀 4: 문서 개요 LLM ===
 def take_slices(text: str, head_chars=4000, mid_chars=2000, tail_chars=4000):
     n = len(text)
     head = text[:min(head_chars, n)]
@@ -213,6 +303,8 @@ def take_slices(text: str, head_chars=4000, mid_chars=2000, tail_chars=4000):
     return head, mid, tail
 
 def _generate_with_mask_from_messages(messages: List[Dict]) -> str:
+    if not model_loaded or tokenizer is None or model is None:
+        raise RuntimeError("Math model is not loaded")
     inputs = tokenizer.apply_chat_template(
         messages, add_generation_prompt=True, return_tensors="pt", padding=True
     )
@@ -226,8 +318,8 @@ def _generate_with_mask_from_messages(messages: List[Dict]) -> str:
     return tokenizer.decode(out[0], skip_special_tokens=True)
 
 def chat_overview(prompt: str) -> str:
-    if tokenizer is None or model is None:
-        raise RuntimeError("Model is not loaded.")
+    if not model_loaded or tokenizer is None or model is None:
+        raise RuntimeError("Math model is not loaded")
     messages = [
         {"role": "system", "content":
          "You are a clear, concise technical writer who summarizes LaTeX-based AI papers for a general technical audience."},
@@ -236,7 +328,8 @@ def chat_overview(prompt: str) -> str:
     text = _generate_with_mask_from_messages(messages)
     return text.split(messages[-1]["content"])[-1].strip()
 
-# === 셀 5: 수식 해설 생성 ===
+
+# === 셀 5: 수식 해설 LLM ===
 EXPLAIN_SYSTEM = (
     "You are a teacher who explains math/AI research equations in clear, simple English. "
     "Always be precise, polite, and easy to understand."
@@ -255,8 +348,8 @@ Follow this exact order in your output: Example → Explanation → Conclusion
 """
 
 def explain_equation_with_llm(eq_latex: str) -> str:
-    if tokenizer is None or model is None:
-        raise RuntimeError("Model is not loaded.")
+    if not model_loaded or tokenizer is None or model is None:
+        raise RuntimeError("Math model is not loaded")
     messages = [
         {"role": "system", "content": EXPLAIN_SYSTEM},
         {"role": "user",   "content": EXPLAIN_TEMPLATE.format(EQUATION=eq_latex)}
@@ -264,7 +357,8 @@ def explain_equation_with_llm(eq_latex: str) -> str:
     text = _generate_with_mask_from_messages(messages)
     return text.split(messages[-1]["content"])[-1].strip()
 
-# === 셀 6: LaTeX 리포트(.tex) 생성 ===
+
+# === 셀 6: LaTeX 리포트(.tex) ===
 def latex_escape_verbatim(s: str) -> str:
     s = s.replace("\\", r"\\")
     s = s.replace("#", r"\#").replace("$", r"\$")
@@ -297,100 +391,18 @@ def build_report(overview: str, items: List[Dict]) -> str:
     for it in items:
         title = f"Lines {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
         parts.append(f"\\section*{{{latex_escape_verbatim(title)}}}")
-        # 설명 텍스트는 (의도적으로) verbatim 이스케이프하지 않음:
-        # - 수식 블록(예: \[...\])이 그대로 LaTeX로 렌더되도록
         parts.append(it["explanation"])
         parts.append("\n")
 
     parts.append("\\end{document}\n")
     return "\n".join(parts)
 
-# (추가) 한국어 리포트 빌더
-def build_report_ko(overview_ko: str, items_ko: List[Dict]) -> str:
-    header = (r"""\\documentclass[11pt]{article}
-\\usepackage[margin=1in]{geometry}
-\\usepackage{amsmath, amssymb, amsfonts}
-\\usepackage{hyperref}
-\\usepackage{kotex}
-\\setlength{\\parskip}{6pt}
-\\setlength{\\parindent}{0pt}
-\\title{LaTeX 수식 해설 리포트 (중학생 이상)}
-\\author{자동 생성 파이프라인}
-\\date{""" + datetime.date.today().isoformat() + r"""}
-\\begin{document}
-\\maketitle
-\\tableofcontents
-\\newpage
-""")
-    parts = [header]
-    parts.append(r"\\section*{문서 개요}")
-    parts.append(latex_escape_verbatim(overview_ko))
-    parts.append("\n\\newpage\n")
 
-    for it in items_ko:
-        title = f"라인 {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
-        parts.append(f"\\section*{{{latex_escape_verbatim(title)}}}")
-        parts.append(it["explanation"])  # 수식은 보호/복원되어 LaTeX 유지
-        parts.append("\n")
-
-    parts.append("\\end{document}\n")
-    return "\n".join(parts)
-
-# === (추가) 번역 유틸: 수식 보호/복원 + 번역 ===
-# === (수정) 번역 유틸: 수식 보호/복원 + 번역 ===
-_MATH_ENV_NAMES = r"(?:equation|align|gather|multline|eqnarray|cases|split)\*?"
-_MATH_PATTERN = re.compile(
-    r"(?P<D2>\${2}[\s\S]*?\${2})"           # $$ ... $$
-    r"|(?P<D1>(?<!\\)\$[\s\S]*?(?<!\\)\$)"  # $ ... $ (이스케이프 제외)
-    r"|(?P<LB>\\\[[\s\S]*?\\\])"            # \[ ... \]
-    r"|(?P<LP>\\\([\s\S]*?\\\))"            # \( ... \)
-    r"|(?P<ENV>\\begin\{" + _MATH_ENV_NAMES + r"\}[\s\S]*?\\end\{" + _MATH_ENV_NAMES + r"\})",
-    re.MULTILINE
-)
-
-
-def protect_math(text: str) -> Tuple[str, Dict[str, str]]:
-    """
-    수식 블록을 보호 토큰으로 치환하여 번역 시 변형을 방지합니다.
-    """
-    placeholders = {}
-    def _repl(m):
-        key = f"⟦MATH{len(placeholders)}⟧"
-        placeholders[key] = m.group(0)
-        return key
-    protected = _MATH_PATTERN.sub(_repl, text)
-    return protected, placeholders
-
-def restore_math(text: str, placeholders: Dict[str, str]) -> str:
-    for k, v in placeholders.items():
-        text = text.replace(k, v)
-    return text
-
-def translate_text_ko(text: str) -> str:
-    """
-    영문 설명/개요를 한국어로 번역합니다.
-    - 수식 보호 후 번역 → 복원
-    - googletrans 사용 불가 시 원문 그대로 반환(로그만 출력)
-    """
-    if translator is None:
-        print("[Translate] Translator unavailable; returning original.", flush=True)
-        return text
-
-    # 문단 단위로 쪼개 번역(googletrans 길이 제한/안정성 보완)
-    paras = text.split("\n\n")
-    out_paras = []
-    for para in paras:
-        prot, ph = protect_math(para)
-        try:
-            t = translator.translate(prot, dest="ko").text
-        except Exception as e:
-            print("[Translate Error]", e, flush=True)
-            t = prot  # 실패 시 원문 유지
-        out_paras.append(restore_math(t, ph))
-    return "\n\n".join(out_paras)
-
-# === 보조: 수식 개수만 빠르게 세기 ===
+# === 보조: 수식 개수만 ===
 def count_equations_only(input_tex_path: str) -> Dict[str, int]:
+    if not model_loaded:
+        raise RuntimeError("Math model is not loaded")
+    
     p = Path(input_tex_path)
     if not p.exists():
         raise FileNotFoundError(f"Cannot find TeX file: {input_tex_path}")
@@ -407,29 +419,29 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
     return {"총 수식": len(equations_all),
             "중학생 수준 이상": len(equations_advanced)}
 
+
 # === 메인 파이프라인 ===
 def run_pipeline(input_tex_path: str) -> Dict:
+    if not model_loaded:
+        raise RuntimeError("Math model is not loaded")
+    
     p = Path(input_tex_path)
     if not p.exists():
         raise FileNotFoundError(f"Cannot find TeX file: {input_tex_path}")
 
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
-    # 1) 파일 읽기
     src = p.read_text(encoding="utf-8", errors="ignore")
 
-    # 2) 라인 인덱스
     offsets = make_line_offsets(src)
     pos_to_line = build_pos_to_line(offsets)
 
-    # 3) 수식 추출 & 고난도 분류
     equations_all = extract_equations(src, pos_to_line)
     equations_advanced = [e for e in equations_all if is_advanced(e["body"])]
 
     print(f"총 수식: {len(equations_all)}", flush=True)
     print(f"중학생 수준 이상: {len(equations_advanced)} / {len(equations_all)}", flush=True)
 
-    # 4) 문서 개요(영어)
     head, mid, tail = take_slices(src)
     overview_prompt = textwrap.dedent(f"""
     You will be given three slices of a LaTeX document (head / middle / tail).
@@ -449,7 +461,6 @@ def run_pipeline(input_tex_path: str) -> Dict:
     """).strip()
     doc_overview = chat_overview(overview_prompt)
 
-    # 5) 고난도 수식 해설(영어)
     explanations: List[Dict] = []
     for idx, item in enumerate(equations_advanced, start=1):
         print(f"[{idx}/{len(equations_advanced)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
@@ -464,44 +475,16 @@ def run_pipeline(input_tex_path: str) -> Dict:
             "explanation": exp
         })
 
-    # 6) JSON 저장 (영문)
     json_path = os.path.join(OUT_DIR, "equations_explained.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"overview": doc_overview, "items": explanations}, f, ensure_ascii=False, indent=2)
     print(f"저장된 JSON: {json_path}", flush=True)
 
-    # 7) LaTeX 리포트(.tex) 저장 (영문)
     report_tex_path = os.path.join(OUT_DIR, "yolo_math_report.tex")
     report_tex = build_report(doc_overview, explanations)
     Path(report_tex_path).write_text(report_tex, encoding="utf-8")
     print(f"저장된 TeX: {report_tex_path}", flush=True)
 
-    # 8) (추가) 한국어 번역본 생성 및 저장
-    # 8-1) 개요 번역
-    overview_ko = translate_text_ko(doc_overview)
-
-    # 8-2) 각 해설 번역 (수식 보호)
-    ko_items: List[Dict] = []
-    for it in explanations:
-        exp_ko = translate_text_ko(it["explanation"])
-        ko_items.append({
-            **{k: it[k] for k in ["index","line_start","line_end","kind","env","equation"]},
-            "explanation": exp_ko
-        })
-
-    # 8-3) JSON 저장 (한국어)
-    json_ko_path = os.path.join(OUT_DIR, "equations_explained.ko.json")
-    with open(json_ko_path, "w", encoding="utf-8") as f:
-        json.dump({"overview": overview_ko, "items": ko_items}, f, ensure_ascii=False, indent=2)
-    print(f"저장된 한국어 JSON: {json_ko_path}", flush=True)
-
-    # 8-4) LaTeX 리포트(.tex) 저장 (한국어)
-    report_ko_tex_path = os.path.join(OUT_DIR, "yolo_math_report.ko.tex")
-    report_ko_tex = build_report_ko(overview_ko, ko_items)
-    Path(report_ko_tex_path).write_text(report_ko_tex, encoding="utf-8")
-    print(f"저장된 한국어 TeX: {report_ko_tex_path}", flush=True)
-
-    # 9) 처리 요약 반환
     return {
         "input": str(p),
         "counts": {
@@ -511,16 +494,12 @@ def run_pipeline(input_tex_path: str) -> Dict:
         "outputs": {
             "json": json_path,
             "report_tex": report_tex_path,
-            "json_ko": json_ko_path,
-            "report_tex_ko": report_ko_tex_path,
             "out_dir": OUT_DIR
-        },
-        "translate": {
-            "googletrans_available": (_GT_AVAILABLE and translator is not None)
         }
     }
 
-# === FastAPI 앱 정의 ===
+
+# === FastAPI 앱 ===
 app = FastAPI(title="POLO Math Explainer API", version="1.0.0")
 
 class MathRequest(BaseModel):
@@ -529,17 +508,21 @@ class MathRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {
-        "status": "ok",
+        "status": "ok" if model_loaded else "degraded",
         "python": sys.version.split()[0],
         "torch": torch.__version__,
         "cuda": torch.cuda.is_available(),
         "device": DEVICE,
-        "model_loaded": (tokenizer is not None and model is not None),
-        "googletrans": (_GT_AVAILABLE and translator is not None)
+        "model_loaded": model_loaded,
+        "tokenizer_loaded": tokenizer is not None,
+        "model_name": MODEL_ID,
+        "cache_dir": str(SAFE_CACHE_DIR)
     }
 
 @app.get("/count/{file_path:path}")
 async def count_get(file_path: str):
+    if not model_loaded:
+        raise HTTPException(status_code=503, detail="Math model is not loaded")
     try:
         return count_equations_only(file_path)
     except FileNotFoundError as e:
@@ -549,6 +532,8 @@ async def count_get(file_path: str):
 
 @app.post("/count")
 async def count_post(req: MathRequest):
+    if not model_loaded:
+        raise HTTPException(status_code=503, detail="Math model is not loaded")
     try:
         return count_equations_only(req.path)
     except FileNotFoundError as e:
@@ -558,6 +543,8 @@ async def count_post(req: MathRequest):
 
 @app.get("/math/{file_path:path}")
 async def math_get(file_path: str):
+    if not model_loaded:
+        raise HTTPException(status_code=503, detail="Math model is not loaded")
     try:
         return run_pipeline(file_path)
     except FileNotFoundError as e:
@@ -567,6 +554,8 @@ async def math_get(file_path: str):
 
 @app.post("/math")
 async def math_post(req: MathRequest):
+    if not model_loaded:
+        raise HTTPException(status_code=503, detail="Math model is not loaded")
     try:
         return run_pipeline(req.path)
     except FileNotFoundError as e:
@@ -576,5 +565,12 @@ async def math_post(req: MathRequest):
 
 # 직접 실행
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    try:
+        import uvicorn
+        print("🚀 Math Model 서버 시작 중...")
+        uvicorn.run("app:app", host="0.0.0.0", port=5004, reload=False)
+    except Exception as e:
+        print(f"❌ Math Model 시작 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
