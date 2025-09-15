@@ -39,6 +39,8 @@ export default function Signup() {
             username: formData.username,
             email: formData.email,
             password: formData.password,
+            nickname: formData.name,
+            job: formData.job,
           }),
         }
       );
@@ -56,7 +58,7 @@ export default function Signup() {
         if (errorData.detail) {
           if (Array.isArray(errorData.detail)) {
             errorMessage = errorData.detail
-              .map((err) =>
+              .map((err: any) =>
                 typeof err === "string" ? err : err.msg || JSON.stringify(err)
               )
               .join(", ");
@@ -77,7 +79,9 @@ export default function Signup() {
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
@@ -137,15 +141,28 @@ export default function Signup() {
 
           <div className="form-group">
             <label htmlFor="job">직종</label>
-            <input
-              type="text"
+            <select
               id="job"
               name="job"
               value={formData.job}
               onChange={handleChange}
-              placeholder="연구원, 학생, 개발자 등"
               required
-            />
+            >
+              <option value="">직종을 선택하세요</option>
+              <option value="학생">학생</option>
+              <option value="연구원">연구원</option>
+              <option value="교수">교수</option>
+              <option value="개발자">개발자</option>
+              <option value="데이터 사이언티스트">데이터 사이언티스트</option>
+              <option value="AI 엔지니어">AI 엔지니어</option>
+              <option value="기업인">기업인</option>
+              <option value="정부기관">정부기관</option>
+              <option value="의료진">의료진</option>
+              <option value="법무">법무</option>
+              <option value="금융">금융</option>
+              <option value="교육">교육</option>
+              <option value="기타">기타</option>
+            </select>
           </div>
 
           <div className="form-group">
@@ -162,14 +179,14 @@ export default function Signup() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="username">아이디</label>
+            <label htmlFor="username">닉네임</label>
             <input
               type="text"
               id="username"
               name="username"
               value={formData.username}
               onChange={handleChange}
-              placeholder="사용할 아이디를 입력하세요"
+              placeholder="사용할 닉네임을 입력하세요"
               required
             />
           </div>

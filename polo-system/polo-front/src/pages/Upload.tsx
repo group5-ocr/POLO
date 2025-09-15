@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 interface UploadResult {
   filename: string;
@@ -42,6 +43,8 @@ interface UploadResult {
 }
 
 export default function Upload() {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,11 +56,14 @@ export default function Upload() {
     "preview"
   );
   const [downloadInfo, setDownloadInfo] = useState<any>(null);
-  const navigate = useNavigate();
 
-  // 디버깅 로그 (네트워크 단계/실패 지점 표시)
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const pushDebug = (msg: string) => setDebugLogs((prev) => [...prev, msg]);
+  // 로그인 체크
+  useEffect(() => {
+    if (!isLoading && !user) {
+      alert("로그아웃 되었습니다.");
+      navigate("/");
+    }
+  }, [user, isLoading, navigate]);
 
   const uploadFile = async (file: File) => {
     setUploading(true);
@@ -155,34 +161,6 @@ export default function Upload() {
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const checkModelStatus = async () => {
-    try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      console.log("API Base URL:", apiBase);
-      pushDebug(`[model-status] 호출 시작 → ${apiBase}/api/upload/model-status`);
-      const response = await fetch(`${apiBase}/api/upload/model-status`);
-      const data = await response.json();
-
-      if (data.model_available) {
-        alert(
-          `✅ AI 모델이 정상적으로 연결되어 있습니다!\n\nAPI Base: ${apiBase}`
-        );
-        pushDebug(`[model-status] OK`);
-      } else {
-        alert(
-          `❌ AI 모델 서비스가 사용 불가능합니다.\nAPI Base: ${apiBase}\n도커 서비스를 확인해주세요.`
-        );
-        pushDebug(`[model-status] 사용 불가`);
-      }
-    } catch (err) {
-      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      alert(
-        `❌ 서버 연결에 실패했습니다.\nAPI Base: ${apiBase}\nError: ${err}`
-      );
-      pushDebug(`[model-status] 예외: ${String(err)}`);
     }
   };
 
@@ -305,6 +283,25 @@ export default function Upload() {
     }
   };
 
+  // 로딩 중이거나 로그인하지 않은 경우 로딩 화면 표시
+  if (isLoading) {
+    return (
+      <div className="upload-page">
+        <div className="upload-container">
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <div className="upload-spinner"></div>
+            <p>로딩 중...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 로그인하지 않은 경우 빈 화면 (useEffect에서 리다이렉트 처리)
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="upload-page">
       <div className="upload-container">
@@ -314,9 +311,6 @@ export default function Upload() {
         </div>
 
         <div className="upload-actions">
-          <button onClick={checkModelStatus} className="btn-secondary">
-            AI 모델 상태 확인
-          </button>
           <button
             onClick={() => setShowArxivForm(!showArxivForm)}
             className="btn-secondary"

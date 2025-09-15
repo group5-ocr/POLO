@@ -48,7 +48,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const token = localStorage.getItem("authToken");
       if (token) {
-        // 토큰이 있으면 사용자 정보 조회
+        // 테스트 관리자 계정 토큰 체크
+        if (token === "test-admin-token") {
+          const testUser: User = {
+            user_id: 999,
+            email: "test@test.com",
+            nickname: "test",
+            job: "관리자",
+            created_at: new Date().toISOString(),
+          };
+          setUser(testUser);
+          setIsLoading(false);
+          return;
+        }
+
+        // 일반 토큰인 경우 사용자 정보 조회
         const response = await fetch(
           `${
             import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
@@ -79,7 +93,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
 
-      // 로그인 API 호출
+      // 관리자 계정 체크 (하드코딩된 테스트 계정)
+      if (email === "test@test.com" && password === "1234") {
+        const testUser: User = {
+          user_id: 999,
+          email: "test@test.com",
+          nickname: "test",
+          job: "관리자",
+          created_at: new Date().toISOString(),
+        };
+        setUser(testUser);
+        localStorage.setItem("authToken", "test-admin-token");
+        return true;
+      }
+
+      // 일반 로그인 API 호출
       const response = await fetch(
         `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/db/login`,
         {

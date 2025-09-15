@@ -21,6 +21,14 @@ function AppContent() {
           <div className="brand-wrap">
             <Link to="/" className="brand-link">
               <img
+                className="brand-logo-main"
+                src="/img/head_logo.png"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
+                alt="POLO"
+              />
+              <img
                 className="brand-logo"
                 src="/img/logo.png"
                 onError={(e) => {
@@ -66,9 +74,73 @@ function AppContent() {
 
       <footer className="footer">
         <div className="footer-inner">
-          <div className="logo">A!POLO</div>
-          <div className="copy">
-            © {new Date().getFullYear()} A!POLO. All Rights Reserved.
+          <div className="footer-content">
+            <div className="footer-brand">
+              <div className="footer-logo">A!POLO</div>
+              <p className="footer-description">
+                복잡한 학술 논문을 누구나 이해할 수 있게 만드는 AI 기반 플랫폼
+              </p>
+            </div>
+            <div className="footer-links">
+              <div className="footer-column">
+                <h4>서비스</h4>
+                <ul>
+                  <li>
+                    <a href="#features">기능 소개</a>
+                  </li>
+                  <li>
+                    <a href="#how-it-works">사용 방법</a>
+                  </li>
+                  <li>
+                    <a href="#testimonials">사용자 후기</a>
+                  </li>
+                </ul>
+              </div>
+              <div className="footer-column">
+                <h4>지원</h4>
+                <ul>
+                  <li>
+                    <a href="#help">도움말</a>
+                  </li>
+                  <li>
+                    <a href="#contact">문의하기</a>
+                  </li>
+                  <li>
+                    <a href="#faq">자주 묻는 질문</a>
+                  </li>
+                </ul>
+              </div>
+              <div className="footer-column">
+                <h4>회사</h4>
+                <ul>
+                  <li>
+                    <a href="#about">회사 소개</a>
+                  </li>
+                  <li>
+                    <a href="#privacy">개인정보처리방침</a>
+                  </li>
+                  <li>
+                    <a href="#terms">이용약관</a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div className="footer-bottom">
+            <div className="footer-copy">
+              © {new Date().getFullYear()} A!POLO. All Rights Reserved.
+            </div>
+            <div className="footer-social">
+              <a href="#" className="social-link">
+                📧
+              </a>
+              <a href="#" className="social-link">
+                🐦
+              </a>
+              <a href="#" className="social-link">
+                📘
+              </a>
+            </div>
           </div>
         </div>
       </footer>
