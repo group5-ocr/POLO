@@ -142,11 +142,11 @@ export default function Home() {
             </div>
             <div className="feature-card animate-on-scroll">
               <div className="feature-icon-wrapper">
-                <div className="feature-icon">👥</div>
+                <div className="feature-icon">📊</div>
               </div>
-              <h3>모든 사용자 친화적</h3>
+              <h3>수학 설명서</h3>
               <p>
-                전문가부터 학생까지, 누구나 쉽게 학술 내용을 이해할 수 있습니다.
+                어려운 수식과 알고리즘을 시각적으로 보여주고 쉽게 설명합니다.
               </p>
               <div className="feature-hover-effect"></div>
             </div>
@@ -180,10 +180,7 @@ export default function Home() {
               <div className="step-badge">1단계</div>
               <div className="step-content">
                 <h3>논문 업로드</h3>
-                <p>
-                  PDF 파일을 업로드하거나 텍스트를 직접 붙여넣기만 하면 됩니다.
-                  복잡한 형식은 신경 쓰지 마세요.
-                </p>
+                <p>PDF 파일을 드래그하거나 클릭해서 업로드하세요.</p>
               </div>
             </div>
             <div className="step-arrow animate-on-scroll">→</div>
@@ -194,10 +191,7 @@ export default function Home() {
               <div className="step-badge">2단계</div>
               <div className="step-content">
                 <h3>AI 분석</h3>
-                <p>
-                  POLO의 AI가 논문의 핵심 내용을 분석하고 가장 적합한 쉬운
-                  설명을 자동으로 생성합니다.
-                </p>
+                <p>AI가 논문을 분석하고 이해하기 쉽게 변환합니다.</p>
               </div>
             </div>
             <div className="step-arrow animate-on-scroll">→</div>
@@ -207,11 +201,8 @@ export default function Home() {
               </div>
               <div className="step-badge">3단계</div>
               <div className="step-content">
-                <h3>편집 및 공유</h3>
-                <p>
-                  생성된 설명을 원하는 대로 편집하고 다른 사람들과 쉽게
-                  공유하세요.
-                </p>
+                <h3>결과 확인</h3>
+                <p>이해하기 쉬운 논문과 수식 설명서를 확인할 수 있습니다.</p>
               </div>
             </div>
           </div>
@@ -240,7 +231,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>김민수</h4>
+                          <h4>노현지</h4>
                           <p>대학원생</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -256,7 +247,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>이지영</h4>
+                          <h4>이 훤</h4>
                           <p>연구원</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -272,7 +263,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>박준호</h4>
+                          <h4>손단하</h4>
                           <p>교수</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -292,7 +283,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>최수진</h4>
+                          <h4>신현식</h4>
                           <p>박사과정</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -308,7 +299,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>정현우</h4>
+                          <h4>고현서</h4>
                           <p>연구소장</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -324,7 +315,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>김민수</h4>
+                          <h4>김사과</h4>
                           <p>대학원생</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -344,7 +335,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>김민수</h4>
+                          <h4>반하나</h4>
                           <p>대학원생</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -360,7 +351,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>이지영</h4>
+                          <h4>채애리</h4>
                           <p>연구원</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -376,7 +367,7 @@ export default function Home() {
                     <div className="testimonial-content">
                       <div className="testimonial-header">
                         <div className="testimonial-info">
-                          <h4>박준호</h4>
+                          <h4>이메론</h4>
                           <p>교수</p>
                         </div>
                         <div className="testimonial-quote">"</div>
@@ -423,7 +414,7 @@ export default function Home() {
                 onClick={() => setIsAutoPlaying(!isAutoPlaying)}
                 title={isAutoPlaying ? "자동 재생 일시정지" : "자동 재생 시작"}
               >
-                {isAutoPlaying ? "⏸️" : "▶️"}
+                {isAutoPlaying ? "⏸" : "▶"}
               </button>
             </div>
           </div>

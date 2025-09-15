@@ -678,7 +678,7 @@ body,
     rgba(255, 255, 255, 0.9) 100%
   );
   overflow: hidden;
-  padding: 40px 24px 80px 24px;
+  padding: 5px 24px 80px 24px;
 }
 
 /* 파티클 배경 */
@@ -774,7 +774,7 @@ body,
   font-size: 0.9rem;
   font-weight: 600;
   color: #f59e0b;
-  margin-bottom: 32px;
+  margin-bottom: 72px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(10px);
 }
@@ -792,20 +792,30 @@ body,
   font-size: 3.5rem;
   font-weight: 800;
   color: #1f2937;
-  margin-bottom: 20px;
+  margin-bottom: 40px;
   line-height: 1.1;
   letter-spacing: -0.02em;
+  position: relative;
+  animation: titleSlideIn 0.8s ease-out 0.1s both;
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.hero-title:hover {
+  transform: translateY(-2px);
+  text-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
 }
 
 .hero-highlight {
-  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  background: linear-gradient(135deg, #f59e0b, #fbbf24, #f59e0b);
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   position: relative;
   display: inline-block;
-  animation: gentle-float 3s ease-in-out infinite;
-  animation-delay: 1s;
+  animation: gradientShift 2s ease-in-out infinite;
+  transition: all 0.3s ease;
 }
 
 .hero-highlight::before {
@@ -823,7 +833,7 @@ body,
   border-radius: 8px;
   z-index: -2;
   opacity: 0;
-  animation: glow-appear 2s ease-out 1.5s forwards;
+  animation: glow-appear 2s ease-out 0.1s forwards;
 }
 
 .hero-highlight::after {
@@ -839,7 +849,7 @@ body,
   z-index: -1;
   transform: scaleX(0);
   transform-origin: left;
-  animation: underline-draw 1.2s ease-out 2s forwards;
+  animation: underline-draw 1.2s ease-out 0.1s forwards;
 }
 
 @keyframes gentle-float {
@@ -888,7 +898,7 @@ body,
   font-size: 1.25rem;
   color: #6b7280;
   font-weight: 400;
-  margin-bottom: 32px;
+  margin-bottom: 40px;
   line-height: 1.7;
   max-width: 600px;
   margin-left: auto;
@@ -914,6 +924,27 @@ body,
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes titleSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gradientShift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
   }
 }
 
@@ -2078,7 +2109,7 @@ body,
 .hero-cta-btn {
   opacity: 0;
   transform: translateY(20px);
-  animation: textSlideIn 0.8s ease-out forwards 0.8s;
+  animation: textSlideIn 0.8s ease-out forwards 0.2s;
   position: relative;
   overflow: hidden;
 }
