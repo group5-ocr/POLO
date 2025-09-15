@@ -55,6 +55,10 @@ export default function Upload() {
   const [downloadInfo, setDownloadInfo] = useState<any>(null);
   const navigate = useNavigate();
 
+  // 디버깅 로그 (네트워크 단계/실패 지점 표시)
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const pushDebug = (msg: string) => setDebugLogs((prev) => [...prev, msg]);
+
   const uploadFile = async (file: File) => {
     setUploading(true);
     setError(null);
@@ -63,6 +67,7 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("[Upload] API Base URL:", apiBase);
+      pushDebug(`[convert] 호출 시작 → ${apiBase}/api/upload/convert`);
 
       const formData = new FormData();
       formData.append("file", file);
@@ -73,18 +78,22 @@ export default function Upload() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "업로드 실패");
+        let detail = "업로드 실패";
+        try { const j = await response.json(); detail = j.detail || detail; } catch {}
+        pushDebug(`[convert] 실패: ${response.status} ${detail}`);
+        throw new Error(`[convert] ${detail}`);
       }
 
       const data = await response.json();
 
       // 서버에서 반환된 실제 논문 ID 사용
-      setResult(data);
+      setResult({ ...data, status: data.status ?? "processing" });
+      pushDebug(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
         try {
+          pushDebug(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
           const infoResponse = await fetch(
             `${
               import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
@@ -93,15 +102,17 @@ export default function Upload() {
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
+            pushDebug(`[download/info] 성공`);
+          } else {
+            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
           }
         } catch (err) {
           console.warn("다운로드 정보 조회 실패:", err);
+          pushDebug(`[download/info] 예외: ${String(err)}`);
         }
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다."
-      );
+      setError(err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다.");
     } finally {
       setUploading(false);
     }
@@ -151,7 +162,7 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("API Base URL:", apiBase);
-
+      pushDebug(`[model-status] 호출 시작 → ${apiBase}/api/upload/model-status`);
       const response = await fetch(`${apiBase}/api/upload/model-status`);
       const data = await response.json();
 
@@ -159,16 +170,19 @@ export default function Upload() {
         alert(
           `✅ AI 모델이 정상적으로 연결되어 있습니다!\n\nAPI Base: ${apiBase}`
         );
+        pushDebug(`[model-status] OK`);
       } else {
         alert(
           `❌ AI 모델 서비스가 사용 불가능합니다.\nAPI Base: ${apiBase}\n도커 서비스를 확인해주세요.`
         );
+        pushDebug(`[model-status] 사용 불가`);
       }
     } catch (err) {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       alert(
         `❌ 서버 연결에 실패했습니다.\nAPI Base: ${apiBase}\nError: ${err}`
       );
+      pushDebug(`[model-status] 예외: ${String(err)}`);
     }
   };
 
@@ -196,8 +210,10 @@ export default function Upload() {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "arXiv 업로드 실패");
+        let detail = "arXiv 업로드 실패";
+        try { const j = await response.json(); detail = j.detail || detail; } catch {}
+        pushDebug(`[from-arxiv] 실패: ${response.status} ${detail}`);
+        throw new Error(`[from-arxiv] ${detail}`);
       }
 
       const data = await response.json();
@@ -236,17 +252,17 @@ export default function Upload() {
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
+            pushDebug(`[download/info] 성공`);
+          } else {
+            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
           }
         } catch (err) {
           console.warn("다운로드 정보 조회 실패:", err);
+          pushDebug(`[download/info] 예외: ${String(err)}`);
         }
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "arXiv 업로드 중 오류가 발생했습니다."
-      );
+      setError(err instanceof Error ? err.message : "arXiv 업로드 중 오류가 발생했습니다.");
     } finally {
       setUploading(false);
     }
@@ -260,16 +276,13 @@ export default function Upload() {
       const baseUrl = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       let endpoint;
       if (fileType === "json") {
-        endpoint = `${baseUrl}/download/${filename}`;
+        endpoint = `${baseUrl}/api/upload/download/info/${filename}`;
       } else if (fileType === "easy") {
-        // 변환된 논문 PDF
-        endpoint = `${baseUrl}/download/easy/${filename}`;
+        endpoint = `${baseUrl}/api/upload/download/easy/${filename}`;
       } else if (fileType === "math") {
-        // 수식 설명 PDF
-        endpoint = `${baseUrl}/download/math/${filename}`;
+        endpoint = `${baseUrl}/api/upload/download/math/${filename}`;
       } else {
-        // 원본 PDF
-        endpoint = `${baseUrl}/download/raw/${filename}`;
+        endpoint = `${baseUrl}/api/upload/download/raw/${filename}`;
       }
 
       const response = await fetch(endpoint);

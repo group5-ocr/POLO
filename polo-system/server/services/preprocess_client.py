@@ -84,11 +84,13 @@ async def run(paper_id: str, source_dir: str, callback: str):
     logger.info(f"✅ 전처리 완료: paper_id={paper_id}")
     
     # 3) 콜백 통지
+    # 전처리 서비스가 반환한 transport_path(파일 경로)를 우선 사용
+    tp = preprocess_result.get("transport_path") or str(out_dir_p)
     payload = {
         "paper_id": paper_id,
         "status": "completed",
         "preprocess": preprocess_result,
-        "transport_path": str(out_dir_p),
+        "transport_path": tp,
     }
     await _post_callback(callback, payload)
     return payload

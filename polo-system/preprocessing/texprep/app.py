@@ -132,13 +132,16 @@ async def send_to_models(paper_id: str, payload: dict, out_dir: Path):
         
         if chunks_path.exists():
             print(f"📤 Easy 모델로 전송: {chunks_path}")
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.post(f"{EASY_URL}/batch", json={
-                    "paper_id": paper_id,
-                    "chunks_jsonl": str(chunks_path),
-                    "output_dir": str(out_dir / "easy_outputs")
-                })
-                print(f"✅ Easy 모델 응답: {response.status_code}")
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    response = await client.post(f"{EASY_URL}/batch", json={
+                        "paper_id": paper_id,
+                        "chunks_jsonl": str(chunks_path),
+                        "output_dir": str(out_dir / "easy_outputs")
+                    })
+                    print(f"✅ Easy 모델 응답: {response.status_code}")
+            except Exception as e:
+                print(f"Warning: Failed to send to models: {e}")
         else:
             print(f"⚠️ chunks.jsonl 파일을 찾을 수 없습니다: {out_dir}")
                 

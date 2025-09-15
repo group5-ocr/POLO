@@ -509,12 +509,19 @@ async def preprocess_callback(body: PreprocessCallback):
         # DB 업데이트 로직
         from services.database.db import init_pipeline_state
         
-        tex_id = int(body.paper_id)
+        try:
+            tex_id = int(body.paper_id)
+        except Exception:
+            print(f"⚠️ preprocess_callback: invalid paper_id '{body.paper_id}' → skip DB update")
+            return {"ok": True, "paper_id": body.paper_id, "status": "ignored"}
         transport_path = Path(body.transport_path)
         
+        # transport_path가 파일(transport.json)인 경우 부모 디렉터리를 사용
+        base_dir = transport_path if transport_path.is_dir() else transport_path.parent
+        
         # 전처리 결과 파일들 찾기
-        jsonl_files = list(transport_path.glob("*.jsonl*"))
-        tex_files = list(transport_path.glob("*.tex"))
+        jsonl_files = list(base_dir.glob("*.jsonl*"))
+        tex_files = list(base_dir.glob("*.tex"))
         
         # 파이프라인 상태 초기화
         if jsonl_files:
@@ -539,6 +546,23 @@ async def preprocess_callback(body: PreprocessCallback):
         # DB 상태 업데이트
         await init_pipeline_state(tex_id, total_chunks, jsonl_path, math_text_path)
         
+        # Easy 배치 트리거 (하드코딩 보강)
+        try:
+            if jsonl_files:
+                import httpx, os
+                easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
+                out_dir = (transport_path if transport_path.is_dir() else transport_path.parent).parent / "outputs" / str(tex_id) / "easy_outputs"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                async with httpx.AsyncClient(timeout=60) as client:
+                    r = await client.post(f"{easy_url}/batch", json={
+                        "paper_id": str(tex_id),
+                        "chunks_jsonl": str(jsonl_files[0]),
+                        "output_dir": str(out_dir),
+                    })
+                    print(f"[easy] batch trigger → {r.status_code}")
+        except Exception as e:
+            print(f"[easy] batch trigger failed: {e}")
+
         print(f"✅ 전처리 완료: paper_id={body.paper_id}, transport_path={body.transport_path}, status={body.status}")
         print(f"📊 총 청크 수: {total_chunks}")
         return {"ok": True, "paper_id": body.paper_id, "status": "callback_received", "total_chunks": total_chunks}
@@ -555,12 +579,19 @@ async def api_preprocess_callback(body: PreprocessCallback):
         # DB 업데이트 로직
         from services.database.db import init_pipeline_state
         
-        tex_id = int(body.paper_id)
+        try:
+            tex_id = int(body.paper_id)
+        except Exception:
+            print(f"⚠️ api_preprocess_callback: invalid paper_id '{body.paper_id}' → skip DB update")
+            return {"ok": True, "paper_id": body.paper_id, "status": "ignored"}
         transport_path = Path(body.transport_path)
         
+        # transport_path가 파일(transport.json)인 경우 부모 디렉터리를 사용
+        base_dir = transport_path if transport_path.is_dir() else transport_path.parent
+        
         # 전처리 결과 파일들 찾기
-        jsonl_files = list(transport_path.glob("*.jsonl*"))
-        tex_files = list(transport_path.glob("*.tex"))
+        jsonl_files = list(base_dir.glob("*.jsonl*"))
+        tex_files = list(base_dir.glob("*.tex"))
         
         # 파이프라인 상태 초기화
         if jsonl_files:

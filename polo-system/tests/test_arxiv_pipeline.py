@@ -173,7 +173,7 @@ async def test_models_directly():
                 "http://localhost:5002/process",
                 json={
                     "paper_id": "test",
-                    "source_dir": str(server_dir / "data" / "arxiv" / "1706.03762" / "source"),
+                    "source_dir": str(server_dir / "data" / "arxiv" / "1506.02640" / "source"),
                     "callback": "http://localhost:8000/api/upload/preprocess/callback"
                 },
                 timeout=30.0

@@ -177,6 +177,11 @@ class BatchResult(BaseModel):
     out_dir: str
     images: List[VizResult]
 
+class TransportRequest(BaseModel):
+    paper_id: str
+    transport_path: str
+    output_dir: Optional[str] = None
+
 # -------------------- 모델 로드 --------------------
 def load_model():
     global model, tokenizer, gpu_available, device, safe_dtype
@@ -296,7 +301,9 @@ async def _rewrite_text(text: str) -> str:
         outputs = model.generate(
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=False,
+            do_sample=True,
+            temperature=float(os.getenv("EASY_TEMPERATURE", "0.6")),
+            top_p=float(os.getenv("EASY_TOP_P", "0.9")),
             use_cache=True,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
@@ -488,6 +495,84 @@ async def batch_generate(req: BatchRequest):
                 items.append({"index": i, "text": text})
             except Exception as e:
                 logger.warning(f"[batch] 라인 {i}: JSON 파싱 실패 → skip ({e})")
+
+    sem = anyio.Semaphore(EASY_CONCURRENCY)
+    results: List[VizResult] = []
+
+    async def worker(item: dict):
+        async with sem:
+            idx = item["index"]
+            try:
+                ko = await _rewrite_text(item["text"])
+                vz = await _send_to_viz(req.paper_id, idx, ko, out_dir)
+                results.append(vz)
+            except Exception as e:
+                results.append(VizResult(ok=False, index=idx, error=str(e)))
+
+    async with anyio.create_task_group() as tg:
+        for item in items:
+            tg.start_soon(worker, item)
+
+    ok_cnt = sum(1 for r in results if r.ok)
+    fail_cnt = len(results) - ok_cnt
+    return BatchResult(
+        ok=fail_cnt == 0,
+        paper_id=req.paper_id,
+        count=len(items),
+        success=ok_cnt,
+        failed=fail_cnt,
+        out_dir=str(out_dir),
+        images=sorted(results, key=lambda r: r.index),
+    )
+
+@app.post("/from-transport", response_model=BatchResult)
+async def generate_from_transport(req: TransportRequest):
+    tp = Path(req.transport_path)
+    if not tp.exists():
+        raise HTTPException(status_code=400, detail=f"transport.json not found: {tp}")
+
+    try:
+        data = json.loads(tp.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid transport.json: {e}")
+
+    # chunks 경로 우선: artifacts.chunks.path → tp.parent/chunks.jsonl → tp.parent/chunks.jsonl.gz
+    chunks_path: Optional[Path] = None
+    try:
+        chunks_path_str = (((data.get("artifacts", {}) or {}).get("chunks", {}) or {}).get("path"))
+        if chunks_path_str:
+            chunks_path = Path(chunks_path_str)
+    except Exception:
+        chunks_path = None
+    if chunks_path is None:
+        base_dir = tp.parent
+        cand1 = base_dir / "chunks.jsonl"
+        cand2 = base_dir / "chunks.jsonl.gz"
+        if cand1.exists():
+            chunks_path = cand1
+        elif cand2.exists():
+            chunks_path = cand2
+
+    if chunks_path is None or not chunks_path.exists():
+        raise HTTPException(status_code=400, detail=f"chunks file not found near transport: {tp}")
+
+    # 출력 경로
+    out_dir = Path(req.output_dir).resolve() if req.output_dir else (tp.parent / "easy_outputs").resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 기존 배치 로직 재사용
+    items: List[dict] = []
+    open_fn = gzip.open if str(chunks_path).endswith(".gz") else open
+    with open_fn(chunks_path, "rt", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            try:
+                obj = json.loads(line)
+                text = obj.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                items.append({"index": i, "text": text})
+            except Exception:
+                continue
 
     sem = anyio.Semaphore(EASY_CONCURRENCY)
     results: List[VizResult] = []
