@@ -16,6 +16,20 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+# dotenv 없이 간단하게 환경변수 로드
+def load_env_file(env_path):
+    """간단한 .env 파일 로드"""
+    if not os.path.exists(env_path):
+        return
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
+    except Exception as e:
+        print(f"Warning: Could not load .env file: {e}")
 
 # [NEW] Google Cloud Translation v3
 try:
@@ -52,21 +66,68 @@ else:
     print("⚠️ GPU 없음 → CPU 모드", flush=True)
     print(f"🔧 Device: {DEVICE}, dtype: float32", flush=True)
 
-try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
-    PAD_ADDED = False
-    if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-        PAD_ADDED = True
+# --- 간단한 .env 로드 ---
+ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+load_env_file(str(ROOT_ENV))
+print(f"[env] .env loaded from: {ROOT_ENV}", flush=True)
 
-    bnb_config = None
-    if USE_4BIT:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float16
+SAFE_CACHE_DIR = Path(__file__).resolve().parent / "hf_cache"
+SAFE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+def _force_safe_hf_cache():
+    for k in ("HF_HOME", "TRANSFORMERS_CACHE", "HF_DATASETS_CACHE", "HUGGINGFACE_HUB_CACHE"):
+        os.environ[k] = str(SAFE_CACHE_DIR)
+    print(f"[hf_cache] forced → {SAFE_CACHE_DIR}", flush=True)
+
+_force_safe_hf_cache()
+# Hugging Face 토큰 설정 (여러 가능한 이름으로 시도)
+HF_TOKEN = os.getenv("허깅페이스 토큰") or os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
+print(f"HF_TOKEN={'설정됨' if HF_TOKEN else '없음'} (환경변수: '허깅페이스 토큰' 또는 'HUGGINGFACE_TOKEN')", flush=True)
+
+def load_model():
+    """모델 로드 함수"""
+    global tokenizer, model, GEN_KW
+    
+    try:
+        print(f"🔄 Math 모델 로딩 시작: {MODEL_ID}", flush=True)
+        print(f"HF_HOME={os.getenv('HF_HOME')}", flush=True)
+        print(f"HF_TOKEN={'설정됨' if HF_TOKEN else '없음'} (환경변수: '허깅페이스 토큰')", flush=True)
+        
+        # 1) 토크나이저 (캐시/토큰 명시)
+        print("📝 토크나이저 로딩 중...", flush=True)
+        print(f"📝 MODEL_ID: {MODEL_ID}", flush=True)
+        print(f"📝 CACHE_DIR: {SAFE_CACHE_DIR}", flush=True)
+        print(f"📝 HF_TOKEN: {'설정됨' if HF_TOKEN else '없음'} (환경변수: '허깅페이스 토큰')", flush=True)
+        
+        tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_ID,
+            trust_remote_code=True,
+            token=HF_TOKEN,
+            cache_dir=str(SAFE_CACHE_DIR),
         )
+        print("✅ 토크나이저 로딩 완료", flush=True)
+
+        # 2) pad 토큰 보정
+        PAD_ADDED = False
+        if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            PAD_ADDED = True
+            print("🔧 PAD 토큰 추가됨", flush=True)
+
+        # 3) 모델 로드 (필요 시 4bit)
+        print("🧠 모델 로딩 중...", flush=True)
+        print(f"🧠 DEVICE: {DEVICE}", flush=True)
+        print(f"🧠 USE_4BIT: {USE_4BIT}", flush=True)
+        
+        bnb_config = None
+        if USE_4BIT:
+            print("🔧 4bit 양자화 설정 적용", flush=True)
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
+            )
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
@@ -80,12 +141,56 @@ try:
         model.resize_token_embeddings(len(tokenizer))
     GEN_KW = dict(max_new_tokens=512, temperature=0.2, top_p=0.9, do_sample=True)
     print("Model & tokenizer loaded.", flush=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            device_map="auto",
+            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+            quantization_config=bnb_config,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+            token=HF_TOKEN,
+            cache_dir=str(SAFE_CACHE_DIR),
+        )
 
-except Exception as e:
-    tokenizer = None
-    model = None
-    GEN_KW = {}
-    print("[Model Load Error]", e, flush=True)
+        if PAD_ADDED:
+            model.resize_token_embeddings(len(tokenizer))
+            print("🔧 토큰 임베딩 크기 조정됨", flush=True)
+
+        GEN_KW = dict(
+            max_new_tokens=512,
+            temperature=0.2,
+            top_p=0.9,
+            do_sample=True
+        )
+        print("✅ Math 모델 로딩 완료", flush=True)
+        print(f"✅ 모델 디바이스: {next(model.parameters()).device}", flush=True)
+        print(f"✅ 모델 dtype: {next(model.parameters()).dtype}", flush=True)
+        return True
+
+    except Exception as e:
+        print(f"❌ Math 모델 로딩 실패: {e}", flush=True)
+        print(f"❌ 에러 타입: {type(e).__name__}", flush=True)
+        print(f"❌ 에러 상세: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+        tokenizer = None
+        model = None
+        GEN_KW = {}
+        return False
+
+# 모델 로드 시도
+print("🚀 Math 모델 로딩 시작...", flush=True)
+model_loaded = load_model()
+if not model_loaded:
+    print("⚠️ 모델 로딩 실패 - 서버는 시작되지만 기능이 제한됩니다.", flush=True)
+    print("⚠️ 가능한 원인:", flush=True)
+    print("  - '허깅페이스 토큰' 환경변수가 설정되지 않음", flush=True)
+    print("  - 인터넷 연결 문제", flush=True)
+    print("  - 모델 다운로드 실패", flush=True)
+    print("  - 메모리 부족", flush=True)
+    print("  - CUDA/GPU 문제", flush=True)
+else:
+    print("🎉 Math 모델 로딩 성공!", flush=True)
 
 # === [NEW] GCP Translation 초기화 ===
 GCP_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -110,6 +215,7 @@ def make_line_offsets(text: str) -> List[int]:
     for ln in lines:
         offsets.append(pos)
         pos += len(ln) + 1
+        pos += len(ln) + 1  # '\n' 포함
     return offsets
 
 def build_pos_to_line(offsets: List[int]):
@@ -136,15 +242,20 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
             "body": body.strip()
         })
 
+    # $$ ... $$
     for m in re.finditer(r"\$\$(.+?)\$\$", tex, flags=re.DOTALL):
         add("display($$ $$)", m.start(), m.end(), m.group(1))
+    # \[ ... \]
     for m in re.finditer(r"\\\[(.+?)\\\]", tex, flags=re.DOTALL):
         add("display(\\[ \\])", m.start(), m.end(), m.group(1))
+    # \( ... \)
     for m in re.finditer(r"\\\((.+?)\\\)", tex, flags=re.DOTALL):
         add("inline(\\( \\))", m.start(), m.end(), m.group(1))
+    # inline $...$ (but not $$)
     for m in re.finditer(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", tex, flags=re.DOTALL):
         add("inline($ $)", m.start(), m.end(), m.group(1))
 
+    # environments
     envs = ["equation","equation*","align","align*","multline","multline*",
             "gather","gather*","flalign","flalign*","eqnarray","eqnarray*","split","cases"]
     for env in envs:
@@ -157,20 +268,24 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
         key = (it["start"], it["end"])
         if key not in uniq:
             uniq[key] = it
+
     out = list(uniq.values())
     out.sort(key=lambda x: x["start"])
     return out
 
 
 # === 난이도 휴리스틱 ===
+# === 셀 3: 난이도 휴리스틱 ===
 ADV_TOKENS = [
     r"\\sum", r"\\prod", r"\\int", r"\\lim", r"\\nabla", r"\\partial",
     r"\\mathbb", r"\\mathcal", r"\\mathbf", r"\\boldsymbol",
     r"\\argmax", r"\\argmin", r"\\operatorname", r"\\mathrm\{KL\}",
     r"\\mathbb\{E\}", r"\\Pr", r"\\sigma", r"\\mu", r"\\Sigma", r"\\theta",
     r"\\frac\{[^{}]*\{[^{}]*\}[^{}]*\}",
+    r"\\frac\{[^{}]*\{[^{}]*\}[^{}]*\}",  # nested fraction
     r"\\hat\{", r"\\tilde\{", r"\\bar\{", r"\\widehat\{", r"\\widetilde\{",
     r"\\sqrt\{[^{}]*\{",
+    r"\\sqrt\{[^{}]*\{",                  # nested sqrt
     r"\\left", r"\\right",
     r"\\in", r"\\subset", r"\\forall", r"\\exists",
     r"\\cdot", r"\\times", r"\\otimes",
@@ -193,7 +308,7 @@ def is_advanced(eq: str) -> bool:
     return False
 
 
-# === LLM ===
+# === 셀 4: 문서 개요 LLM ===
 def take_slices(text: str, head_chars=4000, mid_chars=2000, tail_chars=4000):
     n = len(text)
     head = text[:min(head_chars, n)]
@@ -226,6 +341,8 @@ def chat_overview(prompt: str) -> str:
     text = _generate_with_mask_from_messages(messages)
     return text.split(messages[-1]["content"])[-1].strip()
 
+
+# === 셀 5: 수식 해설 LLM ===
 EXPLAIN_SYSTEM = (
     "You are a teacher who explains math/AI research equations in clear, simple English. "
     "Always be precise, polite, and easy to understand."
@@ -244,8 +361,8 @@ Follow this exact order in your output: Example → Explanation → Conclusion
 """
 
 def explain_equation_with_llm(eq_latex: str) -> str:
-    if tokenizer is None or model is None:
-        raise RuntimeError("Model is not loaded.")
+    if not model_loaded or tokenizer is None or model is None:
+        raise RuntimeError("Math model is not loaded")
     messages = [
         {"role": "system", "content": EXPLAIN_SYSTEM},
         {"role": "user",   "content": EXPLAIN_TEMPLATE.format(EQUATION=eq_latex)}
@@ -255,6 +372,7 @@ def explain_equation_with_llm(eq_latex: str) -> str:
 
 
 # === TeX 리포트 생성 ===
+# === 셀 6: LaTeX 리포트(.tex) ===
 def latex_escape_verbatim(s: str) -> str:
     s = s.replace("\\", r"\\")
     s = s.replace("#", r"\#").replace("$", r"\$")
@@ -580,7 +698,7 @@ class MathRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {
-        "status": "ok",
+        "status": "ok" if model_loaded else "degraded",
         "python": sys.version.split()[0],
         "torch": torch.__version__,
         "cuda": torch.cuda.is_available(),
@@ -626,6 +744,7 @@ async def math_post(req: MathRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
+# 직접 실행
 # 직접 실행
 if __name__ == "__main__":
     try:

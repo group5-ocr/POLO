@@ -8,7 +8,8 @@ python install accelerate==0.33.0
 # 실행
 
 cd polo-system/models/math
-uvicorn --reload app:app
+uvicorn app:app --host 0.0.0.0 --port 5004
+
 
 # 호출
 

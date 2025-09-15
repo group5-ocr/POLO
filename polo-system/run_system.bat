@@ -1,41 +1,58 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title POLO Launcher (Easy Docker + Others Local)
+chcp 65001 >nul
+title POLO Launcher (Easy + Math + Server + Frontend)
+
+REM ==============================
+REM safety: find script root
+REM ==============================
+set "ROOT=%~dp0"
+if "%ROOT%"=="" set "ROOT=."
+
 goto :main
 
-:: ================================
-:: UTIL: Check if port is in use
-:: ================================
+REM ==============================
+REM UTIL: check if port is in use
+REM ==============================
 :CHECK_PORT_IN_USE
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr /R /C:":%1 " /C:":%1$" /C:":%1:" 2^>NUL') do exit /b 0
+REM return 0 (in use) / 1 (free)
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%~1 " /C:":%~1$" /C:":%~1:" 2^>NUL') do exit /b 0
 exit /b 1
 
-:: ================================
-:: UTIL: Find a free port from base
-:: ================================
+REM ==============================
+REM UTIL: find free port >= base
+REM ==============================
 :FIND_FREE_PORT
-set "_p=%1"
+set /a _p=%~1
 :__find_loop
 call :CHECK_PORT_IN_USE !_p!
-if !errorlevel! == 0 (
+if !errorlevel! EQU 0 (
   set /a _p=!_p!+1
   goto :__find_loop
 )
-call set "%2=!_p!"
+set "%~2=!_p!"
 exit /b 0
 
-:: ==========================================
-:: Patch server\.env with dynamically chosen ports
-:: ==========================================
+REM ==============================
+REM Patch server\.env with ports
+REM ==============================
 :PATCH_ENV_FILE
+set "ENV_FILE=%~1"
+set "SERVER_PORT=%~2"
+set "PREPROCESS_PORT=%~3"
+set "EASY_PORT=%~4"
+set "MATH_PORT=%~5"
+set "VIZ_PORT=%~6"
+
 if not exist "%ENV_FILE%" (
   echo [ENV] %ENV_FILE% not found. Creating...
   >"%ENV_FILE%" echo SERVER_PORT=%SERVER_PORT%
 )
 
 set "TMP_FILE=%ENV_FILE%.tmp"
+if exist "%TMP_FILE%" del /f /q "%TMP_FILE%" >nul 2>&1
 
-:: 배치 파서가 깨지지 않도록 한 줄씩 유지 (줄연속 캐럿 주의)
+REM keep unknown keys, overwrite known keys
 > "%TMP_FILE%" (
   for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
     if not "%%a"=="" if /I not "%%a"=="SERVER_PORT" if /I not "%%a"=="PREPROCESS_URL" if /I not "%%a"=="EASY_MODEL_URL" if /I not "%%a"=="MATH_MODEL_URL" if /I not "%%a"=="VIZ_MODEL_URL" if /I not "%%a"=="CALLBACK_URL" (
@@ -54,27 +71,29 @@ move /Y "%TMP_FILE%" "%ENV_FILE%" >nul
 echo [ENV] Patched %ENV_FILE% with dynamic ports.
 exit /b 0
 
-:: =================================
-:: Resolve / create venv (safe quotes)
-:: =================================
+REM ==============================
+REM venv resolve/create
+REM ==============================
 :RESOLVE_VENV
 set "VENV_PATH=%~1"
 if not exist "%VENV_PATH%" (
   echo [VENV] Creating "%VENV_PATH%"
   python -m venv "%VENV_PATH%"
+  if errorlevel 1 (
+    echo [ERROR] venv creation failed: %VENV_PATH%
+    exit /b 1
+  )
 )
 if exist "%VENV_PATH%\Scripts\activate.bat" (
   set "ACTIVATE=%VENV_PATH%\Scripts\activate.bat"
 ) else (
   set "ACTIVATE=%VENV_PATH%\Scripts\activate"
 )
-echo [DEBUG] VENV_PATH=%VENV_PATH%
-echo [DEBUG] ACTIVATE=%ACTIVATE%
 exit /b 0
 
-:: =================================
-:: Launch a Python app (uvicorn)
-:: =================================
+REM ==============================
+REM Launch a Python app (uvicorn)
+REM ==============================
 :LAUNCH_PY_APP
 set "TITLE=%~1"
 set "WORK_DIR=%~2"
@@ -84,7 +103,7 @@ set "PORT=%~5"
 set "NEED_HF=%~6"
 set "FALLBACK_PKGS=%~7"
 
-echo [DEBUG] LAUNCH_PY_APP called with:
+echo [DEBUG] LAUNCH_PY_APP:
 echo [DEBUG]   TITLE=%TITLE%
 echo [DEBUG]   WORK_DIR=%WORK_DIR%
 echo [DEBUG]   REQ_FILE=%REQ_FILE%
@@ -92,87 +111,105 @@ echo [DEBUG]   MODULE_APP=%MODULE_APP%
 echo [DEBUG]   PORT=%PORT%
 echo [DEBUG]   NEED_HF=%NEED_HF%
 
-:: venv 구성 (인자에 따옴표 포함해서 전달 → 내부에서 %~1로 제거)
-call :RESOLVE_VENV "%WORK_DIR%\venv"
-echo [DEBUG] RESOLVE_VENV completed, ACTIVATE=%ACTIVATE%
-if not exist "%ACTIVATE%" (
-  echo [ERROR] Virtual environment not found: %ACTIVATE%
+if not exist "%WORK_DIR%" (
+  echo [ERROR] Work dir not found: %WORK_DIR%
   exit /b 1
 )
 
-echo [%TITLE%] Starting on port %PORT%...
-set "REQ_PATH=%WORK_DIR%\%REQ_FILE%"
-echo [DEBUG] Looking for requirements file: %REQ_PATH%
+call :RESOLVE_VENV "%WORK_DIR%\venv"
+if not exist "%ACTIVATE%" (
+  echo [ERROR] venv activate not found: %ACTIVATE%
+  exit /b 1
+)
 
+REM Math 모델의 경우 의존성 설치를 다시 수행
+if "%TITLE%"=="Math" (
+  echo [MATH] Reinstalling dependencies for Math model
+  echo [MATH] venv path: %WORK_DIR%\venv
+  set "REQ_PATH=%WORK_DIR%\%REQ_FILE%"
+  if exist "%REQ_PATH%" (
+    call "%ACTIVATE%" ^&^& python -m pip install --upgrade pip --quiet
+    call "%ACTIVATE%" ^&^& python -m pip install -r "%REQ_PATH%" --force-reinstall --quiet
+  )
+  goto :skip_install
+)
+
+set "REQ_PATH=%WORK_DIR%\%REQ_FILE%"
+echo [%TITLE%] Preparing dependencies...
 if exist "%REQ_PATH%" (
-  echo [%TITLE%] Requirements file found: %REQ_FILE%
   if /I "%REQ_FILE%"=="pyproject.toml" (
     pushd "%WORK_DIR%"
+    call "%ACTIVATE%" ^&^& python -m pip install --upgrade pip --quiet
     call "%ACTIVATE%" ^&^& python -m pip install . --quiet
     popd
   ) else (
+    call "%ACTIVATE%" ^&^& python -m pip install --upgrade pip --quiet
     call "%ACTIVATE%" ^&^& python -m pip install -r "%REQ_PATH%" --quiet
   )
 ) else (
-  echo [%TITLE%] Requirements file not found: %REQ_PATH%
   if not defined FALLBACK_PKGS set "FALLBACK_PKGS=fastapi uvicorn"
+  call "%ACTIVATE%" ^&^& python -m pip install --upgrade pip --quiet
   call "%ACTIVATE%" ^&^& python -m pip install %FALLBACK_PKGS% --quiet
 )
 
-echo [%TITLE%] Launching in separate window...
+:skip_install
+echo [%TITLE%] Launching (port %PORT%)...
 set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
 > "%TEMP_BAT%" (
   echo @echo off
-  echo setlocal
+  echo setlocal EnableExtensions EnableDelayedExpansion
+  echo chcp 65001 ^>nul
   echo cd /d "%WORK_DIR%"
   echo call "%ACTIVATE%"
   if /I "%NEED_HF%"=="yes" (
-    echo set HF_HOME=%%TEMP%%\hf_cache
-    echo set TRANSFORMERS_CACHE=%%TEMP%%\hf_cache
-    echo set HF_DATASETS_CACHE=%%TEMP%%\hf_cache
+    REM 안전 캐시 폴더 (원하면 주석 해제)
+    REM echo set HF_HOME=%%TEMP%%\hf_cache
+    REM echo set TRANSFORMERS_CACHE=%%TEMP%%\hf_cache
+    REM echo set HF_DATASETS_CACHE=%%TEMP%%\hf_cache
+    REM echo set HUGGINGFACE_HUB_CACHE=%%TEMP%%\hf_cache
     echo if defined HUGGINGFACE_TOKEN set HUGGINGFACE_TOKEN=%%HUGGINGFACE_TOKEN%%
   )
-  echo echo [%TITLE%] Environment ready, starting uvicorn...
   echo uvicorn --app-dir "%WORK_DIR%" %MODULE_APP% --host 0.0.0.0 --port %PORT%
-  echo pause
+  echo echo.
+  echo echo [%TITLE%] stopped. Press any key to close...
+  echo pause ^>nul
 )
-
 start "POLO %TITLE% (Port %PORT%)" cmd /k "%TEMP_BAT%"
 exit /b 0
 
-:: ================================
-:: MAIN
-:: ================================
+REM ==============================
+REM MAIN
+REM ==============================
 :main
-set "ROOT=%~dp0"
+echo ========================================
+echo POLO System Launcher
+echo ========================================
+
+REM sanity: python / npm
+where python >nul 2>&1 || (echo [ERROR] Python not found in PATH & exit /b 1)
+where npm    >nul 2>&1 || (echo [WARN] npm not found in PATH. Frontend may not start.)
+
 set "ENV_FILE=%ROOT%server\.env"
 
-echo ========================================
-echo POLO System Launcher (Easy Docker + Others Local)
-echo ========================================
-
+REM free ports
 call :FIND_FREE_PORT 8000 SERVER_PORT
 call :FIND_FREE_PORT 5002 PREPROCESS_PORT
 call :FIND_FREE_PORT 5003 EASY_PORT
 call :FIND_FREE_PORT 5004 MATH_PORT
 call :FIND_FREE_PORT 5005 VIZ_PORT
-
 echo [PORTS] Server:%SERVER_PORT% Preprocess:%PREPROCESS_PORT% Easy:%EASY_PORT% Math:%MATH_PORT% Viz:%VIZ_PORT%
 
-call :PATCH_ENV_FILE
+REM patch env
+call :PATCH_ENV_FILE "%ENV_FILE%" "%SERVER_PORT%" "%PREPROCESS_PORT%" "%EASY_PORT%" "%MATH_PORT%" "%VIZ_PORT%"
 
-if exist "%ENV_FILE%" (
-  echo [ENV] Loading environment variables from %ENV_FILE%...
-  for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
-    if not "%%a"=="" if not "%%a:~0,1%"=="#" (
-      set "%%a=%%b"
-      echo   %%a=%%b
-    )
+REM also export to current process (so child windows inherit)
+for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+  if not "%%a"=="" if not "%%a:~0,1%"=="#" (
+    set "%%a=%%b"
   )
-) else (
-  echo [WARNING] .env file not found: %ENV_FILE%
 )
 
+REM dirs
 set "SERVER_DIR=%ROOT%server"
 set "EASY_DIR=%ROOT%models\easy"
 set "MATH_DIR=%ROOT%models\math"
@@ -185,43 +222,67 @@ set "REQ_MATH=requirements.math.txt"
 set "FALLBACK_SERVER=fastapi uvicorn httpx pydantic asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
 set "FALLBACK_MATH=fastapi uvicorn transformers torch"
 
-echo [1/6] Start Easy Model (Port %EASY_PORT%)
+echo [1/4] Start Easy Model (Port %EASY_PORT%)
 if exist "%EASY_DIR%" (
   call :LAUNCH_PY_APP "Easy" "%EASY_DIR%" "%REQ_EASY%" "app:app" "%EASY_PORT%" "yes" "fastapi uvicorn transformers torch peft"
 ) else (
   echo [ERROR] Easy directory not found: %EASY_DIR%
-  exit /b 1
+  goto :end
 )
 
-echo [2/6] Start Math Model (Port %MATH_PORT%)
+echo [2/4] Start Math Model (Port %MATH_PORT%)
 if exist "%MATH_DIR%" (
-  call :LAUNCH_PY_APP "Math" "%MATH_DIR%" "%REQ_MATH%" "app:app" "%MATH_PORT%" "yes" "%FALLBACK_MATH%"
+  echo [MATH] Using existing venv in %MATH_DIR%\venv
+  echo [MATH] Installing dependencies in existing venv...
+  cd /d "%MATH_DIR%"
+  call venv\Scripts\activate.bat
+  pip install --upgrade pip
+  pip install accelerate
+  pip install -r requirements.math.txt --force-reinstall
+  echo [MATH] Dependencies installed successfully
+  echo [MATH] Starting Math model directly...
+  
+  REM Math 모델을 직접 실행 (LAUNCH_PY_APP 함수 사용하지 않음)
+  set "TEMP_BAT=%TEMP%\polo_Math_%MATH_PORT%.bat"
+  > "%TEMP_BAT%" (
+    echo @echo off
+    echo setlocal EnableExtensions EnableDelayedExpansion
+    echo chcp 65001 ^>nul
+    echo cd /d "%MATH_DIR%"
+    echo call venv\Scripts\activate.bat
+    echo uvicorn app:app --host 0.0.0.0 --port %MATH_PORT%
+  )
+  start "Math Model" cmd /k "%TEMP_BAT%"
+  echo [MATH] Math model started on port %MATH_PORT%
 ) else (
   echo [ERROR] Math directory not found: %MATH_DIR%
-  exit /b 1
+  goto :end
 )
 
-echo [3/6] Start Backend Server (Port %SERVER_PORT%)
+echo [3/4] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
   call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER%"
 ) else (
   echo [ERROR] Server directory not found: %SERVER_DIR%
-  exit /b 1
+  goto :end
 )
 
-echo [6/6] Start Frontend
+echo [4/4] Start Frontend (Vite)
 if exist "%FRONTEND_DIR%" (
   pushd "%FRONTEND_DIR%"
+  if not exist ".env.local" (
+    echo VITE_API_BASE=http://localhost:%SERVER_PORT%> ".env.local"
+    echo [FRONTEND] wrote .env.local (VITE_API_BASE=http://localhost:%SERVER_PORT%)
+  )
   if not exist "node_modules" (
     echo [FRONTEND] Installing dependencies...
     call npm install
   )
-  echo [FRONTEND] Starting development server...
+  echo [FRONTEND] Starting dev server...
   start "POLO Frontend" cmd /k "npm run dev"
   popd
 ) else (
-  echo [ERROR] Frontend directory not found: %FRONTEND_DIR%
-  exit /b 1
+  echo [WARN] Frontend directory not found: %FRONTEND_DIR%
 )
 
 echo.
@@ -231,9 +292,12 @@ echo ========================================
 echo Backend:  http://localhost:%SERVER_PORT%
 echo Frontend: http://localhost:5173
 echo.
-echo Press Ctrl+C to stop all services
-echo.
 
 :wait_loop
 timeout /t 1 /nobreak >nul
 goto :wait_loop
+
+:end
+echo.
+echo [DONE] Some components failed to start. Check messages above.
+pause
