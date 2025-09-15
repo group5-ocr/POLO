@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Home() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const graphCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -131,6 +133,11 @@ export default function Home() {
             <button
               className="btn-primary hero-cta-btn"
               onClick={() => {
+                if (!user) {
+                  alert("로그인을 먼저 해주세요!");
+                  navigate("/login");
+                  return;
+                }
                 window.scrollTo(0, 0);
                 navigate("/upload");
               }}
