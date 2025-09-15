@@ -62,6 +62,14 @@ export default function Home() {
     <>
       {/* 히어로 섹션 */}
       <section className="hero">
+        {/* 추가 장식 요소들 */}
+        <div className="hero-decorations">
+          <div className="hero-decoration"></div>
+          <div className="hero-decoration"></div>
+          <div className="hero-decoration"></div>
+          <div className="hero-decoration"></div>
+        </div>
+
         <div className={`hero-content ${isVisible ? "animate-in" : ""}`}>
           <div className="hero-badge">
             <span className="hero-badge-icon">⭐</span>
