@@ -32,6 +32,13 @@ interface UploadResult {
       explanation: string;
     }>;
   };
+  // arXiv 결과 추가
+  arxiv_result?: {
+    arxiv_id: string;
+    title: string;
+    tex_id: string;
+    paths: any;
+  };
 }
 
 export default function Upload() {
@@ -42,7 +49,9 @@ export default function Upload() {
   const [arxivId, setArxivId] = useState("");
   const [arxivTitle, setArxivTitle] = useState("");
   const [showArxivForm, setShowArxivForm] = useState(false);
-  const [activeTab, setActiveTab] = useState<"preview" | "jsonl" | "math">("preview");
+  const [activeTab, setActiveTab] = useState<"preview" | "jsonl" | "math">(
+    "preview"
+  );
   const [downloadInfo, setDownloadInfo] = useState<any>(null);
   const navigate = useNavigate();
 
@@ -54,7 +63,7 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("[Upload] API Base URL:", apiBase);
-      
+
       const formData = new FormData();
       formData.append("file", file);
 
@@ -69,14 +78,18 @@ export default function Upload() {
       }
 
       const data = await response.json();
-      
+
       // 서버에서 반환된 실제 논문 ID 사용
       setResult(data);
-      
+
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
         try {
-          const infoResponse = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/download/info/${data.doc_id}`);
+          const infoResponse = await fetch(
+            `${
+              import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+            }/download/info/${data.doc_id}`
+          );
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
@@ -138,12 +151,14 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("API Base URL:", apiBase);
-      
+
       const response = await fetch(`${apiBase}/api/model-status`);
       const data = await response.json();
 
       if (data.model_available) {
-        alert(`✅ AI 모델이 정상적으로 연결되어 있습니다!\n\nAPI Base: ${apiBase}`);
+        alert(
+          `✅ AI 모델이 정상적으로 연결되어 있습니다!\n\nAPI Base: ${apiBase}`
+        );
       } else {
         alert(
           `❌ AI 모델 서비스가 사용 불가능합니다.\nAPI Base: ${apiBase}\n도커 서비스를 확인해주세요.`
@@ -151,7 +166,9 @@ export default function Upload() {
       }
     } catch (err) {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      alert(`❌ 서버 연결에 실패했습니다.\nAPI Base: ${apiBase}\nError: ${err}`);
+      alert(
+        `❌ 서버 연결에 실패했습니다.\nAPI Base: ${apiBase}\nError: ${err}`
+      );
     }
   };
 
@@ -161,17 +178,22 @@ export default function Upload() {
     setResult(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/from-arxiv`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: 1, // 임시 사용자 ID
-          arxiv_id: arxivId,
-          title: title,
-        }),
-      });
+      const response = await fetch(
+        `${
+          import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+        }/api/from-arxiv`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            user_id: 1, // 임시 사용자 ID
+            arxiv_id: arxivId,
+            title: title,
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -179,17 +201,18 @@ export default function Upload() {
       }
 
       const data = await response.json();
-      
+
       // 서버에서 반환된 실제 논문 ID 사용
       const docId = data.tex_id;
-      
+
       // arXiv 업로드는 비동기 처리이므로 성공 메시지만 표시
       setResult({
         filename: `${arxivId}.pdf`,
         file_size: 0,
         extracted_text_length: 0,
         extracted_text_preview: `arXiv 논문 처리 시작: ${title}\n논문 ID: ${docId}\n\n처리 중입니다...`,
-        easy_text: "논문이 다운로드되고 처리 중입니다. 완료되면 결과가 표시됩니다.",
+        easy_text:
+          "논문이 다운로드되고 처리 중입니다. 완료되면 결과가 표시됩니다.",
         status: "processing",
         doc_id: docId,
         json_file_path: `/api/download/${docId}.json`,
@@ -198,14 +221,18 @@ export default function Upload() {
           arxiv_id: arxivId,
           title: title,
           tex_id: data.tex_id,
-          paths: data.paths
-        }
+          paths: data.paths,
+        },
       });
-      
+
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (docId) {
         try {
-          const infoResponse = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/download/info/${docId}`);
+          const infoResponse = await fetch(
+            `${
+              import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+            }/download/info/${docId}`
+          );
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
@@ -214,10 +241,11 @@ export default function Upload() {
           console.warn("다운로드 정보 조회 실패:", err);
         }
       }
-      
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "arXiv 업로드 중 오류가 발생했습니다."
+        err instanceof Error
+          ? err.message
+          : "arXiv 업로드 중 오류가 발생했습니다."
       );
     } finally {
       setUploading(false);
@@ -226,7 +254,7 @@ export default function Upload() {
 
   const downloadFile = async (
     filename: string,
-    fileType: "json" | "pdf" | "math" | "easy"
+    fileType: "json" | "pdf" | "math" | "easy" | "raw"
   ) => {
     try {
       const baseUrl = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -276,8 +304,8 @@ export default function Upload() {
           <button onClick={checkModelStatus} className="btn-secondary">
             AI 모델 상태 확인
           </button>
-          <button 
-            onClick={() => setShowArxivForm(!showArxivForm)} 
+          <button
+            onClick={() => setShowArxivForm(!showArxivForm)}
             className="btn-secondary"
           >
             {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
@@ -420,13 +448,17 @@ export default function Upload() {
 
             <div className="result-tabs">
               <button
-                className={`tab-button ${activeTab === "preview" ? "active" : ""}`}
+                className={`tab-button ${
+                  activeTab === "preview" ? "active" : ""
+                }`}
                 onClick={() => setActiveTab("preview")}
               >
                 미리보기
               </button>
               <button
-                className={`tab-button ${activeTab === "jsonl" ? "active" : ""}`}
+                className={`tab-button ${
+                  activeTab === "jsonl" ? "active" : ""
+                }`}
                 onClick={() => setActiveTab("jsonl")}
               >
                 JSONL 데이터
@@ -466,7 +498,9 @@ export default function Upload() {
                           <div className="jsonl-header">
                             <span className="jsonl-index">#{item.index}</span>
                             {item.image_path && (
-                              <span className="jsonl-image">🖼️ 이미지 생성됨</span>
+                              <span className="jsonl-image">
+                                🖼️ 이미지 생성됨
+                              </span>
                             )}
                           </div>
                           <div className="jsonl-content">
@@ -537,63 +571,79 @@ export default function Upload() {
                 <div className="file-list">
                   {downloadInfo.files.easy.length > 0 && (
                     <div className="file-category">
-                      <h5>🖼️ 쉬운 버전 이미지 ({downloadInfo.files.easy.length}개)</h5>
+                      <h5>
+                        🖼️ 쉬운 버전 이미지 ({downloadInfo.files.easy.length}개)
+                      </h5>
                       <button
                         className="btn-download"
-                        onClick={() => downloadFile(result.doc_id, "easy")}
+                        onClick={() =>
+                          result.doc_id && downloadFile(result.doc_id, "easy")
+                        }
                       >
                         이미지 다운로드
                       </button>
                     </div>
                   )}
-                  
+
                   {downloadInfo.files.math.length > 0 && (
                     <div className="file-category">
                       <h5>📐 수식 해설 ({downloadInfo.files.math.length}개)</h5>
                       <div className="file-items">
-                        {downloadInfo.files.math.map((file: any, index: number) => (
-                          <button
-                            key={index}
-                            className="btn-download-small"
-                            onClick={() => downloadFile(result.doc_id, "math")}
-                          >
-                            {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                          </button>
-                        ))}
+                        {downloadInfo.files.math.map(
+                          (file: any, index: number) => (
+                            <button
+                              key={index}
+                              className="btn-download-small"
+                              onClick={() =>
+                                result.doc_id &&
+                                downloadFile(result.doc_id, "math")
+                              }
+                            >
+                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
                   )}
-                  
+
                   {downloadInfo.files.preprocess.length > 0 && (
                     <div className="file-category">
-                      <h5>📄 전처리 파일 ({downloadInfo.files.preprocess.length}개)</h5>
+                      <h5>
+                        📄 전처리 파일 ({downloadInfo.files.preprocess.length}
+                        개)
+                      </h5>
                       <div className="file-items">
-                        {downloadInfo.files.preprocess.map((file: any, index: number) => (
-                          <button
-                            key={index}
-                            className="btn-download-small"
-                            onClick={() => downloadFile(file.name, "json")}
-                          >
-                            {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                          </button>
-                        ))}
+                        {downloadInfo.files.preprocess.map(
+                          (file: any, index: number) => (
+                            <button
+                              key={index}
+                              className="btn-download-small"
+                              onClick={() => downloadFile(file.name, "json")}
+                            >
+                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
                   )}
-                  
+
                   {downloadInfo.files.raw.length > 0 && (
                     <div className="file-category">
                       <h5>📁 원본 파일 ({downloadInfo.files.raw.length}개)</h5>
                       <div className="file-items">
-                        {downloadInfo.files.raw.map((file: any, index: number) => (
-                          <button
-                            key={index}
-                            className="btn-download-small"
-                            onClick={() => downloadFile(file.name, "raw")}
-                          >
-                            {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                          </button>
-                        ))}
+                        {downloadInfo.files.raw.map(
+                          (file: any, index: number) => (
+                            <button
+                              key={index}
+                              className="btn-download-small"
+                              onClick={() => downloadFile(file.name, "raw")}
+                            >
+                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
                   )}
