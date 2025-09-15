@@ -32,6 +32,10 @@ def _find_tex_roots(source_dir: Path) -> List[Path]:
 # ─────────────────────────────────────────────────────────────
 # 메인 오케스트레이션
 # ─────────────────────────────────────────────────────────────
+async def run_async(paper_id: str, source_dir: str, callback: str):
+    """비동기 전처리 실행"""
+    return await run(paper_id, source_dir, callback)
+
 async def run(paper_id: str, source_dir: str, callback: str):
     """
     1) 전처리 호출
@@ -83,29 +87,25 @@ async def run(paper_id: str, source_dir: str, callback: str):
 
     tex_files = _find_tex_roots(source_dir_p)
 
-    # 3) Math: LaTeX 병합 (엔드포인트는 구현에 맞춰 조정)
-    #    가정: POST /merge  body: {"paper_id": ..., "tex_paths": [...], "output_dir": "..."}
+    # 3) Math: LaTeX 파일 처리 (실제 엔드포인트에 맞춰 수정)
     try:
         if tex_files:
-            payload = {
-                "paper_id": paper_id,
-                "tex_paths": [str(p) for p in tex_files],
-                "output_dir": str(out_dir_p / "math_merged"),
-            }
+            # 첫 번째 tex 파일을 math 모델로 전송
+            main_tex = tex_files[0]  # 첫 번째 파일 사용
+            payload = {"path": str(main_tex)}
             async with httpx.AsyncClient(timeout=MATH_TIMEOUT) as client:
-                r = await client.post(f"{MATH_MODEL_URL}/merge", json=payload)
+                r = await client.post(f"{MATH_MODEL_URL}/math", json=payload)
                 r.raise_for_status()
                 math_result = r.json()
-                logger.info(f"✅ Math 병합 완료: {math_result}")
+                logger.info(f"✅ Math 처리 완료: {math_result}")
         else:
-            logger.warning("⚠️ 병합할 tex 파일이 없어 math 단계는 건너뜀.")
+            logger.warning("⚠️ 처리할 tex 파일이 없어 math 단계는 건너뜀.")
             math_result = {"skipped": True, "reason": "no_tex_found"}
     except Exception as e:
-        logger.error(f"❌ Math 병합 실패: {e}")
+        logger.error(f"❌ Math 처리 실패: {e}")
         math_result = {"ok": False, "error": str(e)}
 
-    # 4) Easy: JSONL 배치 (엔드포인트는 구현에 맞춰 조정)
-    #    가정: POST /batch  body: {"paper_id": ..., "chunks_jsonl": "...", "output_dir": "..."}
+    # 4) Easy: JSONL 배치 (실제 엔드포인트에 맞춰 수정)
     try:
         if chunks_jsonl and chunks_jsonl.exists():
             payload = {

@@ -147,6 +147,13 @@ class DBRouter:
         if self.engine is not None:
             await self.engine.dispose()
 
+    # CRUD 메서드들
+    async def create_origin_file(self, user_id: int, filename: str) -> int:
+        return await create_origin_file(user_id, filename)
+
+    async def create_tex(self, origin_id: int, file_addr: str) -> int:
+        return await create_tex(origin_id, file_addr)
+
 
 DB = DBRouter()
 

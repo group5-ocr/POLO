@@ -5,6 +5,370 @@
   padding: 0;
 }
 
+/* arXiv 폼 스타일 */
+.arxiv-form {
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(229, 231, 235, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+.arxiv-form h3 {
+  color: #1f2937;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-group input:disabled {
+  background-color: #f9fafb;
+  color: #6b7280;
+}
+
+/* 탭 스타일 */
+.result-tabs {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 24px;
+}
+
+.tab-button {
+  padding: 12px 24px;
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab-button:hover {
+  color: #374151;
+  background-color: #f9fafb;
+}
+
+.tab-button.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  background-color: #f8fafc;
+}
+
+/* JSONL 스타일 */
+.jsonl-container {
+  max-height: 600px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.jsonl-item {
+  border-bottom: 1px solid #f3f4f6;
+  padding: 16px;
+}
+
+.jsonl-item:last-child {
+  border-bottom: none;
+}
+
+.jsonl-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.jsonl-index {
+  background: #3b82f6;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.jsonl-image {
+  background: #10b981;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.jsonl-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jsonl-original,
+.jsonl-easy {
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.jsonl-original {
+  background: #f9fafb;
+  border-left: 3px solid #6b7280;
+}
+
+.jsonl-easy {
+  background: #f0f9ff;
+  border-left: 3px solid #3b82f6;
+}
+
+.jsonl-original strong,
+.jsonl-easy strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #374151;
+  font-size: 0.875rem;
+}
+
+.jsonl-original p,
+.jsonl-easy p {
+  color: #4b5563;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Math 스타일 */
+.math-container {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.math-overview {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  border-left: 4px solid #3b82f6;
+}
+
+.math-overview h5 {
+  color: #1f2937;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.math-overview p {
+  color: #4b5563;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.math-equations h5 {
+  color: #1f2937;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.math-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: white;
+}
+
+.math-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.math-index {
+  background: #3b82f6;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.math-kind {
+  background: #6b7280;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.math-lines {
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.math-equation {
+  background: #f9fafb;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.math-equation code {
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: #1f2937;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.math-explanation p {
+  color: #4b5563;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* No data 스타일 */
+.no-data {
+  text-align: center;
+  padding: 48px 24px;
+  color: #6b7280;
+}
+
+.no-data p {
+  font-size: 1rem;
+  margin: 0;
+}
+
+/* arXiv 정보 스타일 */
+.arxiv-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border: 1px solid #0ea5e9;
+  border-radius: 8px;
+}
+
+.arxiv-badge {
+  background: #0ea5e9;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.arxiv-id {
+  color: #0369a1;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: 'Courier New', monospace;
+}
+
+/* 다운로드 정보 스타일 */
+.download-info {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.download-info h4 {
+  color: #1e293b;
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.file-category {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.file-category h5 {
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-download-small {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-download-small:hover {
+  background: #2563eb;
+}
+
+.btn-download-small:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
 /* 데이터베이스 상태 컴포넌트 스타일 */
 .database-status {
   background: rgba(255, 255, 255, 0.8);
