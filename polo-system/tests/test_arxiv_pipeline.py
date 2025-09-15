@@ -96,7 +96,7 @@ async def test_arxiv_pipeline():
     print(f"\n4️⃣ 실제 파일 확인...")
     
     # arXiv 다운로드 폴더 확인
-    arxiv_dir = Path("../data/arxiv")
+    arxiv_dir = Path("../server/data/arxiv")
     if arxiv_dir.exists():
         arxiv_files = list(arxiv_dir.rglob(f"*{arxiv_id}*"))
         print(f"📁 arXiv 폴더 파일들:")
@@ -104,7 +104,7 @@ async def test_arxiv_pipeline():
             print(f"   - {file.name} ({file.stat().st_size} bytes)")
     
     # 출력 폴더 확인
-    output_dir = Path("../data/outputs")
+    output_dir = Path("../server/data/outputs")
     if output_dir.exists():
         output_files = list(output_dir.rglob("*"))
         print(f"📁 출력 폴더 파일들:")
@@ -119,7 +119,7 @@ async def test_pdf_upload():
     print(f"\n📄 PDF 업로드 테스트...")
     
     # 간단한 테스트 PDF 생성 (실제로는 기존 PDF 사용)
-    test_pdf_path = Path("../data/raw/test.pdf")
+    test_pdf_path = Path("../server/data/raw/test.pdf")
     if not test_pdf_path.exists():
         print(f"❌ 테스트 PDF 파일이 없습니다: {test_pdf_path}")
         return
@@ -161,7 +161,7 @@ async def test_models_directly():
             response = await client.post(
                 "http://localhost:5002/batch",
                 json={
-                    "chunks_jsonl_path": "../data/outputs/test_chunks.jsonl"
+                    "chunks_jsonl_path": "../server/data/outputs/test_chunks.jsonl"
                 },
                 timeout=30.0
             )
@@ -184,7 +184,7 @@ async def test_models_directly():
             response = await client.post(
                 "http://localhost:5003/math",
                 json={
-                    "tex_file_path": "../data/outputs/test_math.tex"
+                    "tex_file_path": "../server/data/outputs/test_math.tex"
                 },
                 timeout=30.0
             )

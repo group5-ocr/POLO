@@ -67,7 +67,7 @@ export default function Upload() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(`${apiBase}/api/convert`, {
+      const response = await fetch(`${apiBase}/api/upload/convert`, {
         method: "POST",
         body: formData,
       });
@@ -88,7 +88,7 @@ export default function Upload() {
           const infoResponse = await fetch(
             `${
               import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
-            }/download/info/${data.doc_id}`
+            }/api/upload/download/info/${data.doc_id}`
           );
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
@@ -152,7 +152,7 @@ export default function Upload() {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("API Base URL:", apiBase);
 
-      const response = await fetch(`${apiBase}/api/model-status`);
+      const response = await fetch(`${apiBase}/api/upload/model-status`);
       const data = await response.json();
 
       if (data.model_available) {
@@ -181,7 +181,7 @@ export default function Upload() {
       const response = await fetch(
         `${
           import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
-        }/api/from-arxiv`,
+        }/api/upload/from-arxiv`,
         {
           method: "POST",
           headers: {

@@ -23,7 +23,7 @@ def _doc_id_from_path(p: Path) -> str:
 
 def run_pipeline(cfg: dict[str, Any], main_tex: str | None = None, *, sink: str = "json") -> dict[str, Any]:
     root_dir  = Path(cfg.get("root_dir", ".")).resolve()
-    out_root  = Path(cfg.get("out_dir", "./data/out")).resolve()
+    out_root  = Path(cfg.get("out_dir", "./server/data/out")).resolve()
     drop_envs_base = cfg.get("drop_envs") or ["tikzpicture","minted","lstlisting","verbatim","Verbatim"]
     drop_envs_full = sorted(set([*drop_envs_base, "framed", "mdframed", "tcolorbox"]))
 

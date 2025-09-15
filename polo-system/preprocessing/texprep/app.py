@@ -73,7 +73,17 @@ async def process_paper(request: ProcessRequest):
         if not tex_files:
             raise HTTPException(status_code=400, detail="No .tex files found in source directory")
         
-        main_tex = guess_main_tex(tex_files)
+        # 메인 tex 파일 찾기 (간단한 추정)
+        main_tex = None
+        priority_names = ["main.tex", "ms.tex", "paper.tex", "arxiv.tex", "root.tex"]
+        for priority_name in priority_names:
+            for tex_file in tex_files:
+                if tex_file.name.lower() == priority_name:
+                    main_tex = tex_file
+                    break
+            if main_tex:
+                break
+        
         if not main_tex:
             main_tex = tex_files[0]  # 첫 번째 파일 사용
         
@@ -113,19 +123,18 @@ async def send_to_models(paper_id: str, payload: dict, out_dir: Path):
         merged_tex_path = out_dir / "merged_body.tex"
         if merged_tex_path.exists():
             async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(f"{MATH_URL}/generate", json={
-                    "paper_id": paper_id,
-                    "math_text_path": str(merged_tex_path)
+                await client.post(f"{MATH_URL}/math", json={
+                    "path": str(merged_tex_path)
                 })
         
-        # easy 모델로 chunk 전송
+        # easy 모델로 JSONL 파일 경로 전송 (배치 처리)
         chunks_path = out_dir / "chunks.jsonl.gz"
         if chunks_path.exists():
-            # chunks 파일을 읽어서 텍스트로 변환
-            chunks_text = read_chunks_as_text(chunks_path)
             async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(f"{EASY_URL}/generate", json={
-                    "text": chunks_text
+                await client.post(f"{EASY_URL}/batch", json={
+                    "paper_id": paper_id,
+                    "chunks_jsonl": str(chunks_path),
+                    "output_dir": str(out_dir / "easy_outputs")
                 })
                 
     except Exception as e:

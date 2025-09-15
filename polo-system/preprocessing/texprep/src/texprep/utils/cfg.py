@@ -6,7 +6,7 @@ import os, yaml
 # YAML에 값이 없거나 환경변수도 없을 때 쓸 기본값들
 DEFAULTS = {
   "root_dir": ".",                  # TeX 소스가 있는 기본 디렉토리
-  "out_dir": "./data/out",          # 전처리 산출물을 저장할 디렉토리
+  "out_dir": "./server/data/out",          # 전처리 산출물을 저장할 디렉토리
   "drop_envs": [                    # 파서가 무시할 LaTeX 환경 목록
     "tikzpicture","minted","lstlisting","verbatim","Verbatim"
   ],

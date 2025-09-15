@@ -113,7 +113,7 @@ class DBRouter:
             f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB')}"
         )
 
-        local_path = os.getenv("LOCAL_DB_PATH", "./data/local/polo.db")
+        local_path = os.getenv("LOCAL_DB_PATH", "./server/data/local/polo.db")
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         sqlite_url = f"sqlite+aiosqlite:///{local_path}"
 

@@ -235,7 +235,7 @@ async def generate_viz(request: VizRequest):
         spec = auto_build_spec_from_text(request.rewritten_text)
         
         # 출력 디렉토리 설정
-        outdir = Path(f"./data/viz/{request.paper_id}")
+        outdir = Path(f"./server/data/viz/{request.paper_id}")
         outdir.mkdir(parents=True, exist_ok=True)
         
         # 렌더링 실행

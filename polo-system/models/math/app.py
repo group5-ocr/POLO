@@ -51,7 +51,7 @@ print(VERSION, flush=True)
 
 # ----- 경로 설정 -----
 INPUT_TEX_PATH = r"C:\\POLO\\polo-system\\models\\math\\yolo.tex"
-OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
+OUT_DIR        = "C:/POLO/POLO/polo-system/models/math/_build"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ----- 모델/토크나이저 설정 -----
@@ -325,7 +325,7 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
 # ======================================================================
 
 # 1) 로컬 키 파일로 직접 초기화(환경변수 불필요)
-SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
 GCP_LOCATION = "global"   # 필요 시 "asia-northeast3" 등으로 변경
 
 gcp_translate_client = None
