@@ -263,8 +263,10 @@ async def download_math_file(paper_id: str):
     """
     Math 모델 출력 파일 다운로드 (JSON, TeX)
     """
-    # Math 모델 출력은 고정 경로에 저장됨
-    math_output_dir = Path("models/math/_build")
+    # Math 모델 출력은 절대 경로로 설정
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    math_output_dir = server_dir.parent / "models" / "math" / "_build"
     
     if not math_output_dir.exists():
         raise HTTPException(status_code=404, detail="Math 모델 출력 디렉토리를 찾을 수 없습니다")
@@ -397,7 +399,9 @@ async def get_download_info(paper_id: str):
             info["files"]["easy"] = [{"name": f.name, "size": f.stat().st_size, "type": "image"} for f in image_files]
         
         # Math 모델 출력
-        math_dir = Path("models/math/_build")
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        math_dir = server_dir.parent / "models" / "math" / "_build"
         if math_dir.exists():
             json_file = math_dir / "equations_explained.json"
             tex_file = math_dir / "yolo_math_report.tex"

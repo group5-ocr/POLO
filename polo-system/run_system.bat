@@ -172,10 +172,10 @@ set "ENV_FILE=%ROOT%server\.env"
 
 REM 고정 포트 사용
 set "SERVER_PORT=8000"
-set "PREPROCESS_PORT=5001"
-set "EASY_PORT=5002"
-set "MATH_PORT=5003"
-set "VIZ_PORT=5004"
+set "PREPROCESS_PORT=5002"
+set "EASY_PORT=5003"
+set "MATH_PORT=5004"
+set "VIZ_PORT=5005"
 echo [PORTS] Server:%SERVER_PORT% Preprocess:%PREPROCESS_PORT% Easy:%EASY_PORT% Math:%MATH_PORT% Viz:%VIZ_PORT%
 
 REM patch env
@@ -231,34 +231,12 @@ if exist "%EASY_DIR%" (
   goto :end
 )
 
-echo [4/6] Start Math Model (Port %MATH_PORT%)
-if exist "%MATH_DIR%" (
-  echo [MATH] Using existing venv in %MATH_DIR%\venv
-  echo [MATH] Installing dependencies in existing venv...
-  cd /d "%MATH_DIR%"
-  call venv\Scripts\activate.bat
-  pip install --upgrade pip
-  pip install accelerate
-  pip install -r requirements.math.txt --force-reinstall
-  echo [MATH] Dependencies installed successfully
-  echo [MATH] Starting Math model directly...
-  
-  REM Math 모델을 직접 실행 (LAUNCH_PY_APP 함수 사용하지 않음)
-  set "TEMP_BAT=%TEMP%\polo_Math_%MATH_PORT%.bat"
-  > "%TEMP_BAT%" (
-    echo @echo off
-    echo setlocal EnableExtensions EnableDelayedExpansion
-    echo chcp 65001 ^>nul
-    echo cd /d "%MATH_DIR%"
-    echo call venv\Scripts\activate.bat
-    echo uvicorn app:app --host 0.0.0.0 --port %MATH_PORT%
-  )
-  start "Math Model" cmd /k "%TEMP_BAT%"
-  echo [MATH] Math model started on port %MATH_PORT%
-) else (
-  echo [ERROR] Math directory not found: %MATH_DIR%
-  goto :end
-)
+REM echo [4/6] Start Math Model (SKIPPED)
+REM if exist "%MATH_DIR%" (
+REM   echo [MATH] Skipped starting Math model (managed by teammate)
+REM ) else (
+REM   echo [ERROR] Math directory not found: %MATH_DIR%
+REM )
 
 echo [5/6] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
@@ -293,7 +271,7 @@ echo ========================================
 echo Preprocess: http://localhost:%PREPROCESS_PORT%
 echo Viz:        http://localhost:%VIZ_PORT%
 echo Easy:       http://localhost:%EASY_PORT%
-echo Math:       http://localhost:%MATH_PORT%
+REM echo Math:       http://localhost:%MATH_PORT%
 echo Backend:    http://localhost:%SERVER_PORT%
 echo Frontend:   http://localhost:5173
 echo.

@@ -145,8 +145,25 @@
 }
 
 .jsonl-easy {
-  background: #f0f9ff;
+  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
   border-left: 3px solid #3b82f6;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.jsonl-easy::before {
+  content: "🤖 AI 쉬운 변환";
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: #3b82f6;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  z-index: 1;
 }
 
 .jsonl-original strong,
@@ -162,6 +179,25 @@
   color: #4b5563;
   line-height: 1.6;
   margin: 0;
+}
+
+.easy-conversion {
+  color: #1e40af !important;
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.05);
+  padding: 8px;
+  border-radius: 6px;
+  border-left: 2px solid #3b82f6;
+}
+
+.conversion-description {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border-left: 3px solid #10b981;
 }
 
 /* Math 스타일 */

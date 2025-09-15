@@ -231,7 +231,7 @@ export default function Upload() {
           const infoResponse = await fetch(
             `${
               import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
-            }/download/info/${docId}`
+            }/api/upload/download/info/${docId}`
           );
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
@@ -482,7 +482,10 @@ export default function Upload() {
                   </div>
 
                   <div className="result-section">
-                    <h4>AI 변환 결과</h4>
+                    <h4>🤖 AI 쉬운 변환 결과</h4>
+                    <p className="conversion-description">
+                      복잡한 학술 용어들을 중학생도 이해할 수 있게 쉽고 재미있게 변환했습니다.
+                    </p>
                     <div className="converted-text">{result.easy_text}</div>
                   </div>
                 </>
@@ -490,7 +493,10 @@ export default function Upload() {
 
               {activeTab === "jsonl" && (
                 <div className="result-section">
-                  <h4>JSONL 데이터 (Easy 모델 출력)</h4>
+                  <h4>📝 JSONL 데이터 (AI 쉬운 변환 결과)</h4>
+                  <p className="conversion-description">
+                    각 텍스트 청크를 중학생도 이해할 수 있게 쉽게 변환한 결과입니다.
+                  </p>
                   {result.jsonl_data && result.jsonl_data.length > 0 ? (
                     <div className="jsonl-container">
                       {result.jsonl_data.map((item, index) => (
@@ -510,8 +516,8 @@ export default function Upload() {
                             </div>
                             {item.easy_text && (
                               <div className="jsonl-easy">
-                                <strong>쉬운 설명:</strong>
-                                <p>{item.easy_text}</p>
+                                <strong>🤖 AI 쉬운 변환:</strong>
+                                <p className="easy-conversion">{item.easy_text}</p>
                               </div>
                             )}
                           </div>

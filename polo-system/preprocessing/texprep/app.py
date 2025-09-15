@@ -28,8 +28,7 @@ from texprep.pipeline import run_pipeline
 # FastAPI 앱 생성
 app = FastAPI(title="POLO Preprocessing Service", version="1.0.0")
 
-# 환경 변수
-MATH_URL = "http://localhost:5004"
+# 환경 변수 (Easy 모델만 사용)
 EASY_URL = "http://localhost:5003"
 
 # Pydantic 모델
@@ -124,25 +123,24 @@ async def process_paper(request: ProcessRequest):
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 async def send_to_models(paper_id: str, payload: dict, out_dir: Path):
-    """math와 easy 모델로 결과 전송"""
+    """easy 모델로 결과 전송 (Math 모델 제외)"""
     try:
-        # math 모델로 tex 전송
-        merged_tex_path = out_dir / "merged_body.tex"
-        if merged_tex_path.exists():
-            async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(f"{MATH_URL}/math", json={
-                    "path": str(merged_tex_path)
-                })
-        
         # easy 모델로 JSONL 파일 경로 전송 (배치 처리)
-        chunks_path = out_dir / "chunks.jsonl.gz"
+        chunks_path = out_dir / "chunks.jsonl"
+        if not chunks_path.exists():
+            chunks_path = out_dir / "chunks.jsonl.gz"
+        
         if chunks_path.exists():
+            print(f"📤 Easy 모델로 전송: {chunks_path}")
             async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(f"{EASY_URL}/batch", json={
+                response = await client.post(f"{EASY_URL}/batch", json={
                     "paper_id": paper_id,
                     "chunks_jsonl": str(chunks_path),
                     "output_dir": str(out_dir / "easy_outputs")
                 })
+                print(f"✅ Easy 모델 응답: {response.status_code}")
+        else:
+            print(f"⚠️ chunks.jsonl 파일을 찾을 수 없습니다: {out_dir}")
                 
     except Exception as e:
         print(f"Warning: Failed to send to models: {e}")

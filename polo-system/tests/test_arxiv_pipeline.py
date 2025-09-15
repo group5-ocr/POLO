@@ -18,9 +18,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 async def test_arxiv_pipeline():
     """arXiv 파이프라인 전체 테스트"""
     
-    # 테스트용 arXiv ID (Transformer 논문)
-    arxiv_id = "1706.03762"
-    title = "Attention Is All You Need"
+    # 테스트용 arXiv ID (YOLO 논문)
+    arxiv_id = "1506.02640"
+    title = "You Only Look Once: Unified, Real-Time Object Detection"
     
     print(f"🚀 arXiv 파이프라인 테스트 시작: {arxiv_id}")
     print(f"📄 논문 제목: {title}")
@@ -192,28 +192,37 @@ async def test_models_directly():
     except Exception as e:
         print(f"❌ 전처리 오류: {e}")
     
-    # Math 모델 테스트
-    print(f"\n🧮 Math 모델 테스트...")
+    # Easy 모델 테스트
+    print(f"\n📝 Easy 모델 테스트...")
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "http://localhost:5004/math",
+                "http://localhost:5003/batch",
                 json={
-                    "path": str(server_dir / "data" / "outputs" / "test_math.tex")
+                    "paper_id": "test",
+                    "chunks_jsonl": str(server_dir / "data" / "out" / "source" / "chunks.jsonl"),
+                    "output_dir": str(server_dir / "data" / "outputs" / "easy_outputs")
                 },
                 timeout=30.0
             )
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"✅ Math 모델 성공!")
-                print(f"   - 처리된 방정식 수: {data.get('equation_count', 0)}")
+                print(f"✅ Easy 모델 성공!")
+                print(f"   - paper_id: {data.get('paper_id')}")
+                print(f"   - count: {data.get('count')}")
+                print(f"   - success: {data.get('success')}")
+                print(f"   - failed: {data.get('failed')}")
             else:
-                print(f"❌ Math 모델 실패: {response.status_code}")
+                print(f"❌ Easy 모델 실패: {response.status_code}")
                 print(f"   응답: {response.text}")
                 
     except Exception as e:
-        print(f"❌ Math 모델 오류: {e}")
+        print(f"❌ Easy 모델 오류: {e}")
+    
+    # Math 모델 테스트 (제외됨)
+    print(f"\n🧮 Math 모델 테스트 (제외됨)")
+    print(f"   - Math 모델은 별도로 실행하지 않습니다")
 
 if __name__ == "__main__":
     print("🧪 POLO 파이프라인 테스트 시작")

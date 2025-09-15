@@ -16,31 +16,18 @@ from typing import List, Dict, Any, Optional
 import uvicorn
 import torch
 
-# GPU/CPU 디바이스 설정
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-GPU_AVAILABLE = torch.cuda.is_available()
+# GPU/CPU 디바이스 설정 (GPU 메모리 절약을 위해 CPU 강제 사용)
+DEVICE = "cpu"  # GPU 메모리 절약을 위해 CPU 강제 사용
+GPU_AVAILABLE = False  # GPU 사용 안함
 
 # matplotlib 설정
 mpl.rcParams["savefig.dpi"] = 220
 mpl.rcParams["figure.dpi"]  = 220
 mpl.rcParams["axes.unicode_minus"] = False
 
-# GPU 가속 설정 (가능한 경우)
-if GPU_AVAILABLE:
-    try:
-        # GPU 백엔드 시도 (cudf, cupy 등이 설치된 경우)
-        import matplotlib.pyplot as plt
-        # GPU 메모리 최적화
-        torch.cuda.empty_cache()
-        print(f"✅ GPU 사용 가능: {torch.cuda.get_device_name(0)}")
-        print(f"🔧 Viz 디바이스: {DEVICE}")
-    except Exception as e:
-        print(f"⚠️ GPU 백엔드 설정 실패, CPU 사용: {e}")
-        DEVICE = "cpu"
-        GPU_AVAILABLE = False
-else:
-    print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
-    print(f"🔧 Viz 디바이스: {DEVICE}")
+# CPU 모드 강제 설정 (GPU 메모리 절약)
+print("🔧 Viz 서비스: CPU 모드로 실행 (GPU 메모리 절약)")
+print(f"🔧 디바이스: {DEVICE}")
 
 _MT_MAP = {
     "≈": r"$\approx$", "×": r"$\times$", "∈": r"$\in$",
@@ -272,13 +259,7 @@ if __name__ == "__main__":
     
     # 디바이스 상태 출력
     print("🎨 POLO Viz Service 시작")
-    if GPU_AVAILABLE:
-        gpu_name = torch.cuda.get_device_name(0)
-        print(f"✅ GPU 사용 가능: {gpu_name}")
-        print(f"🔧 디바이스: {DEVICE} (GPU 가속 시각화)")
-    else:
-        print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
-        print(f"🔧 디바이스: {DEVICE} (CPU 시각화)")
+    print(f"🔧 디바이스: {DEVICE} (CPU 모드 - GPU 메모리 절약)")
     print(f"📊 포트: {port}")
     
     # 논문 텍스트 → 스펙 자동 생성 → 렌더 (개발용)
