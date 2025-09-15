@@ -24,9 +24,10 @@ export default function DatabaseStatus({
     setError(null);
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/db/stats`
-      );
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      console.log("[DatabaseStatus] API Base URL:", apiBase);
+      
+      const response = await fetch(`${apiBase}/db/stats`);
 
       if (response.ok) {
         const data = await response.json();

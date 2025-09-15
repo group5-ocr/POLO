@@ -14,14 +14,16 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 )
 
-
+# ---------------------------
 # 1) ORM Base
-
+# ---------------------------
 class Base(DeclarativeBase):
     pass
 
 
-# 2) ORM Models (ERD + 진행상태 필드)
+# ---------------------------
+# 2) ORM Models
+# ---------------------------
 class User(Base):
     __tablename__ = "users"
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -50,7 +52,7 @@ class Tex(Base):
     origin_id: Mapped[int] = mapped_column(ForeignKey("origin_file.origin_id"))
     file_addr: Mapped[str] = mapped_column(String, nullable=True)
 
-    # ✅ 파이프라인 진행 상태
+    # 진행 상태
     total_chunks: Mapped[int] = mapped_column(Integer, default=0)
     easy_done: Mapped[int] = mapped_column(Integer, default=0)
     viz_done: Mapped[int] = mapped_column(Integer, default=0)
@@ -96,7 +98,9 @@ class Chunk(Base):
     image_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
-# 3) DB Router (PostgreSQL ↔ SQLite 자동 폴백)
+# ---------------------------
+# 3) DB Router (PG ↔ SQLite)
+# ---------------------------
 class DBRouter:
     def __init__(self) -> None:
         self.engine: Optional[AsyncEngine] = None
@@ -108,6 +112,7 @@ class DBRouter:
             f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
             f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB')}"
         )
+
         local_path = os.getenv("LOCAL_DB_PATH", "./data/local/polo.db")
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         sqlite_url = f"sqlite+aiosqlite:///{local_path}"
@@ -138,13 +143,24 @@ class DBRouter:
             raise RuntimeError("DB 초기화 필요")
         return self._session()
 
+    async def close(self) -> None:
+        if self.engine is not None:
+            await self.engine.dispose()
+
+    # CRUD 메서드들
+    async def create_origin_file(self, user_id: int, filename: str) -> int:
+        return await create_origin_file(user_id, filename)
+
+    async def create_tex(self, origin_id: int, file_addr: str) -> int:
+        return await create_tex(origin_id, file_addr)
+
 
 DB = DBRouter()
 
 
-# 4) CRUD / 파이프라인 상태 관리 API
-
-# ---------- OriginFile / Tex ----------
+# ---------------------------
+# 4) CRUD / 상태 관리
+# ---------------------------
 async def create_origin_file(user_id: int, filename: str) -> int:
     async with DB.session() as s:
         origin = OriginFile(user_id=user_id, filename=filename)
@@ -163,12 +179,8 @@ async def create_tex(origin_id: int, file_addr: str) -> int:
         return tex.tex_id
 
 
-# ---------- 파이프라인 진행 상태 ----------
+# ---- 파이프라인 상태 ----
 async def init_pipeline_state(tex_id: int, total_chunks: int, jsonl_path: str, math_text_path: str) -> None:
-    """
-    preprocess 콜백 시 호출: 진행 카운터 초기화.
-    jsonl_path / math_text_path는 필요시 별도 테이블로 관리 가능. 여기서는 상태만 리셋.
-    """
     async with DB.session() as s:
         await s.execute(
             update(Tex)
@@ -182,7 +194,6 @@ async def bump_counter(tex_id: int, field: str) -> None:
     if field not in ("easy_done", "viz_done"):
         raise ValueError("field는 'easy_done' 또는 'viz_done'만 허용")
     async with DB.session() as s:
-        # SQLAlchemy의 column expression을 이용한 += 1
         await s.execute(
             update(Tex)
             .where(Tex.tex_id == tex_id)
@@ -207,11 +218,8 @@ async def get_state(tex_id: int) -> Optional[Tex]:
         return res.scalar_one_or_none()
 
 
-# ---------- Chunk / Easy / Viz / Math ----------
+# ---- Chunk / Easy / Viz / Math ----
 async def save_easy_chunk(tex_id: int | str, index: int, rewritten_text: str) -> None:
-    """
-    멱등 업서트 스타일: 있으면 업데이트, 없으면 생성
-    """
     paper_id = str(tex_id)
     key = f"{paper_id}:{index}"
     async with DB.session() as s:
@@ -237,11 +245,11 @@ async def save_viz_image(tex_id: int | str, index: int, image_path: str) -> None
         await s.commit()
 
 
-async def save_math_result(tex_id: int, result_path: Optional[str] = None, sections: Optional[List[Dict[str, Any]]] = None) -> int:
-    """
-    math 결과는 파일 경로(또는 섹션 JSON)를 보관.
-    여기선 파일 경로만 컬럼으로 저장. 섹션 저장을 원하면 별도 테이블/JSONB 컬럼 추가 권장.
-    """
+async def save_math_result(
+    tex_id: int,
+    result_path: Optional[str] = None,
+    sections: Optional[List[Dict[str, Any]]] = None,
+) -> int:
     async with DB.session() as s:
         math = MathFile(tex_id=tex_id, file_addr=result_path)
         s.add(math)
@@ -250,11 +258,8 @@ async def save_math_result(tex_id: int, result_path: Optional[str] = None, secti
         return math.math_id
 
 
-# ---------- 결과 조회 & 조립 ----------
+# ---- 결과 조회 & 조립 ----
 async def fetch_results(tex_id: int | str) -> Optional[Dict[str, Any]]:
-    """
-    프론트 템플릿용 구조로 리턴
-    """
     paper_id = str(tex_id)
     async with DB.session() as s:
         # chunks
@@ -290,16 +295,26 @@ async def fetch_results(tex_id: int | str) -> Optional[Dict[str, Any]]:
             "easy_done": st.easy_done,
             "viz_done": st.viz_done,
             "math_done": st.math_done,
-            "items": chunk_list,   # [{index, text, rewritten_text, image_path}]
+            "items": chunk_list,
             "math": {"files": math_files},
         }
 
 
 async def assemble_final(tex_id: int) -> Dict[str, Any]:
-    """
-    모든 조건 충족 후 호출해서 '최종 산출'을 조립.
-    현재는 fetch_results()와 동일 구조를 반환하지만,
-    필요 시 여기서 결과 파일(zip, html, pdf 등) 생성 가능.
-    """
     data = await fetch_results(tex_id)
     return data if data else {"paper_id": tex_id, "items": [], "math": {"files": []}}
+
+
+# ---------------------------
+# 5) 모듈 레벨 프록시 (안전장치)
+# ---------------------------
+# 모듈을 `import services.database.db as DB`로 임포트했을 때도
+# DB.init(), DB.session(), DB.close()가 동작하도록 프록시를 둡니다.
+async def init():               # type: ignore
+    await DB.init()
+
+def session():                  # type: ignore
+    return DB.session()
+
+async def close():              # type: ignore
+    await DB.close()

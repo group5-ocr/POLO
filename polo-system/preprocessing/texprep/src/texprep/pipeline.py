@@ -2,6 +2,11 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Any
+import sys
+
+# 모듈 경로 설정
+current_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(current_dir))
 
 from texprep.io.discover import guess_main
 from texprep.io.auto_merge import auto_merge_corpus

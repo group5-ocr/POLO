@@ -5,32 +5,166 @@ raw 폴더 → 전처리 파이프라인 실행 → 전달용 payload 구성(+ �
 - auto_merge 포함된 pipeline을 호출
 - transport payload: meta + merged_tex + counts + 파일 경로 + (옵션) 일부 인라인 샘플
 - 동시에 JSONL(.gz) 산출물은 기존처럼 out_dir에 저장
+- FastAPI 서버로 변경하여 HTTP 요청 처리
 """
 from __future__ import annotations
 from pathlib import Path
 import argparse, json, gzip, time, sys
-from typing import Any
+from typing import Any, Optional
+import uvicorn
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import uvicorn
+
+# 모듈 경로 설정
+current_dir = Path(__file__).parent
+src_dir = current_dir / "src"
+sys.path.insert(0, str(src_dir))
 
 # 우리 모듈
-from src.texprep.utils.cfg import load_cfg  # 네가 만든 cfg 로더
-from src.texprep.pipeline import run_pipeline
+from texprep.utils.cfg import load_cfg  # 네가 만든 cfg 로더
+from texprep.pipeline import run_pipeline
 
 # FastAPI 앱 생성
-app = FastAPI(title="POLO Preprocess Service", version="1.0.0")
+app = FastAPI(title="POLO Preprocessing Service", version="1.0.0")
 
-class PreprocessRequest(BaseModel):
-    input_path: str
-    output_dir: str = "data/outputs"
-    config_path: str = "configs/default.yaml"
+# 환경 변수
+MATH_URL = "http://localhost:5004"
+EASY_URL = "http://localhost:5003"
 
-class PreprocessResponse(BaseModel):
-    success: bool
-    message: str
-    output_path: str = None
-    file_count: int = 0
+# Pydantic 모델
+class ProcessRequest(BaseModel):
+    paper_id: str
+    source_dir: str
+    callback: str
+
+class ProcessResponse(BaseModel):
+    ok: bool
+    paper_id: str
+    out_dir: str
+    transport_path: str
+    counts: dict
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+@app.post("/process", response_model=ProcessResponse)
+async def process_paper(request: ProcessRequest):
+    """
+    논문 전처리 실행
+    1. 파이프라인 실행
+    2. transport payload 생성
+    3. math/easy 모델로 결과 전송
+    4. 콜백 호출
+    """
+    try:
+        # 1) 설정 로드
+        config_path = Path(__file__).parent / "configs" / "default.yaml"
+        cfg = load_cfg(str(config_path))
+        
+        # 2) source_dir에서 메인 tex 찾기
+        source_path = Path(request.source_dir)
+        if not source_path.exists():
+            raise HTTPException(status_code=400, detail=f"Source directory not found: {source_path}")
+        
+        # 메인 tex 파일 찾기
+        tex_files = list(source_path.rglob("*.tex"))
+        if not tex_files:
+            raise HTTPException(status_code=400, detail="No .tex files found in source directory")
+        
+        main_tex = guess_main_tex(tex_files)
+        if not main_tex:
+            main_tex = tex_files[0]  # 첫 번째 파일 사용
+        
+        # 3) 파이프라인 실행
+        run = run_pipeline(cfg, main_tex=str(main_tex), sink="json")
+        
+        # 4) transport payload 구성
+        payload = build_transport_payload(run, inline=True, head_n=3, body_chars=20000)
+        
+        # 5) 저장
+        out_dir = Path(run["out_dir"])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        transport_path = out_dir / "transport.json"
+        transport_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        
+        # 6) math/easy 모델로 결과 전송
+        await send_to_models(request.paper_id, payload, out_dir)
+        
+        # 7) 콜백 호출
+        await send_callback(request.callback, request.paper_id, str(transport_path))
+        
+        return ProcessResponse(
+            ok=True,
+            paper_id=request.paper_id,
+            out_dir=str(out_dir),
+            transport_path=str(transport_path),
+            counts=payload["meta"]["counts"]
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+async def send_to_models(paper_id: str, payload: dict, out_dir: Path):
+    """math와 easy 모델로 결과 전송"""
+    try:
+        # math 모델로 tex 전송
+        merged_tex_path = out_dir / "merged_body.tex"
+        if merged_tex_path.exists():
+            async with httpx.AsyncClient(timeout=30) as client:
+                await client.post(f"{MATH_URL}/generate", json={
+                    "paper_id": paper_id,
+                    "math_text_path": str(merged_tex_path)
+                })
+        
+        # easy 모델로 chunk 전송
+        chunks_path = out_dir / "chunks.jsonl.gz"
+        if chunks_path.exists():
+            # chunks 파일을 읽어서 텍스트로 변환
+            chunks_text = read_chunks_as_text(chunks_path)
+            async with httpx.AsyncClient(timeout=30) as client:
+                await client.post(f"{EASY_URL}/generate", json={
+                    "text": chunks_text
+                })
+                
+    except Exception as e:
+        print(f"Warning: Failed to send to models: {e}")
+
+async def send_callback(callback_url: str, paper_id: str, transport_path: str):
+    """콜백 호출"""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.post(callback_url, json={
+                "paper_id": paper_id,
+                "transport_path": transport_path,
+                "status": "completed"
+            })
+    except Exception as e:
+        print(f"Warning: Failed to send callback: {e}")
+
+def read_chunks_as_text(chunks_path: Path) -> str:
+    """chunks 파일을 읽어서 텍스트로 변환"""
+    chunks = []
+    if chunks_path.suffix == ".gz":
+        with gzip.open(chunks_path, "rt", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        chunk = json.loads(line)
+                        chunks.append(chunk.get("text", ""))
+                    except:
+                        continue
+    else:
+        with open(chunks_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        chunk = json.loads(line)
+                        chunks.append(chunk.get("text", ""))
+                    except:
+                        continue
+    return "\n\n".join(chunks)
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -181,8 +315,8 @@ def main():
 async def health():
     return {"status": "ok", "service": "preprocess"}
 
-@app.post("/preprocess", response_model=PreprocessResponse)
-async def preprocess_endpoint(request: PreprocessRequest):
+@app.post("/preprocess", response_model=ProcessResponse)
+async def preprocess_endpoint(request: ProcessResponse):
     """전처리 파이프라인 실행"""
     try:
         # 임시 args 객체 생성
@@ -202,7 +336,7 @@ async def preprocess_endpoint(request: PreprocessRequest):
         # 전처리 실행
         result = main_with_args(args)
         
-        return PreprocessResponse(
+        return ProcessResponse(
             success=True,
             message="전처리 완료",
             output_path=result.get("out_dir"),
@@ -252,7 +386,10 @@ def main_with_args(args):
     }
 
 if __name__ == "__main__":
-    import os
-    port = int(os.getenv("PREPROCESS_PORT", "5002"))
-    print(f"🔧 Preprocess Service 시작 (포트: {port})")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # CLI 모드와 서버 모드 구분
+    if len(sys.argv) > 1 and sys.argv[1] == "cli":
+        # CLI 모드 (기존 동작)
+        main()
+    else:
+        # FastAPI 서버 모드
+        uvicorn.run(app, host="0.0.0.0", port=5002, reload=False)
