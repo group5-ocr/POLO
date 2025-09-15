@@ -147,31 +147,6 @@ export default function Upload() {
     }
   };
 
-  const checkModelStatus = async () => {
-    try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      console.log("API Base URL:", apiBase);
-
-      const response = await fetch(`${apiBase}/api/model-status`);
-      const data = await response.json();
-
-      if (data.model_available) {
-        alert(
-          `✅ AI 모델이 정상적으로 연결되어 있습니다!\n\nAPI Base: ${apiBase}`
-        );
-      } else {
-        alert(
-          `❌ AI 모델 서비스가 사용 불가능합니다.\nAPI Base: ${apiBase}\n도커 서비스를 확인해주세요.`
-        );
-      }
-    } catch (err) {
-      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      alert(
-        `❌ 서버 연결에 실패했습니다.\nAPI Base: ${apiBase}\nError: ${err}`
-      );
-    }
-  };
-
   const uploadFromArxiv = async (arxivId: string, title: string) => {
     setUploading(true);
     setError(null);
@@ -301,9 +276,6 @@ export default function Upload() {
         </div>
 
         <div className="upload-actions">
-          <button onClick={checkModelStatus} className="btn-secondary">
-            AI 모델 상태 확인
-          </button>
           <button
             onClick={() => setShowArxivForm(!showArxivForm)}
             className="btn-secondary"

@@ -1,11 +1,46 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import DatabaseStatus from "../components/DatabaseStatus";
 
 export default function Home() {
   const navigate = useNavigate();
   const graphCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+
+  // 페이지 로드 시 애니메이션 시작
+  useEffect(() => {
+    setIsVisible(true);
+  }, []);
+
+  // 마우스 위치 추적
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
+  // 스크롤 기반 애니메이션
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("animate-in");
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    const elements = document.querySelectorAll(".animate-on-scroll");
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, []);
 
   // 애니메이션된 사인함수 그래프 그리기
   useEffect(() => {
@@ -46,7 +81,30 @@ export default function Home() {
     <>
       {/* 히어로 섹션 */}
       <section className="hero">
-        <div className="hero-content">
+        {/* 파티클 배경 */}
+        <div className="particles">
+          {[...Array(50)].map((_, i) => (
+            <div
+              key={i}
+              className="particle"
+              style={{
+                left: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 10}s`,
+                animationDuration: `${5 + Math.random() * 10}s`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* 마우스 추적 그라데이션 */}
+        <div
+          className="mouse-gradient"
+          style={{
+            background: `radial-gradient(600px circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(167, 243, 208, 0.15), transparent 40%)`,
+          }}
+        />
+
+        <div className={`hero-content ${isVisible ? "animate-in" : ""}`}>
           <div className="hero-logo">
             <img
               src="/img/head_logo.png"
@@ -57,11 +115,12 @@ export default function Home() {
             />
           </div>
           <p className="hero-description">
-            복잡한 AI 논문을 누구나 이해할 수 있도록
-            <br />
-            시각적이고 쉬운 언어로 변환해주는 AI 서비스
-            <br />
-            <br />
+            <span className="hero-text-line">
+              복잡한 AI 논문을 누구나 이해할 수 있도록
+            </span>
+            <span className="hero-text-line">
+              시각적이고 쉬운 언어로 변환해주는 AI 서비스
+            </span>
             <span className="hero-cta-text">
               지금 바로 시작해보세요!
               <br />
@@ -70,33 +129,38 @@ export default function Home() {
           </p>
           <div className="hero-buttons">
             <button
-              className="btn-primary"
+              className="btn-primary hero-cta-btn"
               onClick={() => {
                 window.scrollTo(0, 0);
                 navigate("/upload");
               }}
             >
-              논문 변환하기
+              <span className="btn-text">논문 변환하기</span>
             </button>
           </div>
         </div>
+
         <div className="hero-visual">
           <canvas className="hero-sine-canvas" ref={graphCanvasRef} />
           <div className="floating-card card-1">
             <div className="card-icon">📊</div>
             <div className="card-text">데이터 분석</div>
+            <div className="card-glow"></div>
           </div>
           <div className="floating-card card-2">
             <div className="card-icon">⚡</div>
             <div className="card-text">AI 처리</div>
+            <div className="card-glow"></div>
           </div>
           <div className="floating-card card-3">
             <div className="card-icon">💡</div>
             <div className="card-text">쉬운 설명</div>
+            <div className="card-glow"></div>
           </div>
           <div className="floating-card card-4">
             <div className="card-icon">🎯</div>
             <div className="card-text">수학 시각화</div>
+            <div className="card-glow"></div>
           </div>
         </div>
       </section>
@@ -113,27 +177,32 @@ export default function Home() {
       {/* 기능 소개 섹션 */}
       <section className="features">
         <div className="container">
-          <h2 className="section-title">POLO의 특별한 기능들</h2>
+          <h2 className="section-title animate-on-scroll">
+            POLO의 특별한 기능들
+          </h2>
           <div className="features-grid">
-            <div className="feature-card">
+            <div className="feature-card animate-on-scroll">
               <div className="feature-icon">📖</div>
               <h3>쉬운 설명서</h3>
               <p>
                 복잡한 AI 논문을 누구나 이해할 수 있도록 일상 언어로
                 변환해드려요!
               </p>
+              <div className="feature-hover-effect"></div>
             </div>
-            <div className="feature-card">
+            <div className="feature-card animate-on-scroll">
               <div className="feature-icon">📊</div>
               <h3>수학 설명서</h3>
               <p>
                 어려운 수식과 알고리즘을 시각적으로 보여주고 쉽게 설명해드려요!
               </p>
+              <div className="feature-hover-effect"></div>
             </div>
-            <div className="feature-card">
+            <div className="feature-card animate-on-scroll">
               <div className="feature-icon">🚀</div>
               <h3>빠른 처리</h3>
               <p>PDF 업로드만 하면 몇 초 만에 결과를 받아볼 수 있어요!</p>
+              <div className="feature-hover-effect"></div>
             </div>
           </div>
         </div>
@@ -142,40 +211,37 @@ export default function Home() {
       {/* 사용법 섹션 */}
       <section className="how-it-works">
         <div className="container">
-          <h2 className="section-title">간단한 3단계 프로세스</h2>
+          <h2 className="section-title animate-on-scroll">
+            간단한 3단계 프로세스
+          </h2>
           <div className="steps">
-            <div className="step">
+            <div className="step animate-on-scroll">
               <div className="step-number">1</div>
               <div className="step-content">
                 <h3>논문 업로드</h3>
                 <p>PDF 파일을 드래그하거나 클릭해서 업로드하세요</p>
               </div>
+              <div className="step-glow"></div>
             </div>
-            <div className="step-arrow">→</div>
-            <div className="step">
+            <div className="step-arrow animate-on-scroll">→</div>
+            <div className="step animate-on-scroll">
               <div className="step-number">2</div>
               <div className="step-content">
                 <h3>AI 분석</h3>
                 <p>POLO가 논문을 분석하고 이해하기 쉽게 변환해드려요</p>
               </div>
+              <div className="step-glow"></div>
             </div>
-            <div className="step-arrow">→</div>
-            <div className="step">
+            <div className="step-arrow animate-on-scroll">→</div>
+            <div className="step animate-on-scroll">
               <div className="step-number">3</div>
               <div className="step-content">
                 <h3>결과 확인</h3>
                 <p>쉬운 설명서와 수학 설명서를 받아보세요!</p>
               </div>
+              <div className="step-glow"></div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* 데이터베이스 상태 섹션 */}
-      <section className="database-status-section">
-        <div className="container">
-          <h2 className="section-title">시스템 상태</h2>
-          <DatabaseStatus />
         </div>
       </section>
     </>
