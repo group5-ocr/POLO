@@ -20,9 +20,15 @@ class ArxivResult(TypedDict):
 
 def _get_out_root(out_root: Optional[str]) -> Path:
     # .env 가 있다면 여기서 읽어도 됨: os.getenv("ARXIV_OUT_ROOT", "server/data/arxiv")
-    base = out_root or "server/data/arxiv"
-    # 절대 경로로 변환하지 않고 상대 경로로 유지
-    p = Path(base)
+    if out_root:
+        # 이미 절대 경로인 경우 그대로 사용
+        p = Path(out_root)
+    else:
+        # 상대 경로인 경우 현재 파일 기준으로 절대 경로 생성
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        p = server_dir / "data" / "arxiv"
+    
     p.mkdir(parents=True, exist_ok=True)
     return p
 

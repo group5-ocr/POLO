@@ -101,7 +101,9 @@ async def convert_pdf(file: UploadFile = File(...)):
                 easy_text = f"변환 실패: {str(e)}"
             
             # 파일을 로컬에 저장
-            data_dir = Path("server/data/raw")
+            current_file = Path(__file__).resolve()
+            server_dir = current_file.parent.parent  # polo-system/server
+            data_dir = server_dir / "data" / "raw"
             data_dir.mkdir(parents=True, exist_ok=True)
             
             # 고유한 파일명 생성 (타임스탬프 + 원본 파일명)
@@ -213,10 +215,12 @@ async def download_file(filename: str):
     일반 파일 다운로드 (JSON, 텍스트 등)
     """
     # 여러 위치에서 파일 찾기
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
     search_paths = [
-        Path("server/data/outputs") / filename,
-        Path("server/data/local") / filename,
-        Path("server/data") / filename,
+        server_dir / "data" / "outputs" / filename,
+        server_dir / "data" / "local" / filename,
+        server_dir / "data" / filename,
     ]
     
     for search_path in search_paths:
@@ -234,7 +238,9 @@ async def download_easy_file(paper_id: str):
     """
     Easy 모델 출력 파일 다운로드 (이미지들)
     """
-    easy_output_dir = Path("server/data/outputs") / paper_id / "easy_outputs"
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    easy_output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
     
     if not easy_output_dir.exists():
         raise HTTPException(status_code=404, detail=f"Easy 출력 디렉토리를 찾을 수 없습니다: {paper_id}")
@@ -289,8 +295,10 @@ async def download_raw_file(filename: str):
     원본 파일 다운로드 (업로드된 파일들)
     """
     # 업로드된 파일들 찾기
-    raw_dir = Path("server/data/raw")
-    arxiv_dir = Path("server/data/arxiv")
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    raw_dir = server_dir / "data" / "raw"
+    arxiv_dir = server_dir / "data" / "arxiv"
     
     # 1. data/raw에서 찾기
     if raw_dir.exists():
@@ -381,7 +389,9 @@ async def get_download_info(paper_id: str):
     # 폴더 스캔 방식 (fallback)
     if not any(info["files"].values()):
         # Easy 모델 출력 (이미지들)
-        easy_dir = Path("server/data/outputs") / paper_id / "easy_outputs"
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        easy_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
         if easy_dir.exists():
             image_files = list(easy_dir.glob("*.png")) + list(easy_dir.glob("*.jpg"))
             info["files"]["easy"] = [{"name": f.name, "size": f.stat().st_size, "type": "image"} for f in image_files]
@@ -407,13 +417,13 @@ async def get_download_info(paper_id: str):
                 })
         
         # 전처리 출력
-        preprocess_dir = Path("server/data/outputs") / paper_id
+        preprocess_dir = server_dir / "data" / "outputs" / paper_id
         if preprocess_dir.exists():
             preprocess_files = list(preprocess_dir.glob("*.jsonl*")) + list(preprocess_dir.glob("*.tex"))
             info["files"]["preprocess"] = [{"name": f.name, "size": f.stat().st_size, "type": "preprocess"} for f in preprocess_files]
         
         # 원본 파일
-        arxiv_dir = Path("server/data/arxiv")
+        arxiv_dir = server_dir / "data" / "arxiv"
         if arxiv_dir.exists():
             raw_files = list(arxiv_dir.rglob(f"*{paper_id}*"))
             info["files"]["raw"] = [{"name": f.name, "size": f.stat().st_size, "type": "original"} for f in raw_files]
@@ -439,9 +449,14 @@ async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
     # 2) arXiv fetch & extract (arxiv_downloader_back.py 활용)
     try:
         print(f"[ARXIV] 논문 다운로드 시작: {body.arxiv_id}")
+        # 절대 경로로 arxiv 디렉토리 설정
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        arxiv_dir = server_dir / "data" / "arxiv"
+        
         res = await arxiv_client.fetch_and_extract(
             arxiv_id=body.arxiv_id,
-            out_root="server/data/arxiv",
+            out_root=str(arxiv_dir),
             corp_ca_pem=os.getenv("CORP_CA_PEM") or None,
             left_margin_px=120,  # PDF 왼쪽 여백 설정
             preview_lines=40,    # 미리보기 줄 수
@@ -459,7 +474,7 @@ async def upload_from_arxiv(body: UploadFromArxiv, bg: BackgroundTasks):
 
     # 4) 전처리 서비스 호출 (비동기)
     base_cb = os.getenv("CALLBACK_URL", "http://localhost:8000").rstrip("/")
-    callback_url = f"{base_cb}/api/preprocess/callback"
+    callback_url = f"{base_cb}/api/upload/preprocess/callback"
 
     # preprocess_client.run_async 사용 (비동기)
     import asyncio

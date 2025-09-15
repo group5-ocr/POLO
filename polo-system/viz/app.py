@@ -235,7 +235,10 @@ async def generate_viz(request: VizRequest):
         spec = auto_build_spec_from_text(request.rewritten_text)
         
         # 출력 디렉토리 설정
-        outdir = Path(f"./server/data/viz/{request.paper_id}")
+        # 절대 경로로 viz 디렉토리 설정
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent / "server"  # polo-system/server
+        outdir = server_dir / "data" / "viz" / request.paper_id
         outdir.mkdir(parents=True, exist_ok=True)
         
         # 렌더링 실행

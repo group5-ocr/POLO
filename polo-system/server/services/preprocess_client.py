@@ -45,7 +45,10 @@ async def run(paper_id: str, source_dir: str, callback: str):
     5) 콜백으로 종합 결과 통지
     """
     source_dir_p = Path(source_dir).resolve()
-    out_dir_p = Path(f"server/data/outputs/{paper_id}").resolve()
+    # 절대 경로로 outputs 디렉토리 설정
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    out_dir_p = server_dir / "data" / "outputs" / paper_id
     out_dir_p.mkdir(parents=True, exist_ok=True)
 
     preprocess_result: Dict[str, Any] = {}

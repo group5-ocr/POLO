@@ -63,6 +63,13 @@ async def process_paper(request: ProcessRequest):
         config_path = Path(__file__).parent / "configs" / "default.yaml"
         cfg = load_cfg(str(config_path))
         
+        # 절대 경로로 out_dir 설정
+        current_file = Path(__file__).resolve()
+        polo_system_dir = current_file.parent.parent.parent  # polo-system
+        server_dir = polo_system_dir / "server"  # polo-system/server
+        default_out = server_dir / "data" / "out"
+        cfg["out_dir"] = str(default_out)
+        
         # 2) source_dir에서 메인 tex 찾기
         source_path = Path(request.source_dir)
         if not source_path.exists():
@@ -279,6 +286,13 @@ def main():
     args = ap.parse_args()
 
     cfg = load_cfg(args.config)
+    
+    # 절대 경로로 out_dir 설정
+    current_file = Path(__file__).resolve()
+    polo_system_dir = current_file.parent.parent.parent  # polo-system
+    server_dir = polo_system_dir / "server"  # polo-system/server
+    default_out = server_dir / "data" / "out"
+    cfg["out_dir"] = str(default_out)
 
     # 앵커 결정
     anchor: str | None = None
@@ -359,6 +373,13 @@ def main_with_args(args):
     """main 함수를 args 객체로 실행"""
     # 기존 main 함수 로직을 여기에 구현
     cfg = load_cfg(args.config)
+    
+    # 절대 경로로 out_dir 설정
+    current_file = Path(__file__).resolve()
+    polo_system_dir = current_file.parent.parent.parent  # polo-system
+    server_dir = polo_system_dir / "server"  # polo-system/server
+    default_out = server_dir / "data" / "out"
+    cfg["out_dir"] = str(default_out)
     
     # main 또는 root 결정
     if args.main:
