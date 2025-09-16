@@ -87,12 +87,17 @@ async def math_callback(
     await _verify(idempotency_key, x_signature)
     tex_id = int(payload.paper_id)
 
+    # origin_id 가져오기
+    origin_id = await DB.get_origin_id_from_tex(tex_id)
+    if not origin_id:
+        raise HTTPException(status_code=404, detail="tex_id에 해당하는 origin_id를 찾을 수 없습니다")
+    
     # 결과 저장
     await DB.save_math_result(
         tex_id=tex_id,
+        origin_id=origin_id,
         result_path=payload.math_result_path,
         sections=payload.sections,
-        report_tex_path=payload.report_tex_path if hasattr(DB, "save_math_result") else None,  # DB 구현체에 따라 무시될 수 있음
     )
     await DB.set_flag(tex_id=tex_id, field="math_done", value=True)
 

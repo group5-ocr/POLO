@@ -3,10 +3,9 @@ import { useNavigate } from "react-router-dom";
 
 export default function Signup() {
   const [formData, setFormData] = useState({
-    name: "",
+    nickname: "",
     job: "",
     email: "",
-    username: "",
     password: "",
     confirmPassword: "",
   });
@@ -36,10 +35,9 @@ export default function Signup() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            username: formData.username,
+            nickname: formData.nickname,
             email: formData.email,
             password: formData.password,
-            nickname: formData.name,
             job: formData.job,
           }),
         }
@@ -127,14 +125,14 @@ export default function Signup() {
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="name">이름</label>
+            <label htmlFor="nickname">닉네임</label>
             <input
               type="text"
-              id="name"
-              name="name"
-              value={formData.name}
+              id="nickname"
+              name="nickname"
+              value={formData.nickname}
               onChange={handleChange}
-              placeholder="홍길동"
+              placeholder="사용할 닉네임을 입력하세요"
               required
             />
           </div>
@@ -174,19 +172,6 @@ export default function Signup() {
               value={formData.email}
               onChange={handleChange}
               placeholder="example@email.com"
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="username">닉네임</label>
-            <input
-              type="text"
-              id="username"
-              name="username"
-              value={formData.username}
-              onChange={handleChange}
-              placeholder="사용할 닉네임을 입력하세요"
               required
             />
           </div>

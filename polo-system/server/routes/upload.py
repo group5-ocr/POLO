@@ -727,6 +727,27 @@ async def send_to_easy(request: ModelSendRequest):
                 try:
                     response_data = response.json()
                     print(f"🔍 [DEBUG] Easy 모델 응답 데이터: {response_data}")
+                    
+                    # Easy 모델 처리 완료 후 easy_file 생성
+                    try:
+                        tex_id = int(paper_id)
+                        origin_id = await DB.get_origin_id_from_tex(tex_id)
+                        if origin_id:
+                            # Easy 모델 출력 파일들 찾기
+                            easy_files = list(output_dir.glob("*.png")) + list(output_dir.glob("*.jpg"))
+                            for easy_file in easy_files:
+                                await DB.create_easy_file(
+                                    tex_id=tex_id,
+                                    origin_id=origin_id,
+                                    filename=easy_file.name,
+                                    file_addr=str(easy_file)
+                                )
+                            print(f"✅ Easy 파일들 DB에 저장 완료: {len(easy_files)}개 파일")
+                        else:
+                            print(f"⚠️ origin_id를 찾을 수 없어서 Easy 파일 DB 저장 스킵")
+                    except Exception as db_error:
+                        print(f"❌ Easy 파일 DB 저장 실패: {db_error}")
+                    
                     return {"ok": True, "message": "Easy 모델로 전송 완료", "paper_id": paper_id, "response": response_data}
                 except Exception as json_error:
                     print(f"⚠️ [WARNING] Easy 모델 응답 JSON 파싱 실패: {json_error}")
