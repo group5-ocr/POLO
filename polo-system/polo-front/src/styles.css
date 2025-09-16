@@ -707,67 +707,90 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(255, 193, 7, 0.1) 0%,
-    rgba(255, 255, 255, 0.8) 50%,
-    rgba(255, 255, 255, 0.9) 100%
-  );
+  background: 
+    /* 메인 그라데이션 */ radial-gradient(
+      ellipse 1200px 600px at 50% 30%,
+      rgba(255, 193, 7, 0.15) 0%,
+      rgba(251, 191, 36, 0.08) 30%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 800px 400px at 20% 80%,
+      rgba(167, 243, 208, 0.12) 0%,
+      rgba(16, 185, 129, 0.06) 40%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 600px 300px at 80% 20%,
+      rgba(191, 219, 254, 0.1) 0%,
+      rgba(59, 130, 246, 0.05) 40%,
+      transparent 70%
+    ),
+    /* 배경 그라데이션 */
+      linear-gradient(
+        135deg,
+        rgba(254, 247, 255, 0.9) 0%,
+        rgba(240, 249, 255, 0.8) 25%,
+        rgba(240, 253, 244, 0.7) 50%,
+        rgba(255, 251, 235, 0.8) 75%,
+        rgba(254, 242, 242, 0.9) 100%
+      );
   overflow: hidden;
   padding: 5px 24px 80px 24px;
 }
 
-/* 파티클 배경 */
-.particles {
+/* 기하학적 모양들 */
+.hero::before {
+  content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+  top: 10%;
+  right: 15%;
+  width: 200px;
+  height: 200px;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 193, 7, 0.1),
+    rgba(251, 191, 36, 0.05)
+  );
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  animation: morphing 8s ease-in-out infinite;
   z-index: 1;
 }
 
-.particle {
+.hero::after {
+  content: "";
   position: absolute;
-  width: 4px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 50%;
-  animation: particleFloat 8s linear infinite;
+  bottom: 20%;
+  left: 10%;
+  width: 150px;
+  height: 150px;
+  background: linear-gradient(
+    135deg,
+    rgba(167, 243, 208, 0.08),
+    rgba(16, 185, 129, 0.04)
+  );
+  border-radius: 50% 20% 50% 20%;
+  animation: morphing 10s ease-in-out infinite reverse;
+  z-index: 1;
 }
 
-.particle:nth-child(2n) {
-  background: rgba(167, 243, 208, 0.8);
-  animation-duration: 12s;
-}
-
-.particle:nth-child(3n) {
-  background: rgba(191, 219, 254, 0.8);
-  animation-duration: 10s;
-}
-
-.particle:nth-child(4n) {
-  background: rgba(224, 231, 255, 0.8);
-  animation-duration: 14s;
-}
-
-@keyframes particleFloat {
-  0% {
-    transform: translateY(100vh) translateX(0px) scale(0);
-    opacity: 0;
-  }
-  10% {
-    opacity: 1;
-    transform: translateY(90vh) translateX(10px) scale(1);
-  }
-  90% {
-    opacity: 1;
-    transform: translateY(10vh) translateX(-10px) scale(1);
-  }
+@keyframes morphing {
+  0%,
   100% {
-    transform: translateY(-10vh) translateX(0px) scale(0);
-    opacity: 0;
+    border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    border-radius: 70% 30% 30% 70% / 70% 70% 30% 30%;
+    transform: rotate(90deg) scale(1.1);
+  }
+  50% {
+    border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%;
+    transform: rotate(180deg) scale(0.9);
+  }
+  75% {
+    border-radius: 20% 80% 80% 20% / 80% 20% 80% 20%;
+    transform: rotate(270deg) scale(1.05);
   }
 }
 
@@ -781,6 +804,101 @@ body,
   pointer-events: none;
   z-index: 2;
   transition: all 0.1s ease-out;
+}
+
+/* 추가 장식 요소들 */
+.hero-decorations {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.hero-decoration {
+  position: absolute;
+  border-radius: 50%;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.05)
+  );
+  animation: decorationFloat 15s ease-in-out infinite;
+}
+
+.hero-decoration:nth-child(1) {
+  width: 300px;
+  height: 300px;
+  top: -150px;
+  right: -150px;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 193, 7, 0.08),
+    rgba(251, 191, 36, 0.04)
+  );
+  animation-delay: 0s;
+}
+
+.hero-decoration:nth-child(2) {
+  width: 200px;
+  height: 200px;
+  bottom: -100px;
+  left: -100px;
+  background: linear-gradient(
+    135deg,
+    rgba(167, 243, 208, 0.06),
+    rgba(16, 185, 129, 0.03)
+  );
+  animation-delay: 5s;
+}
+
+.hero-decoration:nth-child(3) {
+  width: 150px;
+  height: 150px;
+  top: 30%;
+  left: 5%;
+  background: linear-gradient(
+    225deg,
+    rgba(191, 219, 254, 0.05),
+    rgba(59, 130, 246, 0.02)
+  );
+  animation-delay: 10s;
+}
+
+.hero-decoration:nth-child(4) {
+  width: 100px;
+  height: 100px;
+  top: 60%;
+  right: 10%;
+  background: linear-gradient(
+    315deg,
+    rgba(245, 158, 11, 0.07),
+    rgba(217, 119, 6, 0.03)
+  );
+  animation-delay: 7s;
+}
+
+@keyframes decorationFloat {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+    opacity: 0.3;
+  }
+  25% {
+    transform: translateY(-20px) rotate(90deg) scale(1.1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-40px) rotate(180deg) scale(0.9);
+    opacity: 0.4;
+  }
+  75% {
+    transform: translateY(-20px) rotate(270deg) scale(1.05);
+    opacity: 0.7;
+  }
 }
 
 .hero-content {
@@ -3456,6 +3574,49 @@ body,
   .card-4 {
     bottom: 10%;
     right: 5%;
+  }
+
+  /* 히어로 배경 반응형 */
+  .hero::before {
+    width: 150px;
+    height: 150px;
+    top: 5%;
+    right: 10%;
+  }
+
+  .hero::after {
+    width: 100px;
+    height: 100px;
+    bottom: 15%;
+    left: 5%;
+  }
+
+  .hero-decoration:nth-child(1) {
+    width: 200px;
+    height: 200px;
+    top: -100px;
+    right: -100px;
+  }
+
+  .hero-decoration:nth-child(2) {
+    width: 150px;
+    height: 150px;
+    bottom: -75px;
+    left: -75px;
+  }
+
+  .hero-decoration:nth-child(3) {
+    width: 100px;
+    height: 100px;
+    top: 25%;
+    left: 3%;
+  }
+
+  .hero-decoration:nth-child(4) {
+    width: 80px;
+    height: 80px;
+    top: 55%;
+    right: 8%;
   }
 
   .features-grid {
