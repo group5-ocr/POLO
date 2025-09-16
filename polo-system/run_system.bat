@@ -148,6 +148,13 @@ set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
     REM echo set HUGGINGFACE_HUB_CACHE=%%TEMP%%\hf_cache
     echo if defined HUGGINGFACE_TOKEN set HUGGINGFACE_TOKEN=%%HUGGINGFACE_TOKEN%%
   )
+  REM PostgreSQL 환경변수 전달
+  echo if defined POSTGRES_HOST set POSTGRES_HOST=%%POSTGRES_HOST%%
+  echo if defined POSTGRES_PORT set POSTGRES_PORT=%%POSTGRES_PORT%%
+  echo if defined POSTGRES_DB set POSTGRES_DB=%%POSTGRES_DB%%
+  echo if defined POSTGRES_USER set POSTGRES_USER=%%POSTGRES_USER%%
+  echo if defined POSTGRES_PASSWORD set POSTGRES_PASSWORD=%%POSTGRES_PASSWORD%%
+  echo if defined LOCAL_DB_PATH set LOCAL_DB_PATH=%%LOCAL_DB_PATH%%
   echo uvicorn --app-dir "%WORK_DIR%" %MODULE_APP% --host 0.0.0.0 --port %PORT%
   echo echo.
   echo echo [%TITLE%] stopped. Press any key to close...
@@ -182,10 +189,15 @@ REM patch env
 call :PATCH_ENV_FILE "%ENV_FILE%" "%SERVER_PORT%" "%PREPROCESS_PORT%" "%EASY_PORT%" "%MATH_PORT%" "%VIZ_PORT%"
 
 REM also export to current process (so child windows inherit)
-for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
-  if not "%%a"=="" if not "%%a:~0,1%"=="#" (
-    set "%%a=%%b"
+if exist "%ENV_FILE%" (
+  for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    if not "%%a"=="" if not "%%a:~0,1%"=="#" (
+      set "%%a=%%b"
+      echo [ENV] Loaded: %%a=%%b
+    )
   )
+) else (
+  echo [WARN] .env file not found: %ENV_FILE%
 )
 
 REM dirs
