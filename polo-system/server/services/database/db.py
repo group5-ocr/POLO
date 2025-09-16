@@ -111,10 +111,25 @@ class DBRouter:
         self.mode: str = "local"  # "pg" or "local"
 
     async def init(self) -> None:
+        # 환경변수 디버깅
+        postgres_user = os.getenv('POSTGRES_USER')
+        postgres_password = os.getenv('POSTGRES_PASSWORD')
+        postgres_host = os.getenv('POSTGRES_HOST')
+        postgres_port = os.getenv('POSTGRES_PORT', '5432')
+        postgres_db = os.getenv('POSTGRES_DB')
+        
+        print(f"[DEBUG] PostgreSQL 환경변수:")
+        print(f"  POSTGRES_USER: {postgres_user}")
+        print(f"  POSTGRES_PASSWORD: {'*' * len(postgres_password) if postgres_password else 'None'}")
+        print(f"  POSTGRES_HOST: {postgres_host}")
+        print(f"  POSTGRES_PORT: {postgres_port}")
+        print(f"  POSTGRES_DB: {postgres_db}")
+        
         pg_url = (
-            f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-            f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB')}"
+            f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
+            f"@{postgres_host}:{postgres_port}/{postgres_db}"
         )
+        print(f"[DEBUG] PostgreSQL URL: {pg_url}")
 
         # 절대 경로로 DB 경로 설정
         current_file = Path(__file__).resolve()
@@ -125,12 +140,15 @@ class DBRouter:
         sqlite_url = f"sqlite+aiosqlite:///{local_path}"
 
         try:
+            print(f"[DEBUG] PostgreSQL 연결 시도 중...")
             pg_engine = create_async_engine(pg_url, pool_pre_ping=True)
             await asyncio.wait_for(self._ping(pg_engine), timeout=2.0)
             self.engine = pg_engine
             self.mode = "pg"
             print("✅ PostgreSQL 연결 성공")
-        except Exception:
+        except Exception as e:
+            print(f"❌ PostgreSQL 연결 실패: {str(e)}")
+            print(f"❌ 오류 타입: {type(e).__name__}")
             self.engine = create_async_engine(sqlite_url)
             self.mode = "local"
             print("⚠️ PostgreSQL 연결 실패 → SQLite 사용")
