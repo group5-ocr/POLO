@@ -692,15 +692,13 @@ async def send_to_easy(request: ModelSendRequest):
         if not source_dir.exists():
             raise HTTPException(status_code=404, detail="전처리 결과를 찾을 수 없습니다")
         
-        # chunks.jsonl 파일 찾기
-        chunks_path = source_dir / "chunks.jsonl"
-        if not chunks_path.exists():
-            chunks_path = source_dir / "chunks.jsonl.gz"
+        # merged_body.tex 파일 찾기 (Easy 모델이 섹션 기반으로 변경됨)
+        tex_path = source_dir / "merged_body.tex"
         
-        if not chunks_path.exists():
-            raise HTTPException(status_code=404, detail="chunks.jsonl 파일을 찾을 수 없습니다")
+        if not tex_path.exists():
+            raise HTTPException(status_code=404, detail="merged_body.tex 파일을 찾을 수 없습니다")
         
-        print(f"🔍 [DEBUG] chunks.jsonl 경로: {chunks_path}")
+        print(f"🔍 [DEBUG] merged_body.tex 경로: {tex_path}")
         
         # Easy 모델 URL
         easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
@@ -709,15 +707,15 @@ async def send_to_easy(request: ModelSendRequest):
         
         print(f"🔍 [DEBUG] Easy 모델 전송 데이터:")
         print(f"  - easy_url: {easy_url}")
-        print(f"  - chunks_jsonl: {str(chunks_path)}")
+        print(f"  - tex_path: {str(tex_path)}")
         print(f"  - output_dir: {str(output_dir)}")
         
-        # Easy 모델로 전송
+        # Easy 모델로 전송 (merged_body.tex 경로를 chunks_jsonl 필드에 전달)
         import httpx
         async with httpx.AsyncClient(timeout=600) as client:  # 10분으로 증가
             response = await client.post(f"{easy_url}/batch", json={
                 "paper_id": paper_id,
-                "chunks_jsonl": str(chunks_path),
+                "chunks_jsonl": str(tex_path),  # Easy 모델에서 tex_path로 사용
                 "output_dir": str(output_dir)
             })
             
