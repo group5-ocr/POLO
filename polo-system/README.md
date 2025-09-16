@@ -11,7 +11,7 @@ POLO는 어려운 학술 논문을 일반인도 쉽게 이해할 수 있도록 A
 
 ### 🎯 주요 목표
 - **접근성 향상**: 전문 용어와 복잡한 수식을 일상 언어로 변환
-- **시각화 지원**: 논문 내용을 이해하기 쉬운 차트와 다이어그램으로 표현
+- **시각화 지원**: 논문 내용을 이해하기 쉬운 차트와 다이어그램으로 표현  
 - **자동화**: PDF 업로드부터 최종 결과물까지 완전 자동화된 파이프라인
 - **다국어 지원**: 한국어 번역 및 다국어 시각화 제공
 
@@ -65,13 +65,13 @@ graph TB
 
 ## 🚀 주요 기능
 
-### 1. 📄 자동 논문 처리
+### 1. 자동 논문 처리
 - **PDF 업로드**: 드래그 앤 드롭으로 간편한 파일 업로드
 - **arXiv 연동**: arXiv ID로 자동 논문 다운로드 및 처리
 - **LaTeX 변환**: PDF를 LaTeX 소스로 자동 변환
 - **섹션 분할**: Abstract, Introduction, Methods, Results, Discussion, Conclusion 자동 인식
 
-### 2. 🤖 AI 기반 내용 변환
+### 2. AI 기반 내용 변환
 - **Easy Model**: Llama 3.2-3B 기반 LoRA 파인튜닝 모델
   - 전문 용어를 일상 언어로 변환
   - 복잡한 문장을 단계별로 분해
@@ -83,12 +83,12 @@ graph TB
   - 수학적 개념 해석
   - Example → Explanation → Conclusion 형식 설명
 
-### 3. 🌐 다국어 지원
+### 3. 다국어 지원
 - **Google Translate API**: 영어 → 한국어 자동 번역
 - **다국어 시각화**: 한국어/영어 병기 차트 생성
 - **로컬라이제이션**: 사용자 언어 설정에 따른 UI 조정
 
-### 4. 📊 지능형 시각화
+### 4. 지능형 시각화
 - **자동 차트 생성**: 텍스트 분석을 통한 적절한 시각화 유형 선택
 - **다양한 차트 유형**:
   - Bar Chart (성능 비교)
@@ -98,7 +98,7 @@ graph TB
   - Token Sequence (텍스트 분석)
 - **한글 폰트 지원**: matplotlib 한글 렌더링 최적화
 
-### 5. 👥 사용자 관리
+### 5. 사용자 관리
 - **회원가입/로그인**: 이메일 기반 사용자 인증
 - **프로필 관리**: 닉네임, 직업 등 개인정보 설정
 - **결과 저장**: 처리된 논문 결과 영구 저장
@@ -137,7 +137,7 @@ graph TB
 - **정규표현식**: 텍스트 패턴 매칭
 
 ### DevOps
-- **Docker**: 컨테이너화 (선택사항)
+- **Docker**: 컨테이너화 및 모델 파인튜닝 환경
 - **Batch Scripts**: Windows 자동화 스크립트
 - **Environment Variables**: 설정 관리
 - **Logging**: 구조화된 로그 시스템
@@ -313,9 +313,13 @@ GOOGLE_APPLICATION_CREDENTIALS=./path/to/service-account.json
 
 ### 모델 파인튜닝
 ```bash
-# Easy 모델 파인튜닝
+# Docker를 사용한 Easy 모델 파인튜닝
 cd models/fine-tuning
-python training/qlora.py
+docker-compose up --build
+
+# 또는 개별 실행
+docker build -t polo-finetuning .
+docker run --gpus all -v $(pwd)/outputs:/app/outputs polo-finetuning
 
 # 훈련 데이터 준비
 python training/download_and_convert.py
@@ -323,20 +327,7 @@ python training/download_and_convert.py
 
 ---
 
-## 🧪 테스트
-
-### 단위 테스트
-```bash
-# 전체 테스트 실행
-cd tests
-python -m pytest
-
-# 개별 서비스 테스트
-python test_server.py
-python test_models.py
-python test_preprocessing.py
-python test_viz.py
-```
+## 테스트
 
 ### 통합 테스트
 ```bash
@@ -362,66 +353,5 @@ python test_arxiv_pipeline.py
 
 ---
 
-## 🐛 문제 해결
 
-### 일반적인 문제
-1. **GPU 메모리 부족**: `viz` 서비스를 CPU 모드로 실행
-2. **모델 로딩 실패**: Hugging Face 토큰 설정 확인
-3. **데이터베이스 연결 오류**: PostgreSQL 설정 또는 SQLite 폴백 확인
-4. **포트 충돌**: 다른 서비스와 포트 충돌 시 환경변수로 변경
-
-### 로그 확인
-```bash
-# 서비스별 로그 확인
-tail -f server/logs/app.log
-tail -f models/easy/logs/easy.log
-```
-
----
-
-## 🤝 기여하기
-
-### 개발 환경 설정
-1. Fork 저장소
-2. Feature 브랜치 생성
-3. 변경사항 커밋
-4. Pull Request 생성
-
-### 코딩 스타일
-- **Python**: PEP 8 준수
-- **TypeScript**: ESLint + Prettier
-- **커밋 메시지**: Conventional Commits
-
----
-
-## 📄 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
-
----
-
-## 👥 팀원
-
-- **Backend & AI**: 서버 아키텍처, AI 모델 통합
-- **Frontend**: React UI/UX 개발
-- **ML Engineering**: 모델 파인튜닝, 최적화
-- **DevOps**: 시스템 배포, 모니터링
-
----
-
-## 📞 연락처
-
-프로젝트에 대한 문의사항이나 버그 리포트는 GitHub Issues를 통해 제출해 주세요.
-
----
-
-## 🙏 감사의 말
-
-- **Hugging Face**: 오픈소스 모델 제공
-- **FastAPI**: 고성능 웹 프레임워크
-- **React**: 사용자 인터페이스 프레임워크
-- **Matplotlib**: 시각화 라이브러리
-
----
-
-*이 프로젝트는 학술 논문의 접근성을 높이고, 지식의 민주화를 목표로 합니다.*
+*이 프로젝트는 학술 논문의 접근성을 높이고, 지식의 자율화를 목표로 합니다.*
