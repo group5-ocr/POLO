@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from services.database import db as DB
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 router = APIRouter()
 
@@ -64,3 +66,23 @@ async def get_status(tex_id: int):
             "viz_pct": round(pct_viz, 2),
         }
     }
+
+@router.get("/{paper_id}/html")
+async def get_html_result(paper_id: int):
+    """
+    Easy 모델 결과 HTML 파일 제공
+    """
+    # HTML 파일 경로 찾기
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    html_path = server_dir / "data" / "outputs" / str(paper_id) / "easy_outputs" / "easy_results.html"
+    
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="HTML result not found")
+    
+    return FileResponse(
+        path=str(html_path),
+        media_type="text/html",
+        filename=f"polo_easy_explanation_{paper_id}.html"
+    )
+

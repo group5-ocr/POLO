@@ -48,16 +48,13 @@ export default function Upload() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [debugLogs, setDebugLogs] = useState<Array<{time: string, message: string}>>([]);
   const [easyResults, setEasyResults] = useState<any>(null);
   const [isLoadingEasy, setIsLoadingEasy] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  // 디버그 로그 함수
-  const pushDebug = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logMessage = `[${timestamp}] ${message}`;
-    console.log(logMessage);
-    setDebugLogs(prev => [...prev.slice(-9), {time: timestamp, message}]); // 최근 10개만 유지
+  // 진행률 업데이트 함수
+  const updateProgress = (value: number) => {
+    setProgress(Math.min(100, Math.max(0, value)));
   };
 
   // Easy 결과 로드 함수
@@ -68,29 +65,35 @@ export default function Upload() {
       if (response.ok) {
         const data = await response.json();
         setEasyResults(data);
-        pushDebug(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
+        console.log(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
       } else {
-        pushDebug(`[Easy 결과] 로드 실패: ${response.status}`);
+        console.log(`[Easy 결과] 로드 실패: ${response.status}`);
       }
     } catch (error) {
-      pushDebug(`[Easy 결과] 로드 에러: ${error}`);
+      console.log(`[Easy 결과] 로드 에러: ${error}`);
     } finally {
       setIsLoadingEasy(false);
     }
   };
 
-  // Easy 모델로 전송하는 함수
-  const handleSendToEasy = async () => {
+  // 쉬운 논문 생성 함수 (통합된 기능)
+  const handleGenerateEasyPaper = async () => {
     if (!result?.doc_id) {
-      pushDebug('[Easy 모델] 논문 ID가 없습니다');
+      alert("먼저 논문을 업로드해주세요.");
       return;
     }
 
     setIsLoadingEasy(true);
-    pushDebug('[Easy 모델] 전송 시작...');
-
+    setProgress(0);
+    
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      
+      // 1단계: Easy 모델로 전송
+      updateProgress(20);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000); // 25분 타임아웃
+      
       const response = await fetch(`${apiBase}/api/upload/send-to-easy`, {
         method: 'POST',
         headers: {
@@ -98,23 +101,35 @@ export default function Upload() {
         },
         body: JSON.stringify({
           paper_id: result.doc_id
-        })
+        }),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
-        pushDebug(`[Easy 모델] 전송 성공: ${data.message || '처리 시작됨'}`);
+        console.log("Easy 모델 전송 성공:", data);
         
-        // 결과 로드 시도
-        setTimeout(() => {
-          loadEasyResults(result.doc_id!);
-        }, 2000);
+        // 2단계: 진행률 업데이트
+        updateProgress(60);
+        
+        // 3단계: Easy 결과 로드
+        updateProgress(80);
+        await loadEasyResults(result.doc_id!);
+        
+        // 4단계: 완료
+        updateProgress(100);
       } else {
         const errorData = await response.json();
-        pushDebug(`[Easy 모델] 전송 실패: ${errorData.detail || response.statusText}`);
+        console.error("Easy 모델 전송 실패:", errorData);
+        alert(`쉬운 논문 생성 실패: ${errorData.detail || response.statusText}`);
+        setProgress(0);
       }
     } catch (error) {
-      pushDebug(`[Easy 모델] 전송 에러: ${error}`);
+      console.error("쉬운 논문 생성 에러:", error);
+      alert('쉬운 논문 생성 중 오류가 발생했습니다.');
+      setProgress(0);
     } finally {
       setIsLoadingEasy(false);
     }
@@ -122,18 +137,28 @@ export default function Upload() {
 
   // Easy 결과를 HTML로 다운로드하는 함수
   const downloadEasyResultsAsHTML = () => {
-    if (!easyResults) return;
+    if (!easyResults || !result?.doc_id) return;
     
-    const html = generateEasyResultsHTML(easyResults);
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // 서버에서 생성된 HTML 파일 다운로드
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const downloadUrl = `${apiBase}/api/results/${result.doc_id}/html`;
+    
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `easy_results_${easyResults.paper_id}.html`;
+    a.href = downloadUrl;
+    a.download = `polo_easy_explanation_${result.doc_id}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  };
+
+  // Easy 결과를 브라우저에서 보는 함수
+  const viewEasyResultsInBrowser = () => {
+    if (!easyResults || !result?.doc_id) return;
+    
+    // 새 탭에서 HTML 결과 열기
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const viewUrl = `${apiBase}/api/results/${result.doc_id}/html`;
+    window.open(viewUrl, '_blank');
   };
 
   // Easy 결과 HTML 생성 함수
@@ -248,7 +273,7 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("[Upload] API Base URL:", apiBase);
-      pushDebug(`[convert] 호출 시작 → ${apiBase}/api/upload/convert`);
+      console.log(`[convert] 호출 시작 → ${apiBase}/api/upload/convert`);
 
       const formData = new FormData();
       formData.append("file", file);
@@ -261,7 +286,7 @@ export default function Upload() {
       if (!response.ok) {
         let detail = "업로드 실패";
         try { const j = await response.json(); detail = j.detail || detail; } catch {}
-        pushDebug(`[convert] 실패: ${response.status} ${detail}`);
+        console.log(`[convert] 실패: ${response.status} ${detail}`);
         throw new Error(`[convert] ${detail}`);
       }
 
@@ -269,12 +294,12 @@ export default function Upload() {
 
       // 서버에서 반환된 실제 논문 ID 사용
       setResult({ ...data, status: data.status ?? "processing" });
-      pushDebug(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
+      console.log(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
         try {
-          pushDebug(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
+          console.log(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
           const infoResponse = await fetch(
             `${
               import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
@@ -283,13 +308,13 @@ export default function Upload() {
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
-            pushDebug(`[download/info] 성공`);
+            console.log(`[download/info] 성공`);
           } else {
-            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
+            console.log(`[download/info] 실패: ${infoResponse.status}`);
           }
         } catch (err) {
           console.warn("다운로드 정보 조회 실패:", err);
-          pushDebug(`[download/info] 예외: ${String(err)}`);
+          console.log(`[download/info] 예외: ${String(err)}`);
         }
       }
     } catch (err) {
@@ -373,7 +398,7 @@ export default function Upload() {
       if (!response.ok) {
         let detail = "arXiv 업로드 실패";
         try { const j = await response.json(); detail = j.detail || detail; } catch {}
-        pushDebug(`[from-arxiv] 실패: ${response.status} ${detail}`);
+        console.log(`[from-arxiv] 실패: ${response.status} ${detail}`);
         throw new Error(`[from-arxiv] ${detail}`);
       }
 
@@ -413,13 +438,13 @@ export default function Upload() {
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
-            pushDebug(`[download/info] 성공`);
+            console.log(`[download/info] 성공`);
           } else {
-            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
+            console.log(`[download/info] 실패: ${infoResponse.status}`);
           }
         } catch (err) {
           console.warn("다운로드 정보 조회 실패:", err);
-          pushDebug(`[download/info] 예외: ${String(err)}`);
+          console.log(`[download/info] 예외: ${String(err)}`);
         }
       }
     } catch (err) {
@@ -651,25 +676,6 @@ export default function Upload() {
               </div>
             </div>
 
-            <div className="result-info">
-              <div className="info-item">
-                <span className="info-label">파일명</span>
-                <span className="info-value">{result.filename}</span>
-              </div>
-              <div className="info-item">
-                <span className="info-label">파일 크기</span>
-                <span className="info-value">
-                  {(result.file_size / 1024).toFixed(2)} KB
-                </span>
-              </div>
-
-              <div className="info-item">
-                <span className="info-label">추출된 텍스트</span>
-                <span className="info-value">
-                  {result.extracted_text_length} 문자
-                </span>
-              </div>
-            </div>
 
 
             {downloadInfo && (
@@ -758,36 +764,37 @@ export default function Upload() {
               </div>
             )}
 
-            {/* 디버그 로그 섹션 */}
-            {debugLogs.length > 0 && (
-              <div className="debug-section">
-                <h4>🔍 디버그 로그</h4>
-                <div className="debug-logs">
-                  {debugLogs.map((log, index) => (
-                    <div key={index} className="debug-log">
-                      <span className="log-time">[{log.time}]</span>
-                      <span className="log-message">{log.message}</span>
-                    </div>
-                  ))}
+            {/* 진행률 표시 */}
+            {isLoadingEasy && (
+              <div className="progress-section">
+                <h4>🔄 쉬운 논문 생성 중...</h4>
+                <div className="progress-container">
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ width: `${progress}%` }}
+                    ></div>
+                  </div>
+                  <span className="progress-text">{progress}%</span>
                 </div>
               </div>
             )}
 
-            {/* 모델 전송 버튼 */}
+            {/* 쉬운 논문 생성 버튼 */}
             <div className="model-buttons">
               <button
                 className="btn-primary"
-                onClick={handleSendToEasy}
+                onClick={handleGenerateEasyPaper}
                 disabled={!result.doc_id || isLoadingEasy}
               >
-                {isLoadingEasy ? "처리 중..." : "🤖 Easy 모델로 전송"}
+                {isLoadingEasy ? "생성 중..." : "📚 쉬운 논문 생성"}
               </button>
             </div>
 
             {/* Easy 결과 표시 */}
             {easyResults && (
               <div className="easy-results">
-                <h4>📊 Easy 모델 결과</h4>
+                <h4>✅ 쉬운 논문 생성 완료!</h4>
                 <div className="results-stats">
                   <div className="stat-item">
                     <span className="stat-number">{easyResults.total_sections || easyResults.total_chunks}</span>
@@ -806,9 +813,16 @@ export default function Upload() {
                 <div className="download-section">
                   <button 
                     onClick={downloadEasyResultsAsHTML}
+                    className="btn btn-primary download-main"
+                    style={{ marginRight: '10px' }}
+                  >
+                    📚 논문 다운로드
+                  </button>
+                  <button 
+                    onClick={viewEasyResultsInBrowser}
                     className="btn btn-secondary"
                   >
-                    📄 Easy 결과 HTML 다운로드
+                    🌐 브라우저에서 보기
                   </button>
                 </div>
               </div>

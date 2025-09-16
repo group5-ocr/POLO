@@ -572,7 +572,7 @@ async def preprocess_callback(body: PreprocessCallback):
         try:
             if jsonl_files:
                 import httpx, os
-                easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
+                easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5002")
                 print(f"🔍 [DEBUG] Easy 배치 트리거 시작")
                 print(f"🔍 [DEBUG] easy_url: {easy_url}")
                 print(f"🔍 [DEBUG] jsonl_files: {jsonl_files}")
@@ -701,7 +701,7 @@ async def send_to_easy(request: ModelSendRequest):
         print(f"🔍 [DEBUG] merged_body.tex 경로: {tex_path}")
         
         # Easy 모델 URL
-        easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
+        easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5002")
         output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -712,7 +712,8 @@ async def send_to_easy(request: ModelSendRequest):
         
         # Easy 모델로 전송 (merged_body.tex 경로를 chunks_jsonl 필드에 전달)
         import httpx
-        async with httpx.AsyncClient(timeout=600) as client:  # 10분으로 증가
+        async with httpx.AsyncClient(timeout=1200) as client:  # 20분으로 증가
+            print(f"🔍 [DEBUG] Easy 모델 전송 시작...")
             response = await client.post(f"{easy_url}/batch", json={
                 "paper_id": paper_id,
                 "chunks_jsonl": str(tex_path),  # Easy 모델에서 tex_path로 사용
