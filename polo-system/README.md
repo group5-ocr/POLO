@@ -78,10 +78,12 @@ graph TB
   - 구체적인 비유와 예시 제공
   - 중학생도 이해할 수 있는 수준으로 조정
 
-- **Math Model**: Qwen2.5-Math-1.5B 기반
-  - 수식 자동 추출 및 분류
+- **Math Model**: Qwen2.5-Math-1.5B 기반 
+  - 수식 자동 추출
   - 수학적 개념 해석
   - Example → Explanation → Conclusion 형식 설명
+  - 증학생 이상의 수준을 요구하는 수식 위주의 해설
+  - 각 변수에 대한 상세한 설명
 
 ### 3. 다국어 지원
 - **Google Translate API**: 영어 → 한국어 자동 번역
@@ -251,7 +253,7 @@ cd viz && python app.py
 cd models/easy && python app.py
 
 # 4. Math 모델 (포트 5004)
-cd models/math && python app.py
+cd models/math && uvicorn --reload app:app --port 5004
 
 # 5. 백엔드 서버 (포트 8000)
 cd server && python -m uvicorn app:app --host 0.0.0.0 --port 8000
