@@ -191,7 +191,7 @@ polo-system/
 │   ├── charts/                   # 생성된 차트
 │   ├── app.py                    # FastAPI 서버
 │   ├── switch.py                 # 시각화 라벨 한/영 병기 스위치 유틸 
-│   ├── registry.py               # 도형 문법을 등록/조회하는 레지스트리
+│   ├── registry.py               # 시각화 문법을 등록/조회하는 레지스트리
 │   ├── text_to_spec.py           # 텍스트 → spec 자동 빌더(JSON)
 │   ├── glossary_hybrid.json      # 한/영 용어 사전
 │   └── requirements.viz.txt
