@@ -1,298 +1,834 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
-// Vite 환경 변수 (루트 .env: VITE_API_BASE=http://localhost:8000)
-const BASE_URL = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
-
-// ---------------- Types ----------------
 interface UploadResult {
-  filename: string
-  file_size: number
-  extracted_text_length: number
-  extracted_text_preview: string
-  easy_json: any
-  status: string
-  raw_file_path?: string
-  json_file_path?: string
+  filename: string;
+  file_size: number;
+  extracted_text_length: number;
+  extracted_text_preview: string;
+  easy_text: string;
+  status: string;
+  doc_id?: string;
+  json_file_path?: string;
+  arxiv_id?: string;
+  is_arxiv_paper?: boolean;
+  // JSONL 데이터 추가
+  jsonl_data?: Array<{
+    index: number;
+    text: string;
+    easy_text?: string;
+    image_path?: string;
+  }>;
+  // Math 결과 추가
+  math_result?: {
+    overview: string;
+    items: Array<{
+      index: number;
+      line_start: number;
+      line_end: number;
+      kind: string;
+      env: string;
+      equation: string;
+      explanation: string;
+    }>;
+  };
+  // arXiv 결과 추가
+  arxiv_result?: {
+    arxiv_id: string;
+    title: string;
+    tex_id: string;
+    paths: any;
+  };
 }
 
-interface ProcessingInfo {
-  gpu_used?: boolean
-  inference_time?: number
-  total_time?: number
-  input_length?: number
-  output_length?: number
-}
+export default function Upload() {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<UploadResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [debugLogs, setDebugLogs] = useState<Array<{time: string, message: string}>>([]);
+  const [easyResults, setEasyResults] = useState<any>(null);
+  const [isLoadingEasy, setIsLoadingEasy] = useState(false);
 
-interface RecentItem {
-  filename: string
-  original_filename: string
-  processed_at: string
-  title?: string
-  plain_summary?: string
-  processing_info?: ProcessingInfo
-}
+  // 디버그 로그 함수
+  const pushDebug = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    console.log(logMessage);
+    setDebugLogs(prev => [...prev.slice(-9), {time: timestamp, message}]); // 최근 10개만 유지
+  };
 
-// ---------------- Helpers ----------------
-const box: React.CSSProperties = { padding: 15, borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff' }
-const btn: React.CSSProperties = { padding: '10px 16px', borderRadius: 8, border: '1px solid #d1d5db', cursor: 'pointer', background: '#fff' }
-const btnPrimary: React.CSSProperties = { ...btn, background: '#2563eb', borderColor: '#2563eb', color: '#fff' }
-const btnMuted: React.CSSProperties = { ...btn, color: '#6b7280', cursor: 'not-allowed', background: '#e5e7eb', borderColor: '#e5e7eb' }
-
-const fmtDate = (s?: string) => {
-  if (!s) return '-'
-  try { return new Date(s).toLocaleString() } catch { return s }
-}
-
-const isNum = (v: any): v is number => typeof v === 'number' && Number.isFinite(v)
-
-async function safeParseJson(resp: Response) {
-  const text = await resp.text()
-  try { return JSON.parse(text) } catch { return { detail: text || 'Unknown error' } }
-}
-
-// ---------------- Recent Inline ----------------
-function RecentInline() {
-  const [limit, setLimit] = useState(10)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [items, setItems] = useState<RecentItem[]>([])
-  const [detail, setDetail] = useState<any | null>(null)
-  const [detailName, setDetailName] = useState<string>('')
-
-  const fetchRecent = async () => {
-    setLoading(true); setError(null)
+  // Easy 결과 로드 함수
+  const loadEasyResults = async (paperId: string) => {
+    setIsLoadingEasy(true);
     try {
-      const r = await fetch(`${BASE_URL}/easy/results/recent?limit=${limit}`)
-      const data = await r.json()
-      setItems(data.results || [])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '최근 결과 조회 실패')
-    } finally { setLoading(false) }
+      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/upload/download/easy-json/${paperId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setEasyResults(data);
+        pushDebug(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
+      } else {
+        pushDebug(`[Easy 결과] 로드 실패: ${response.status}`);
+      }
+    } catch (error) {
+      pushDebug(`[Easy 결과] 로드 에러: ${error}`);
+    } finally {
+      setIsLoadingEasy(false);
+    }
+  };
+
+  // Easy 모델로 전송하는 함수
+  const handleSendToEasy = async () => {
+    if (!result?.doc_id) {
+      pushDebug('[Easy 모델] 논문 ID가 없습니다');
+      return;
+    }
+
+    setIsLoadingEasy(true);
+    pushDebug('[Easy 모델] 전송 시작...');
+
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/upload/send-to-easy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          paper_id: result.doc_id
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        pushDebug(`[Easy 모델] 전송 성공: ${data.message || '처리 시작됨'}`);
+        
+        // 결과 로드 시도
+        setTimeout(() => {
+          loadEasyResults(result.doc_id!);
+        }, 2000);
+      } else {
+        const errorData = await response.json();
+        pushDebug(`[Easy 모델] 전송 실패: ${errorData.detail || response.statusText}`);
+      }
+    } catch (error) {
+      pushDebug(`[Easy 모델] 전송 에러: ${error}`);
+    } finally {
+      setIsLoadingEasy(false);
+    }
+  };
+
+  // Easy 결과를 HTML로 다운로드하는 함수
+  const downloadEasyResultsAsHTML = () => {
+    if (!easyResults) return;
+    
+    const html = generateEasyResultsHTML(easyResults);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `easy_results_${easyResults.paper_id}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Easy 결과 HTML 생성 함수
+  const generateEasyResultsHTML = (easyResults: any) => {
+    const sections = easyResults.sections || easyResults.chunks || [];
+    const totalSections = easyResults.total_sections || easyResults.total_chunks || 0;
+    
+    return `
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy 결과 - 논문 ${easyResults.paper_id}</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }
+        .header h1 { margin: 0; font-size: 2.5em; }
+        .stats { display: flex; justify-content: center; gap: 30px; margin-top: 20px; }
+        .stat { text-align: center; }
+        .stat-number { font-size: 2em; font-weight: bold; }
+        .content { padding: 30px; }
+        .section { margin-bottom: 30px; padding: 25px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #ddd; }
+        .section-title { font-size: 18px; font-weight: bold; color: #2c3e50; }
+        .section-status { padding: 6px 12px; border-radius: 4px; font-size: 12px; }
+        .status-success { background: #4caf50; color: white; }
+        .status-failed { background: #f44336; color: white; }
+        .original-content { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 15px; font-size: 0.9em; line-height: 1.6; }
+        .korean-translation { background: #f3e5f5; padding: 15px; border-radius: 5px; margin-bottom: 15px; line-height: 1.8; }
+        .image-container { text-align: center; margin-top: 15px; }
+        .image-container img { max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .no-image { color: #666; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Easy 모델 결과</h1>
+            <p>논문 ID: ${easyResults.paper_id}</p>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-number">${totalSections}</div>
+                    <div>총 섹션</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">${easyResults.success_count}</div>
+                    <div>성공</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">${easyResults.failed_count}</div>
+                    <div>실패</div>
+                </div>
+            </div>
+        </div>
+        <div class="content">
+            ${sections.map((section: any, index: number) => `
+                <div class="section">
+                    <div class="section-header">
+                        <span class="section-title">${section.title || `섹션 ${section.index + 1}`}</span>
+                        <span class="section-status ${section.status === 'success' ? 'status-success' : 'status-failed'}">
+                            ${section.status === 'success' ? '✅ 성공' : '❌ 실패'}
+                        </span>
+                    </div>
+                    <div class="original-content">
+                        <strong>원본 내용:</strong><br>
+                        ${(section.original_content || section.original_text || '').substring(0, 500)}${(section.original_content || section.original_text || '').length > 500 ? '...' : ''}
+                    </div>
+                    ${section.korean_translation ? `
+                        <div class="korean-translation">
+                            <strong>쉬운 설명:</strong><br>
+                            ${section.korean_translation}
+                        </div>
+                    ` : ''}
+                    <div class="image-container">
+                        ${section.image_path ? 
+                            `<img src="${section.image_path}" alt="시각화 이미지">` : 
+                            '<div class="no-image">이미지 없음</div>'
+                        }
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    </div>
+</body>
+</html>`;
+  };
+  const [dragActive, setDragActive] = useState(false);
+  const [arxivId, setArxivId] = useState("");
+  const [arxivTitle, setArxivTitle] = useState("");
+  const [showArxivForm, setShowArxivForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<"preview" | "jsonl" | "math">(
+    "preview"
+  );
+  const [downloadInfo, setDownloadInfo] = useState<any>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  // 로그인 체크
+  useEffect(() => {
+    if (!isLoading && !user) {
+      alert("로그아웃 되었습니다.");
+      navigate("/");
+    }
+  }, [user, isLoading, navigate]);
+
+  const uploadFile = async (file: File) => {
+    setUploading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      console.log("[Upload] API Base URL:", apiBase);
+      pushDebug(`[convert] 호출 시작 → ${apiBase}/api/upload/convert`);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${apiBase}/api/upload/convert`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        let detail = "업로드 실패";
+        try { const j = await response.json(); detail = j.detail || detail; } catch {}
+        pushDebug(`[convert] 실패: ${response.status} ${detail}`);
+        throw new Error(`[convert] ${detail}`);
+      }
+
+      const data = await response.json();
+
+      // 서버에서 반환된 실제 논문 ID 사용
+      setResult({ ...data, status: data.status ?? "processing" });
+      pushDebug(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
+
+      // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
+      if (data.doc_id) {
+        try {
+          pushDebug(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
+          const infoResponse = await fetch(
+            `${
+              import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+            }/api/upload/download/info/${data.doc_id}`
+          );
+          if (infoResponse.ok) {
+            const infoData = await infoResponse.json();
+            setDownloadInfo(infoData);
+            pushDebug(`[download/info] 성공`);
+          } else {
+            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
+          }
+        } catch (err) {
+          console.warn("다운로드 정보 조회 실패:", err);
+          pushDebug(`[download/info] 예외: ${String(err)}`);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFile = (file: File) => {
+    if (file.type !== "application/pdf") {
+      setError("PDF 파일만 업로드할 수 있습니다.");
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      setError("파일은 50MB 이하만 가능합니다.");
+      return;
+    }
+
+    setSelectedFile(file);
+    setError(null);
+    setResult(null);
+  };
+
+  const onChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    handleFile(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const startConversion = () => {
+    if (selectedFile) {
+      uploadFile(selectedFile);
+    }
+  };
+
+  const uploadFromArxiv = async (arxivId: string, title: string) => {
+    setUploading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const response = await fetch(
+        `${
+          import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+        }/api/upload/from-arxiv`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            user_id: 1, // 임시 사용자 ID
+            arxiv_id: arxivId,
+            title: title,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        let detail = "arXiv 업로드 실패";
+        try { const j = await response.json(); detail = j.detail || detail; } catch {}
+        pushDebug(`[from-arxiv] 실패: ${response.status} ${detail}`);
+        throw new Error(`[from-arxiv] ${detail}`);
+      }
+
+      const data = await response.json();
+
+      // 서버에서 반환된 실제 논문 ID 사용
+      const docId = data.tex_id;
+
+      // arXiv 업로드는 비동기 처리이므로 성공 메시지만 표시
+      setResult({
+        filename: `${arxivId}.pdf`,
+        file_size: 0,
+        extracted_text_length: 0,
+        extracted_text_preview: `arXiv 논문 처리 시작: ${title}\n논문 ID: ${docId}\n\n처리 중입니다...`,
+        easy_text:
+          "논문이 다운로드되고 처리 중입니다. 완료되면 결과가 표시됩니다.",
+        status: "processing",
+        doc_id: docId,
+        json_file_path: `/api/download/${docId}.json`,
+        // arXiv 처리 결과 추가
+        arxiv_result: {
+          arxiv_id: arxivId,
+          title: title,
+          tex_id: data.tex_id,
+          paths: data.paths,
+        },
+      });
+
+      // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
+      if (docId) {
+        try {
+          const infoResponse = await fetch(
+            `${
+              import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+            }/api/upload/download/info/${docId}`
+          );
+          if (infoResponse.ok) {
+            const infoData = await infoResponse.json();
+            setDownloadInfo(infoData);
+            pushDebug(`[download/info] 성공`);
+          } else {
+            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
+          }
+        } catch (err) {
+          console.warn("다운로드 정보 조회 실패:", err);
+          pushDebug(`[download/info] 예외: ${String(err)}`);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "arXiv 업로드 중 오류가 발생했습니다.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const downloadFile = async (
+    filename: string,
+    fileType: "json" | "pdf" | "math" | "easy" | "raw"
+  ) => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      let endpoint;
+      if (fileType === "json") {
+        endpoint = `${baseUrl}/api/upload/download/info/${filename}`;
+      } else if (fileType === "easy") {
+        endpoint = `${baseUrl}/api/upload/download/easy/${filename}`;
+      } else if (fileType === "math") {
+        endpoint = `${baseUrl}/api/upload/download/math/${filename}`;
+      } else {
+        endpoint = `${baseUrl}/api/upload/download/raw/${filename}`;
+      }
+
+      const response = await fetch(endpoint);
+
+      if (!response.ok) {
+        throw new Error("다운로드 실패");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      alert("다운로드 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 로딩 중이거나 로그인하지 않은 경우 로딩 화면 표시
+  if (isLoading) {
+    return (
+      <div className="upload-page">
+        <div className="upload-container">
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <div className="upload-spinner"></div>
+            <p>로딩 중...</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  useEffect(() => { fetchRecent() }, [])
-  const list = useMemo(() => items, [items])
-
-  const seeDetail = async (filename: string) => {
-    setDetail(null); setDetailName(filename)
-    try {
-      const r = await fetch(`${BASE_URL}/easy/results/${encodeURIComponent(filename)}`)
-      const data = await r.json()
-      setDetail(data.data)
-    } catch (e) {
-      setDetail({ error: e instanceof Error ? e.message : '조회 실패' })
-    }
+  // 로그인하지 않은 경우 빈 화면 (useEffect에서 리다이렉트 처리)
+  if (!user) {
+    return null;
   }
 
   return (
-    <div style={{ ...box }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 18 }}>최근 변환 결과</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #d1d5db' }}>
-            {[5, 10, 20, 30, 50].map(n => <option key={n} value={n}>{n}개</option>)}
-          </select>
-          <button onClick={fetchRecent} style={btn}>{loading ? '불러오는 중…' : '새로고침'}</button>
+    <div className="upload-page">
+      <div className="upload-container">
+        <div className="upload-header">
+          <h1>논문 변환하기</h1>
+          <p>PDF 파일을 업로드하면 AI가 쉽게 이해할 수 있도록 변환해드려요!</p>
         </div>
-      </div>
 
-      {error && (
-        <div style={{ ...box, background: '#FEF2F2', borderColor: '#FCA5A5', color: '#991B1B' }}>오류: {error}</div>
-      )}
+        <div className="upload-actions">
+          <button
+            onClick={() => setShowArxivForm(!showArxivForm)}
+            className="btn-secondary"
+          >
+            {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
+          </button>
+        </div>
 
-      {list.length === 0 && !loading && <div style={{ color: '#6b7280' }}>데이터가 없습니다.</div>}
+        {showArxivForm && (
+          <div className="arxiv-form">
+            <h3>arXiv 논문 업로드</h3>
+            <div className="form-group">
+              <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
+              <input
+                type="text"
+                id="arxivId"
+                value={arxivId}
+                onChange={(e) => setArxivId(e.target.value)}
+                placeholder="2408.12345"
+                disabled={uploading}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="arxivTitle">논문 제목</label>
+              <input
+                type="text"
+                id="arxivTitle"
+                value={arxivTitle}
+                onChange={(e) => setArxivTitle(e.target.value)}
+                placeholder="논문 제목을 입력하세요"
+                disabled={uploading}
+              />
+            </div>
+            <button
+              onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
+              disabled={!arxivId || !arxivTitle || uploading}
+              className="btn-primary"
+            >
+              arXiv 논문 처리하기
+            </button>
+          </div>
+        )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {list.map((it) => {
-          const gpu = it.processing_info?.gpu_used ? '✅ GPU' : 'CPU'
-          const tInf = it.processing_info?.inference_time
-          const tTot = it.processing_info?.total_time
-          const docId = (it as any)?.doc_id || (it as any)?.processing_info?.doc_id
-          return (
-            <div key={it.filename} style={{ ...box, background: '#f9fafb' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, wordBreak: 'break-all' }}>{it.filename}</div>
-                  <div style={{ color: '#6b7280', fontSize: 14 }}>원본: {it.original_filename || 'Unknown'}</div>
-                  <div style={{ color: '#6b7280', fontSize: 14 }}>처리시각: {fmtDate(it.processed_at)}</div>
-                  {it.title && <div style={{ marginTop: 4 }}>제목: {it.title}</div>}
-                  {it.plain_summary && <div style={{ marginTop: 4, color: '#374151' }}>요약: {it.plain_summary}</div>}
-                  <div style={{ marginTop: 4, fontSize: 12, color: '#6b7280' }}>
-                    {gpu}
-                    {isNum(tInf) && ` · 추론 ${tInf.toFixed(2)}s`}
-                    {isNum(tTot) && ` · 총 ${tTot.toFixed(2)}s`}
-                  </div>
+        <div
+          className={`upload-area ${dragActive ? "drag-active" : ""} ${
+            uploading ? "uploading" : ""
+          }`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={onChange}
+            disabled={uploading}
+            className="file-input"
+          />
+          <div className="upload-content">
+            {uploading ? (
+              <>
+                <div className="upload-spinner"></div>
+                <h3>AI가 논문을 분석하고 있습니다...</h3>
+                <p>잠시만 기다려주세요!</p>
+              </>
+            ) : selectedFile ? (
+              <>
+                <div className="upload-icon">📄</div>
+                <h3>선택된 파일</h3>
+                <p className="selected-file-name">{selectedFile.name}</p>
+                <p className="selected-file-size">
+                  {(selectedFile.size / 1024).toFixed(2)} KB
+                </p>
+                <div className="upload-info">
+                  <span>• PDF 파일만 지원</span>
+                  <span>• 최대 50MB</span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  <button style={btn} onClick={() => seeDetail(it.filename)}>상세보기</button>
-                  <button style={btn} onClick={() => window.open(`${BASE_URL}/easy/download/${encodeURIComponent(it.filename)}`, '_blank')}>JSON 다운로드</button>
-                  {docId && (
-                    <button style={btn} onClick={() => window.open(`${BASE_URL}/easy/download/raw/${encodeURIComponent(docId)}`, '_blank')}>원본 PDF</button>
+              </>
+            ) : (
+              <>
+                <div className="upload-icon">📁</div>
+                <h3>PDF 파일을 업로드하세요</h3>
+                <p>여기를 클릭하거나 파일을 드래그하여 업로드하세요</p>
+                <div className="upload-info">
+                  <span>• PDF 파일만 지원</span>
+                  <span>• 최대 50MB</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {selectedFile && !uploading && (
+          <div className="conversion-actions">
+            <button
+              onClick={startConversion}
+              className="btn-primary btn-convert"
+            >
+              논문 변환하기
+            </button>
+            <button
+              onClick={() => {
+                setSelectedFile(null);
+                setError(null);
+                setResult(null);
+              }}
+              className="btn-secondary"
+            >
+              파일 다시 선택
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="error-message">
+            <div className="error-icon">⚠️</div>
+            <div className="error-content">
+              <strong>오류가 발생했습니다</strong>
+              <p>{error}</p>
+            </div>
+          </div>
+        )}
+
+        {result && (
+          <div className="result-container">
+            <div className="result-header">
+              <h3>
+                {result.status === "success" ? "변환 완료!" : "변환 실패"}
+              </h3>
+              <p>
+                {result.status === "success"
+                  ? "논문이 성공적으로 변환되었습니다"
+                  : "논문 변환 중 오류가 발생했습니다"}
+              </p>
+              {result.is_arxiv_paper && result.arxiv_id && (
+                <div className="arxiv-info">
+                  <span className="arxiv-badge">📄 arXiv 논문</span>
+                  <span className="arxiv-id">ID: {result.arxiv_id}</span>
+                </div>
+              )}
+              <div
+                className={`status-badge ${
+                  result.status === "success"
+                    ? "status-success"
+                    : "status-error"
+                }`}
+              >
+                <span className="status-icon">
+                  {result.status === "success" ? "✅" : "❌"}
+                </span>
+                <span className="status-text">
+                  {result.status === "success" ? "변환 성공" : "변환 실패"}
+                </span>
+              </div>
+            </div>
+
+            <div className="result-info">
+              <div className="info-item">
+                <span className="info-label">파일명</span>
+                <span className="info-value">{result.filename}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">파일 크기</span>
+                <span className="info-value">
+                  {(result.file_size / 1024).toFixed(2)} KB
+                </span>
+              </div>
+
+              <div className="info-item">
+                <span className="info-label">추출된 텍스트</span>
+                <span className="info-value">
+                  {result.extracted_text_length} 문자
+                </span>
+              </div>
+            </div>
+
+
+            {downloadInfo && (
+              <div className="download-info">
+                <h4>다운로드 가능한 파일</h4>
+                <div className="file-list">
+                  {downloadInfo.files.easy.length > 0 && (
+                    <div className="file-category">
+                      <h5>
+                        🖼️ 쉬운 버전 이미지 ({downloadInfo.files.easy.length}개)
+                      </h5>
+                      <button
+                        className="btn-download"
+                        onClick={() =>
+                          result.doc_id && downloadFile(result.doc_id, "easy")
+                        }
+                      >
+                        이미지 다운로드
+                      </button>
+                    </div>
+                  )}
+
+                  {downloadInfo.files.math.length > 0 && (
+                    <div className="file-category">
+                      <h5>📐 수식 해설 ({downloadInfo.files.math.length}개)</h5>
+                      <div className="file-items">
+                        {downloadInfo.files.math.map(
+                          (file: any, index: number) => (
+                            <button
+                              key={index}
+                              className="btn-download-small"
+                              onClick={() =>
+                                result.doc_id &&
+                                downloadFile(result.doc_id, "math")
+                              }
+                            >
+                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {downloadInfo.files.preprocess.length > 0 && (
+                    <div className="file-category">
+                      <h5>
+                        📄 전처리 파일 ({downloadInfo.files.preprocess.length}
+                        개)
+                      </h5>
+                      <div className="file-items">
+                        {downloadInfo.files.preprocess.map(
+                          (file: any, index: number) => (
+                            <button
+                              key={index}
+                              className="btn-download-small"
+                              onClick={() => downloadFile(file.name, "json")}
+                            >
+                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {downloadInfo.files.raw.length > 0 && (
+                    <div className="file-category">
+                      <h5>📁 원본 파일 ({downloadInfo.files.raw.length}개)</h5>
+                      <div className="file-items">
+                        {downloadInfo.files.raw.map(
+                          (file: any, index: number) => (
+                            <button
+                              key={index}
+                              className="btn-download-small"
+                              onClick={() => downloadFile(file.name, "raw")}
+                            >
+                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
+            )}
+
+            {/* 디버그 로그 섹션 */}
+            {debugLogs.length > 0 && (
+              <div className="debug-section">
+                <h4>🔍 디버그 로그</h4>
+                <div className="debug-logs">
+                  {debugLogs.map((log, index) => (
+                    <div key={index} className="debug-log">
+                      <span className="log-time">[{log.time}]</span>
+                      <span className="log-message">{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 모델 전송 버튼 */}
+            <div className="model-buttons">
+              <button
+                className="btn-primary"
+                onClick={handleSendToEasy}
+                disabled={!result.doc_id || isLoadingEasy}
+              >
+                {isLoadingEasy ? "처리 중..." : "🤖 Easy 모델로 전송"}
+              </button>
             </div>
-          )
-        })}
-      </div>
 
-      {detail && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>상세: {detailName}</div>
-          <pre style={{ padding: 12, background: '#111827', color: '#e5e7eb', borderRadius: 10, maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-            {JSON.stringify(detail, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
-  )
-}
+            {/* Easy 결과 표시 */}
+            {easyResults && (
+              <div className="easy-results">
+                <h4>📊 Easy 모델 결과</h4>
+                <div className="results-stats">
+                  <div className="stat-item">
+                    <span className="stat-number">{easyResults.total_sections || easyResults.total_chunks}</span>
+                    <span className="stat-label">총 섹션</span>
+                  </div>
+                  <div className="stat-item success">
+                    <span className="stat-number">{easyResults.success_count}</span>
+                    <span className="stat-label">성공</span>
+                  </div>
+                  <div className="stat-item failed">
+                    <span className="stat-number">{easyResults.failed_count}</span>
+                    <span className="stat-label">실패</span>
+                  </div>
+                </div>
+                
+                <div className="download-section">
+                  <button 
+                    onClick={downloadEasyResultsAsHTML}
+                    className="btn btn-secondary"
+                  >
+                    📄 Easy 결과 HTML 다운로드
+                  </button>
+                </div>
+              </div>
+            )}
 
-// ---------------- Main Upload Page ----------------
-export default function Upload() {
-  const [uploading, setUploading] = useState(false)
-  const [result, setResult] = useState<UploadResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [progress, setProgress] = useState<string>('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+            {/* 로딩 상태 */}
+            {isLoadingEasy && (
+              <div className="loading-easy">
+                <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
+              </div>
+            )}
 
-  const onChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-    const f = e.target.files?.[0]
-    if (!f) return
-    if (f.type !== 'application/pdf') {
-      setError('PDF 파일만 업로드할 수 있습니다.')
-      e.currentTarget.value = ''
-      return
-    }
-    if (f.size > 50 * 1024 * 1024) {
-      setError('파일은 50MB 이하만 가능합니다.')
-      e.currentTarget.value = ''
-      return
-    }
-    setSelectedFile(f); setError(null)
-  }
-
-  const checkModelStatus = async () => {
-    try {
-      const response = await fetch(`${BASE_URL}/easy/model-status`)
-      const data = await response.json()
-      if (data.model_available) {
-        alert('✅ AI 모델이 정상적으로 연결되어 있습니다!')
-      } else {
-        alert('❌ AI 모델 서비스가 사용 불가능합니다. 서버/도커를 확인해주세요.')
-      }
-    } catch {
-      alert('❌ 서버 연결에 실패했습니다.')
-    }
-  }
-
-  const uploadFile = async (file: File) => {
-    setUploading(true); setError(null); setResult(null); setProgress('파일 업로드 중...')
-    try {
-      const formData = new FormData(); formData.append('file', file)
-      setProgress('PDF 텍스트 추출 중...')
-      const response = await fetch(`${BASE_URL}/easy/convert`, { method: 'POST', body: formData })
-      if (!response.ok) {
-        const err = await safeParseJson(response)
-        throw new Error(err.detail || '업로드 실패')
-      }
-      setProgress('AI 모델로 변환 중... (시간이 걸릴 수 있습니다)')
-      const data = await safeParseJson(response) as UploadResult
-      setResult(data); setProgress('완료!')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '업로드 중 오류가 발생했습니다.')
-      setProgress('')
-    } finally { setUploading(false) }
-  }
-
-  const processing = result?.easy_json?.processing_info as ProcessingInfo | undefined
-
-  return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: 16 }}>
-      <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>A!POLO</h2>
-
-      {/* Controls */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <button onClick={checkModelStatus} style={btn}>모델 상태 확인하기</button>
-        <label style={{ ...btn, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <input type="file" accept="application/pdf" onChange={onChange} disabled={uploading} style={{ display: 'none' }} />
-          <span role="img" aria-label="file">📄</span> 파일 선택
-        </label>
-        <button
-          onClick={() => selectedFile && uploadFile(selectedFile)}
-          disabled={!selectedFile || uploading}
-          style={!selectedFile || uploading ? btnMuted : btnPrimary}
-        >
-          변환하기
-        </button>
-      </div>
-
-      {selectedFile && (
-        <div style={{ marginBottom: 8, color: '#374151' }}>선택된 파일: <b>{selectedFile.name}</b> ({(selectedFile.size/1024/1024).toFixed(2)} MB)</div>
-      )}
-
-      {/* Progress */}
-      {uploading && (
-        <div style={{ ...box, background: '#E0F2FE', borderColor: '#93C5FD' }}>
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ width: '100%', height: 8, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ width: '100%', height: '100%', background: '#3B82F6', animation: 'pulse 1.5s ease-in-out infinite' }} />
+            <div className="action-buttons">
+              <button className="btn-secondary" onClick={() => navigate("/")}>
+                홈으로 돌아가기
+              </button>
             </div>
           </div>
-          <div style={{ fontWeight: 600, color: '#1D4ED8' }}>{progress}</div>
-          <div style={{ marginTop: 4, fontSize: 13, color: '#6b7280' }}>GPU 가속으로 처리 중입니다. 잠시만 기다려주세요…</div>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div style={{ ...box, background: '#FEF2F2', borderColor: '#FCA5A5', color: '#991B1B', marginTop: 12 }}>
-          <b>오류:</b> {error}
-        </div>
-      )}
-
-      {/* Result */}
-      {result && (
-        <div style={{ ...box, marginTop: 16 }}>
-          <h3 style={{ marginTop: 0 }}>처리 결과</h3>
-          <div style={{ ...box, background: '#DCFCE7', borderColor: '#86EFAC' }}>
-            <p><b>파일명:</b> {result.filename}</p>
-            <p><b>파일 크기:</b> {(result.file_size / 1024).toFixed(2)} KB</p>
-            <p><b>추출된 텍스트 길이:</b> {result.extracted_text_length} 문자</p>
-            <p><b>상태:</b> {result.status}</p>
-          </div>
-
-          <div style={{ margin: '12px 0' }}>
-            <h4>추출된 텍스트 미리보기</h4>
-            <div style={{ padding: 10, background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 8, maxHeight: 200, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-              {result.extracted_text_preview}
-            </div>
-          </div>
-
-          <div>
-            <h4>AI 변환 결과 (JSON)</h4>
-            <pre style={{ padding: 12, background: '#F1F5F9', border: '1px solid #DBEAFE', borderRadius: 8, maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-              {JSON.stringify(result.easy_json, null, 2)}
-            </pre>
-          </div>
-
-          {processing && (
-            <div style={{ marginTop: 12, ...box, background: '#F8FAFC' }}>
-              <h4 style={{ marginTop: 0 }}>처리 정보</h4>
-              <p><b>GPU 사용:</b> {processing.gpu_used ? '✅ 예' : '❌ 아니오'}</p>
-              <p><b>추론 시간:</b> {isNum(processing.inference_time) ? processing.inference_time!.toFixed(2) + '초' : '-'} </p>
-              <p><b>전체 처리 시간:</b> {isNum(processing.total_time) ? processing.total_time!.toFixed(2) + '초' : '-'}</p>
-              <p><b>입력 길이:</b> {isNum(processing.input_length) ? processing.input_length : '-'}</p>
-              <p><b>출력 길이:</b> {isNum(processing.output_length) ? processing.output_length : '-'}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Recent List */}
-      <div style={{ marginTop: 24 }}>
-        <RecentInline />
+        )}
       </div>
     </div>
-  )
+  );
 }

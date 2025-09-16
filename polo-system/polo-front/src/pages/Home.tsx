@@ -1,239 +1,425 @@
-import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Home() {
-  const heroStageRef = useRef<HTMLDivElement | null>(null)
-  const scannerCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const graphCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const overlayRef = useRef<HTMLDivElement | null>(null)
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [isVisible, setIsVisible] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
 
-  // 히어로 스캐너(바운딩 박스)
+  // 페이지 로드 시 애니메이션 시작
   useEffect(() => {
-    const canvas = scannerCanvasRef.current
-    const stage = heroStageRef.current
-    if (!canvas || !stage) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    setIsVisible(true);
+  }, []);
 
-    const scanner = { x: 80, y: 60, w: 220, h: 150, vx: 2.8, vy: 2.2, margin: 16 }
-    const resize = () => {
-      const { clientWidth: w, clientHeight: h } = stage
-      canvas.width = w
-      canvas.height = h
-      scanner.w = Math.min(300, w * 0.28)
-      scanner.h = Math.min(210, h * 0.35)
-      scanner.x = Math.min(Math.max(scanner.margin, scanner.x), w - scanner.w - scanner.margin)
-      scanner.y = Math.min(Math.max(scanner.margin, scanner.y), h - scanner.h - scanner.margin)
-    }
-    resize()
-    const ro = new ResizeObserver(resize)
-    ro.observe(stage)
-
-    let t = 0
-    let raf = 0
-    const draw = () => {
-      const w = canvas.width
-      const h = canvas.height
-      const ctx2 = ctx
-      ctx2.clearRect(0, 0, w, h)
-      scanner.x += scanner.vx
-      scanner.y += scanner.vy
-      if (scanner.x <= scanner.margin || scanner.x + scanner.w >= w - scanner.margin) scanner.vx *= -1
-      if (scanner.y <= scanner.margin || scanner.y + scanner.h >= h - scanner.margin) scanner.vy *= -1
-      const pulse = (Math.sin(t * 0.06) + 1) / 2
-      ctx2.lineWidth = 3
-      ctx2.setLineDash([10, 10])
-      ctx2.strokeStyle = `rgba(34,197,94,${0.55 + pulse * 0.35})`
-      ctx2.strokeRect(scanner.x, scanner.y, scanner.w, scanner.h)
-      ctx2.setLineDash([])
-      const len = 22
-      ctx2.lineWidth = 4
-      ctx2.strokeStyle = '#22c55e'
-      line(ctx2, scanner.x, scanner.y, scanner.x + len, scanner.y)
-      line(ctx2, scanner.x, scanner.y, scanner.x, scanner.y + len)
-      line(ctx2, scanner.x + scanner.w, scanner.y, scanner.x + scanner.w - len, scanner.y)
-      line(ctx2, scanner.x + scanner.w, scanner.y, scanner.x + scanner.w, scanner.y + len)
-      line(ctx2, scanner.x, scanner.y + scanner.h, scanner.x + len, scanner.y + scanner.h)
-      line(ctx2, scanner.x, scanner.y + scanner.h, scanner.x, scanner.y + scanner.h - len)
-      line(ctx2, scanner.x + scanner.w, scanner.y + scanner.h, scanner.x + scanner.w - len, scanner.y + scanner.h)
-      line(ctx2, scanner.x + scanner.w, scanner.y + scanner.h, scanner.x + scanner.w, scanner.y + scanner.h - len)
-      t += 1
-      raf = requestAnimationFrame(draw)
-    }
-    raf = requestAnimationFrame(draw)
-    return () => { cancelAnimationFrame(raf); ro.disconnect() }
-  }, [])
-
-  // 그래프(동적 라인 + 토스트)
+  // 스크롤 기반 애니메이션
   useEffect(() => {
-    const canvas = graphCanvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const overlay = overlayRef.current
-    const sampleTitles = [
-      'Contrastive Vision-Language Pretraining for...' ,
-      'Retrieval-Augmented Generation in Practice',
-      'Efficient QLoRA Fine-tuning for 7B Models',
-      'Visualizing Transformers: Attention Graphs',
-      'Mathematical Reasoning with LLMs',
-      'Graph-based Vector Indexing 2024',
-    ]
-    const resize = () => {
-      canvas.width = canvas.clientWidth
-      canvas.height = 360
-    }
-    resize()
-    const onResize = () => resize()
-    window.addEventListener('resize', onResize)
-
-    let t = 0
-    let lastTextTime = 0
-    let raf = 0
-    const draw = () => {
-      const w = canvas.width
-      const h = canvas.height
-      ctx.clearRect(0, 0, w, h)
-      ctx.strokeStyle = '#2563eb'
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      for (let x = 0; x < w; x++) {
-        const y = h / 2 + Math.sin((x + t) * 0.02) * 46 + Math.cos((x + t) * 0.01) * 26
-        if (x === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      }
-      ctx.stroke()
-      t += 2
-
-      const now = performance.now()
-      if (overlay && now - lastTextTime > 1200) {
-        lastTextTime = now
-        const burstCount = 2 + Math.floor(Math.random() * 3)
-        for (let i = 0; i < burstCount; i++) {
-          const el = document.createElement('div')
-          el.className = 'graph-toast color-' + ((Math.floor(Math.random() * 6) % 6) + 1)
-          el.textContent = `${rndDate()} · ${sampleTitles[Math.floor(Math.random() * sampleTitles.length)]}`
-          overlay.appendChild(el)
-          el.style.left = Math.floor(Math.random() * 80 + 10) + '%'
-          el.style.top = Math.floor(Math.random() * 60 + 20) + '%'
-          setTimeout(() => {
-            el.classList.add('hide')
-            setTimeout(() => el.remove(), 600)
-          }, 1600 + Math.random() * 500)
-        }
-        const items = overlay.querySelectorAll('.graph-toast')
-        if (items.length > 6) {
-          for (let i = 0; i < items.length - 6; i++) {
-            items[i].classList.add('hide')
-            setTimeout(() => items[i].remove(), 400)
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("animate-in");
           }
-        }
-      }
+        });
+      },
+      { threshold: 0.1 }
+    );
 
-      raf = requestAnimationFrame(draw)
-    }
-    raf = requestAnimationFrame(draw)
+    const elements = document.querySelectorAll(".animate-on-scroll");
+    elements.forEach((el) => observer.observe(el));
 
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize) }
-  }, [])
+    return () => observer.disconnect();
+  }, []);
 
-  const navigate = useNavigate()
+  // 자동 슬라이드 기능
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => {
+        // 0, 1, 2 슬라이드만 반복 (총 3개)
+        return (prev + 1) % 3;
+      });
+    }, 4000); // 4초마다 자동으로 넘어감
+
+    return () => clearInterval(interval);
+  }, [isAutoPlaying]);
+
+  // 수동 슬라이드 조작 시 자동 재생 일시정지
+  const handleSlideChange = (newSlide: number) => {
+    setCurrentSlide(newSlide);
+    setIsAutoPlaying(false);
+
+    // 5초 후 자동 재생 재개
+    setTimeout(() => {
+      setIsAutoPlaying(true);
+    }, 5000);
+  };
 
   return (
     <>
+      {/* 히어로 섹션 */}
       <section className="hero">
-        <div className="hero-inner">
-          <div className="slogan">
-            <div className="slogan-logo">
-              <img src="/img/logo.png" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} alt="logo" />
-            </div>
-            <p className="tagline strong">논문을 시각적·쉬운 언어로 바꿔주는 AI</p>
+        <div className={`hero-content ${isVisible ? "animate-in" : ""}`}>
+          <div className="hero-badge">
+            <span className="hero-badge-icon">⭐</span>
+            <span className="hero-badge-text">AI 논문 이해 도우미</span>
           </div>
-          <div className="hero-stage" ref={heroStageRef}>
-            <div className="carousel-track">
-              <img className="slide" src="/img/main1.png" alt="visual 1" />
-              <img className="slide" src="/img/main2.png" alt="visual 2" />
-              <img className="slide" src="/img/main3.png" alt="visual 3" />
-              <img className="slide" src="/img/main4.png" alt="visual 4" />
-              <img className="slide" src="/img/main1.png" alt="visual 1 duplicate" />
-              <img className="slide" src="/img/main2.png" alt="visual 2 duplicate" />
+          <h1 className="hero-title">
+            복잡한 논문을 <span className="hero-highlight">쉬운 설명으로</span>
+          </h1>
+          <p className="hero-description">
+            POLO는 어려운 학술 논문을 누구나 이해할 수 있는 간단한 설명으로
+            변환해드립니다. 연구 내용을 더 많은 사람들과 쉽게 공유하세요.
+          </p>
+          <div className="hero-buttons">
+            <button
+              className="btn-primary hero-cta-btn"
+              onClick={() => {
+                if (!user) {
+                  alert("로그인을 먼저 해주세요!");
+                  navigate("/login");
+                  return;
+                }
+                window.scrollTo(0, 0);
+                navigate("/upload");
+              }}
+            >
+              <span className="btn-text">논문 변환하기</span>
+            </button>
+          </div>
+          <div className="hero-features">
+            <div className="hero-feature-item">
+              <span className="feature-dot"></span>
+              <span>무료 체험 가능</span>
             </div>
-            <canvas className="scanner" ref={scannerCanvasRef} />
+            <div className="hero-feature-item">
+              <span className="feature-dot"></span>
+              <span>즉시 사용 가능</span>
+            </div>
           </div>
         </div>
-        <div className="scroll-cue">스크롤</div>
-      </section>
 
-      <section className="graphs">
-        <h2>Vector DB: 2023.01 ~ 2024.12 수집 논문 흐름</h2>
-        <div className="graph-stage">
-          <canvas className="graph-canvas" ref={graphCanvasRef} />
-          <div className="graph-overlay" ref={overlayRef}></div>
+        <div className="hero-visual">
+          <canvas className="hero-sine-canvas" />
         </div>
       </section>
 
-      <section className="cta-pipeline">
-        <div className="cta-inner">
-          <div className="pipeline-demo">
-            <div className="demo-left">
-              <div className="workflow-demo">
-                <div className="workflow-step step-1">
-                  <div className="step-icon">📄</div>
-                  <div className="step-label">논문 업로드</div>
-                  <div className="step-desc">PDF 파일</div>
-                </div>
-                
-                <div className="workflow-arrow">➡️</div>
-                
-                <div className="workflow-step step-2">
-                  <div className="step-icon">🤖</div>
-                  <div className="step-label">AI 처리</div>
-                  <div className="step-desc">분석 & 변환</div>
-                </div>
-                
-                <div className="workflow-arrow">➡️</div>
-                
-                <div className="workflow-results">
-                  <div className="result-item">
-                    <img className="result-preview" src="/img/easy_page.png" alt="쉬운 설명" />
-                    <div className="result-label">쉬운 설명</div>
-                    <div className="result-desc">직관적 이해</div>
+      {/* 기능 소개 섹션 */}
+      <section className="features">
+        <div className="container">
+          <div className="features-badge animate-on-scroll">핵심 기능</div>
+          <h2 className="section-title animate-on-scroll">
+            왜 POLO를 선택해야 할까요?
+          </h2>
+          <p className="features-subtitle animate-on-scroll">
+            복잡한 학술 논문을 누구나 이해할 수 있게 만드는 혁신적인 기능들을
+            만나보세요.
+          </p>
+          <div className="features-grid">
+            <div className="feature-card animate-on-scroll">
+              <div className="feature-icon-wrapper">
+                <div className="feature-icon">🧠</div>
+              </div>
+              <h3>스마트 AI 분석</h3>
+              <p>
+                최신 AI 기술로 논문의 핵심 내용을 정확하게 파악하고 쉬운 언어로
+                변환합니다.
+              </p>
+              <div className="feature-hover-effect"></div>
+            </div>
+            <div className="feature-card animate-on-scroll">
+              <div className="feature-icon-wrapper">
+                <div className="feature-icon">⚡</div>
+              </div>
+              <h3>빠른 처리 속도</h3>
+              <p>
+                몇 분 안에 복잡한 논문을 이해하기 쉬운 형태로 변환해드립니다.
+              </p>
+              <div className="feature-hover-effect"></div>
+            </div>
+            <div className="feature-card animate-on-scroll">
+              <div className="feature-icon-wrapper">
+                <div className="feature-icon">📊</div>
+              </div>
+              <h3>수학 설명서</h3>
+              <p>
+                어려운 수식과 알고리즘을 시각적으로 보여주고 쉽게 설명합니다.
+              </p>
+              <div className="feature-hover-effect"></div>
+            </div>
+            <div className="feature-card animate-on-scroll">
+              <div className="feature-icon-wrapper">
+                <div className="feature-icon">🛡️</div>
+              </div>
+              <h3>정확성 보장</h3>
+              <p>원본 논문의 의미를 왜곡하지 않고 정확한 내용을 전달합니다.</p>
+              <div className="feature-hover-effect"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 사용법 섹션 */}
+      <section className="how-it-works">
+        <div className="container">
+          <div className="how-it-works-badge animate-on-scroll">사용 방법</div>
+          <h2 className="section-title animate-on-scroll">
+            어떻게 작동하나요?
+          </h2>
+          <p className="how-it-works-subtitle animate-on-scroll">
+            간단한 3단계로 복잡한 논문을 쉬운 설명으로 변환하세요.
+          </p>
+          <div className="steps">
+            <div className="step animate-on-scroll">
+              <div className="step-icon-wrapper">
+                <div className="step-icon">📤</div>
+              </div>
+              <div className="step-badge">1단계</div>
+              <div className="step-content">
+                <h3>논문 업로드</h3>
+                <p>PDF 파일을 드래그하거나 클릭해서 업로드하세요.</p>
+              </div>
+            </div>
+            <div className="step-arrow animate-on-scroll">→</div>
+            <div className="step animate-on-scroll">
+              <div className="step-icon-wrapper">
+                <div className="step-icon">✨</div>
+              </div>
+              <div className="step-badge">2단계</div>
+              <div className="step-content">
+                <h3>AI 분석</h3>
+                <p>AI가 논문을 분석하고 이해하기 쉽게 변환합니다.</p>
+              </div>
+            </div>
+            <div className="step-arrow animate-on-scroll">→</div>
+            <div className="step animate-on-scroll">
+              <div className="step-icon-wrapper">
+                <div className="step-icon">✏️</div>
+              </div>
+              <div className="step-badge">3단계</div>
+              <div className="step-content">
+                <h3>결과 확인</h3>
+                <p>이해하기 쉬운 논문과 수식 설명서를 확인할 수 있습니다.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 사용자 후기 섹션 */}
+      <section className="testimonials">
+        <div className="container">
+          <h2 className="section-title animate-on-scroll">
+            사용자들의 생생한 후기
+          </h2>
+          <p className="testimonials-subtitle animate-on-scroll">
+            POLO를 사용하고 있는 연구자들의 실제 경험을 들어보세요.
+          </p>
+          <div className="testimonials-container">
+            <div className="testimonials-slider">
+              <div
+                className="testimonials-track"
+                style={{ transform: `translateX(-${currentSlide * 100}%)` }}
+              >
+                {/* 첫 번째 슬라이드 (카드 1-3) */}
+                <div className="testimonials-slide">
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>노현지</h4>
+                          <p>대학원생</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        복잡한 논문들을 이해하는데 정말 많은 도움이 되었어요.
+                        연구 효율성이 크게 향상되었습니다.
+                      </p>
+                    </div>
                   </div>
-                  <div className="result-item">
-                    <img className="result-preview" src="/img/math_page.png" alt="수학 설명서" />
-                    <div className="result-label">수학 설명서</div>
-                    <div className="result-desc">개념 시각화</div>
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>이 훤</h4>
+                          <p>연구원</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        POLO 덕분에 다른 분야의 논문도 쉽게 이해할 수 있게
+                        되었습니다. 정말 혁신적인 서비스예요!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>손단하</h4>
+                          <p>교수</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        학생들에게 논문을 설명할 때 POLO의 요약본을 활용하니
+                        이해도가 훨씬 높아졌습니다.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 두 번째 슬라이드 (카드 4-5) */}
+                <div className="testimonials-slide">
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>신현식</h4>
+                          <p>박사과정</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        논문 리뷰 시간이 절반으로 줄어들었어요. POLO가 없었다면
+                        어떻게 했을지 모르겠습니다.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>고현서</h4>
+                          <p>연구소장</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        팀원들이 복잡한 연구 내용을 더 쉽게 이해할 수 있게 되어
+                        프로젝트 진행이 훨씬 원활해졌습니다.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>김사과</h4>
+                          <p>대학원생</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        복잡한 논문들을 이해하는데 정말 많은 도움이 되었어요.
+                        연구 효율성이 크게 향상되었습니다.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 세 번째 슬라이드 (카드 1-3 반복) */}
+                <div className="testimonials-slide">
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>반하나</h4>
+                          <p>대학원생</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        복잡한 논문들을 이해하는데 정말 많은 도움이 되었어요.
+                        연구 효율성이 크게 향상되었습니다.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>채애리</h4>
+                          <p>연구원</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        POLO 덕분에 다른 분야의 논문도 쉽게 이해할 수 있게
+                        되었습니다. 정말 혁신적인 서비스예요!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="testimonial-card animate-on-scroll">
+                    <div className="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                    <div className="testimonial-content">
+                      <div className="testimonial-header">
+                        <div className="testimonial-info">
+                          <h4>이메론</h4>
+                          <p>교수</p>
+                        </div>
+                        <div className="testimonial-quote">"</div>
+                      </div>
+                      <p className="testimonial-text">
+                        학생들에게 논문을 설명할 때 POLO의 요약본을 활용하니
+                        이해도가 훨씬 높아졌습니다.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="demo-right">
-              <h3>AI 논문 변환 서비스</h3>
-              <p>복잡한 AI 연구 논문을 누구나 이해할 수 있도록<br />AI가 쉽게 풀어서 설명해드립니다.<br /><br />
-              <strong>📚 쉬운 설명서:</strong> AI 전문 용어를 일상 언어로 변환<br />
-              <strong>📐 수학 설명서:</strong> AI 알고리즘과 수식을 시각화<br /><br />
-              AI 연구자부터 입문자까지, 모든 AI 논문을<br />직관적으로 이해할 수 있습니다.</p>
-              <button className="cta-button" onClick={() => navigate('/upload')}>논문 변환하러 가기</button>
+            <div className="testimonials-controls">
+              <button
+                className="testimonial-btn prev-btn"
+                onClick={() => handleSlideChange(Math.max(0, currentSlide - 1))}
+                disabled={currentSlide === 0}
+              >
+                ‹
+              </button>
+              <div className="testimonials-dots">
+                {[0, 1, 2].map((index) => (
+                  <button
+                    key={index}
+                    className={`testimonial-dot ${
+                      currentSlide === index ? "active" : ""
+                    }`}
+                    onClick={() => handleSlideChange(index)}
+                  />
+                ))}
+              </div>
+              <button
+                className="testimonial-btn next-btn"
+                onClick={() => handleSlideChange(Math.min(2, currentSlide + 1))}
+                disabled={currentSlide === 2}
+              >
+                ›
+              </button>
+              <button
+                className={`testimonial-btn play-pause-btn ${
+                  isAutoPlaying ? "playing" : "paused"
+                }`}
+                onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                title={isAutoPlaying ? "자동 재생 일시정지" : "자동 재생 시작"}
+              >
+                {isAutoPlaying ? "⏸" : "▶"}
+              </button>
             </div>
           </div>
         </div>
       </section>
     </>
-  )
-}
-
-function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {
-  ctx.beginPath()
-  ctx.moveTo(x1, y1)
-  ctx.lineTo(x2, y2)
-  ctx.stroke()
-}
-
-function rndDate() {
-  const start = new Date(2023, 0, 1).getTime()
-  const end = new Date(2024, 11, 31).getTime()
-  const d = new Date(start + Math.random() * (end - start))
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  return `${y}.${m}`
+  );
 }
