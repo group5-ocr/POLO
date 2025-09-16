@@ -1,4 +1,4 @@
-# 범용 선 그래프(학습곡선, ROC/PR 등). seaborn 미사용, 색상 미지정.
+# 범용 선 그래프(학습곡선, ROC/PR/Threshold/Focal/mAP/Calibration 등)
 import matplotlib.pyplot as plt
 from registry import Grammar, register
 
@@ -16,8 +16,9 @@ def render_curve_generic(inputs, out_path):
     ylim          = inputs.get("ylim", None)         # [ymin, ymax]
     annotate_last = bool(inputs.get("annotate_last", False))
     diag          = bool(inputs.get("diag", False))  # ROC 기준선
+    kind          = inputs.get("kind", None)         # "threshold_sweep" | "focal_vs_ce" | "map_vs_iou" | "calibration"
 
-    # 곡선 그리기
+    # 곡선
     for s in series:
         x = [float(v) for v in s.get("x", [])]
         y = [float(v) for v in s.get("y", [])]
@@ -42,11 +43,9 @@ def render_curve_generic(inputs, out_path):
         if annotate_last:
             plt.text(x[-1], y[-1], f"{y[-1]:.3g}", ha="left", va="bottom", fontsize=9)
 
-    # 범례
+    # 범례/limit/기준선
     if any(s.get("label") for s in series):
         plt.legend(loc=legend_loc if legend_loc else None)
-
-    # 보조 요소
     if xlim: plt.xlim(*xlim)
     if ylim: plt.ylim(*ylim)
     if diag:
@@ -58,7 +57,7 @@ def render_curve_generic(inputs, out_path):
     plt.title(inputs.get("title", ""))
     plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
 
-    # ---- 캡션 (한 번만 구성해서 그림) ---------------------------------------
+    # 캡션(한 번만) - glossary에서 넘어온 플래그 기반
     msgs = []
     if diag:
         msgs.append("대각선=무작위 기준선(ROC)")
@@ -67,7 +66,6 @@ def render_curve_generic(inputs, out_path):
     if annotate_last:
         msgs.append("마지막 지점 값을 표시")
 
-    kind = inputs.get("kind")
     if kind == "threshold_sweep":
         msgs.append("임계↑ → Precision↑, Recall↓ · F1 최대점이 최적 임계 후보")
     elif kind == "focal_vs_ce":
@@ -77,16 +75,12 @@ def render_curve_generic(inputs, out_path):
     elif kind == "calibration":
         msgs.append("완벽 보정: y=x · 아래쪽=과신, 위쪽=과소신")
 
-    # 여백/위치(프로젝트 공통 스타일에 맞춰 입력으로도 미세조정 가능)
-    bottom = float(inputs.get("caption_bottom", 0.10))  # 0.08~0.12 권장
-    y_pos  = float(inputs.get("caption_y", 0.005))      # 0.004~0.008 권장
-
+    bottom = float(inputs.get("caption_bottom", 0.10))
+    y_pos  = float(inputs.get("caption_y", 0.005))
     if msgs:
-        # 아래 여백 예약 후 figtext로 축 밖에 캡션 출력 (tight_layout 재호출 X)
         plt.tight_layout(rect=(0.0, bottom, 1.0, 1.0))
         plt.figtext(0.5, y_pos, "  ·  ".join(msgs), ha="center", va="bottom", fontsize=9)
 
-    # 저장
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
@@ -94,9 +88,10 @@ def render_curve_generic(inputs, out_path):
 register(Grammar(
     "curve_generic",
     ["series"],  # required
+    # optional
     ["xlabel", "ylabel", "title",
-    "style", "legend_loc", "xlim", "ylim",
-    "annotate_last", "diag",
-    "kind", "caption_bottom", "caption_y"],
+     "style", "legend_loc", "xlim", "ylim",
+     "annotate_last", "diag",
+     "kind", "caption_bottom", "caption_y"],
     render_curve_generic
 ))

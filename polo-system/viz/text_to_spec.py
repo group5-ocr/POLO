@@ -577,6 +577,49 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
     # 루브릭 표: 실제 숫자가 잡힌 지표에만 추가
     _add_rubric_tables(spec, mentions, numeric_cids)
 
+    # 곡선(학습/ROC/PR 템플릿) — ★모든 매칭은 glossary 기반★
+    if _has_trigger(cidx, "viz.trigger.curve_generic", text):
+        # glossary 힌트: diag/kind
+        diag_true  = _has_trigger(cidx, "viz.hint.curve.diag.roc", text)
+        diag_false = _has_trigger(cidx, "viz.hint.curve.diag.pr",  text)
+        kind = None
+        if _has_trigger(cidx, "viz.hint.curve.kind.threshold_sweep", text):
+            kind = "threshold_sweep"
+        elif _has_trigger(cidx, "viz.hint.curve.kind.focal_vs_ce", text):
+            kind = "focal_vs_ce"
+        elif _has_trigger(cidx, "viz.hint.curve.kind.map_vs_iou", text):
+            kind = "map_vs_iou"
+        elif _has_trigger(cidx, "viz.hint.curve.kind.calibration", text):
+            kind = "calibration"
+
+        inputs = {
+            "title": "Learning Curve", "xlabel": "epoch", "ylabel": "metric",
+            "series": [
+                {"label": "train", "x": [1,2,3,4,5], "y": [0.9,0.7,0.6,0.5,0.45]},
+                {"label": "val",   "x": [1,2,3,4,5], "y": [1.0,0.8,0.7,0.62,0.60]}
+            ],
+            "legend_loc": "upper right",
+            "annotate_last": True,
+            # caption 위치 기본값(프로젝트 공통 스타일)
+            "caption_bottom": 0.10,
+            "caption_y": 0.005,
+        }
+        # diag 우선순위: ROC 힌트가 있으면 True, PR 힌트가 있으면 False
+        if diag_true:
+            inputs["diag"] = True
+        elif diag_false:
+            inputs["diag"] = False
+        # kind 힌트
+        if kind:
+            inputs["kind"] = kind
+
+        spec.append({
+            "id": "curve_auto",
+            "type": "curve_generic",
+            "labels": {"ko": "곡선(예시)"},
+            "inputs": inputs
+        })
+
     # 비교/벤치마크 → 그룹 막대
     if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
         cats, series = parse_benchmark(text)

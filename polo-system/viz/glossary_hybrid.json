@@ -1614,5 +1614,81 @@
       "ko": ["분포", "히스토그램", "밀도"]
     },
     "category": "viz.intent.distribution"
+  },
+  {
+    "concept_id": "curve_generic_base_1",
+    "category": "viz.trigger.curve_generic",
+    "regex": {
+      "en": [
+        "\\broc\\b",
+        "\\bprecision[- ]?recall\\b",
+        "\\bpr\\b",
+        "\\bthreshold\\b",
+        "\\bfocal\\b",
+        "\\bcalibration\\b",
+        "\\bmAP\\b",
+        "\\biou\\b"
+      ],
+      "ko": [
+        "ROC",
+        "정밀 재현",
+        "정밀-재현",
+        "임계",
+        "스윕",
+        "포컬",
+        "보정",
+        "신뢰도",
+        "mAP",
+        "IoU"
+      ]
+    }
+  },
+  {
+    "concept_id": "curve_hint_diag_roc",
+    "category": "viz.hint.curve.diag.roc",
+    "regex": {
+      "en": ["\\broc\\b", "receiver operating characteristic"],
+      "ko": ["ROC", "ROC곡선"]
+    }
+  },
+  {
+    "concept_id": "curve_hint_diag_pr",
+    "category": "viz.hint.curve.diag.pr",
+    "regex": {
+      "en": ["\\bpr\\b", "precision[- ]?recall"],
+      "ko": ["PR", "정밀[ -]?재현"]
+    }
+  },
+  {
+    "concept_id": "curve_hint_kind_threshold",
+    "category": "viz.hint.curve.kind.threshold_sweep",
+    "regex": {
+      "en": ["threshold", "operating point", "sweep"],
+      "ko": ["임계", "스윕"]
+    }
+  },
+  {
+    "concept_id": "curve_hint_kind_focal",
+    "category": "viz.hint.curve.kind.focal_vs_ce",
+    "regex": {
+      "en": ["\\bfocal\\b", "focal loss", "cross[- ]?entropy"],
+      "ko": ["포컬", "포컬 로스", "크로스 엔트로피"]
+    }
+  },
+  {
+    "concept_id": "curve_hint_kind_map_iou",
+    "category": "viz.hint.curve.kind.map_vs_iou",
+    "regex": {
+      "en": ["\\bmAP\\b", "AP@IoU", "IoU threshold"],
+      "ko": ["mAP", "IoU 임계"]
+    }
+  },
+  {
+    "concept_id": "curve_hint_kind_calib",
+    "category": "viz.hint.curve.kind.calibration",
+    "regex": {
+      "en": ["calibration", "reliability diagram"],
+      "ko": ["보정", "신뢰도 보정", "리라이어빌리티"]
+    }
   }
 ]
