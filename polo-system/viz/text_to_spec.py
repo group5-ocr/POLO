@@ -291,7 +291,7 @@ def _min_reasonable_from_meta(cid: str, meta: dict) -> float | None:
             pass
     return MIN_REASONABLE.get(cid)
 
-# -------------------------- Normalization / coercion ------------------------- #
+# Normalization / coercion
 def normalize_value(cid: str, value: float, is_percent: bool, meta: dict | None = None) -> float:
     v = value / 100.0 if is_percent else value
     lo, hi = _norm_range_from_meta(cid, meta or {"entry": {}})
@@ -321,7 +321,7 @@ def _coerce_metric_value(cid: str, meta: dict, val: float, is_pct: bool):
 
 # 특수 토큰 필터
 def _pick_method_token(chunk: str, stopwords: set[str],
-                       cand_rx: re.Pattern, forbid: set[str]) -> str | None:
+                    cand_rx: re.Pattern, forbid: set[str]) -> str | None:
     def _in_parens_near(idx: int) -> bool:
         left = chunk.rfind("(", 0, idx)
         right = chunk.find(")", idx)
@@ -429,26 +429,26 @@ RUBRICS: dict[str, dict] = {
                         "col": "min score",
                         "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
     "metric.f1": {"mode": "up", "title": "F1-score rubric",
-                  "col": "min score",
-                  "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
+                "col": "min score",
+                "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
     "metric.precision": {"mode": "up", "title": "Precision rubric",
-                         "col": "min score",
-                         "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
+                        "col": "min score",
+                        "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
     "metric.recall": {"mode": "up", "title": "Recall rubric",
-                      "col": "min score",
-                      "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
+                    "col": "min score",
+                    "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
     "metric.auroc": {"mode": "up", "title": "AUROC rubric",
-                     "col": "min score",
-                     "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
+                    "col": "min score",
+                    "thr": [(0.90, "Excellent"), (0.80, "Good"), (0.70, "Fair"), (0.60, "Poor")]},
     "metric.auprc": {"mode": "up", "title": "AUPRC rubric (baseline≈prevalence)",
-                     "col": "min score",
-                     "thr": [(0.70, "Excellent"), (0.50, "Good"), (0.30, "Fair"), (0.00, "Poor")]},
+                    "col": "min score",
+                    "thr": [(0.70, "Excellent"), (0.50, "Good"), (0.30, "Fair"), (0.00, "Poor")]},
     "metric.map_detection": {"mode": "up", "title": "mAP rubric (@[.5:.95])",
-                             "col": "min mAP",
-                             "thr": [(0.55, "Excellent"), (0.40, "Good"), (0.25, "Fair"), (0.00, "Poor")]},
+                            "col": "min mAP",
+                            "thr": [(0.55, "Excellent"), (0.40, "Good"), (0.25, "Fair"), (0.00, "Poor")]},
     "metric.average_recall": {"mode": "up", "title": "AR rubric",
-                              "col": "min AR",
-                              "thr": [(0.70, "Excellent"), (0.55, "Good"), (0.40, "Fair"), (0.00, "Poor")]},
+                            "col": "min AR",
+                            "thr": [(0.70, "Excellent"), (0.55, "Good"), (0.40, "Fair"), (0.00, "Poor")]},
     "metric.miou": {"mode": "up", "title": "mIoU rubric",
                     "col": "min IoU",
                     "thr": [(0.80, "Excellent"), (0.60, "Good"), (0.40, "Fair"), (0.00, "Poor")]},
@@ -456,29 +456,29 @@ RUBRICS: dict[str, dict] = {
                     "col": "min Dice",
                     "thr": [(0.85, "Excellent"), (0.75, "Good"), (0.65, "Fair"), (0.00, "Poor")]},
     "metric.pq": {"mode": "up", "title": "PQ rubric",
-                  "col": "min PQ",
-                  "thr": [(0.55, "Excellent"), (0.45, "Good"), (0.35, "Fair"), (0.00, "Poor")]},
+                "col": "min PQ",
+                "thr": [(0.55, "Excellent"), (0.45, "Good"), (0.35, "Fair"), (0.00, "Poor")]},
     "metric.iou": {"mode": "up", "title": "IoU rubric",
-                   "col": "min IoU",
-                   "thr": [(0.75, "Excellent"), (0.60, "Good"), (0.50, "Fair"), (0.00, "Poor")]},
+                "col": "min IoU",
+                "thr": [(0.75, "Excellent"), (0.60, "Good"), (0.50, "Fair"), (0.00, "Poor")]},
     "metric.fid": {"mode": "down", "title": "FID rubric",
-                   "col": "max FID",
-                   "thr": [(10.0, "Excellent"), (25.0, "Good"), (50.0, "Fair"), (1e9, "Poor")]},
+                "col": "max FID",
+                "thr": [(10.0, "Excellent"), (25.0, "Good"), (50.0, "Fair"), (1e9, "Poor")]},
     "metric.kid": {"mode": "down", "title": "KID rubric",
-                   "col": "max KID",
-                   "thr": [(0.01, "Excellent"), (0.02, "Good"), (0.05, "Fair"), (1e9, "Poor")]},
+                "col": "max KID",
+                "thr": [(0.01, "Excellent"), (0.02, "Good"), (0.05, "Fair"), (1e9, "Poor")]},
     "metric.lpips": {"mode": "down", "title": "LPIPS rubric",
-                     "col": "max LPIPS",
-                     "thr": [(0.15, "Excellent"), (0.25, "Good"), (0.35, "Fair"), (1e9, "Poor")]},
+                    "col": "max LPIPS",
+                    "thr": [(0.15, "Excellent"), (0.25, "Good"), (0.35, "Fair"), (1e9, "Poor")]},
     "metric.inception_score": {"mode": "up", "title": "IS rubric (dataset-dep.)",
-                               "col": "min IS",
-                               "thr": [(8.5, "Excellent"), (7.5, "Good"), (6.5, "Fair"), (0.0, "Poor")]},
+                            "col": "min IS",
+                            "thr": [(8.5, "Excellent"), (7.5, "Good"), (6.5, "Fair"), (0.0, "Poor")]},
     "metric.wer": {"mode": "down", "title": "WER rubric",
-                   "col": "max WER",
-                   "thr": [(0.05, "Excellent"), (0.10, "Good"), (0.20, "Fair"), (1.0, "Poor")]},
+                "col": "max WER",
+                "thr": [(0.05, "Excellent"), (0.10, "Good"), (0.20, "Fair"), (1.0, "Poor")]},
     "metric.cer": {"mode": "down", "title": "CER rubric",
-                   "col": "max CER",
-                   "thr": [(0.02, "Excellent"), (0.05, "Good"), (0.10, "Fair"), (1.0, "Poor")]},
+                "col": "max CER",
+                "thr": [(0.02, "Excellent"), (0.05, "Good"), (0.10, "Fair"), (1.0, "Poor")]},
 }
 
 def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None = None):
