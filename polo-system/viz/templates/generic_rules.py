@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
-"""
-개념/예시 도식 빌더
-- 텍스트에 '수치'가 없어도, 의미 있는 트리거가 있으면 예시 도식 생성
-- 히스토그램은 text_to_spec 에서 glossary 트리거로만 처리하므로 여기서는 생성하지 않음
-"""
+# 개념/예시 도식 빌더
+# 텍스트에 '수치'가 없어도, 의미 있는 트리거가 있으면 예시 도식 생성
+
 from __future__ import annotations
 import re, math, random, hashlib
 from typing import List, Dict, Any
@@ -20,7 +17,7 @@ def _rng_from(text: str, salt: str = "") -> random.Random:
     return random.Random(_stable_seed(text, salt))
 def _clip(v, lo=0.05, hi=0.95): return max(lo, min(hi, v))
 
-# ------------------------------- helpers ------------------------------- #
+# 헬퍼
 def _nums(text):
     return [float(x.replace(',', '')) for x in re.findall(r'-?\d+(?:\.\d+)?', text)]
 
@@ -210,7 +207,7 @@ def _parse_taus_from_text(text: str) -> list[float]:
                 pass
     return sorted(set(round(v, 3) for v in vals))
 
-# ------------------------------- builder ------------------------------- #
+# 빌더
 def build_concept_specs(text: str, spec: list,
                         mentions: dict,
                         numeric_cids: set[str] | None = None) -> list:

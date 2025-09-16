@@ -5,7 +5,7 @@ from typing import Dict, Any, Callable
 class Grammar:
     # 문법의 메타데이터를 보관하는 간단한 클래스
     def __init__(self, id: str, needs: list, optional: list, renderer: Callable[[dict, str], None]):
-        self.id = id                  # 문법 ID (예: "curve_generic")
+        self.id = id                  # 문법 ID
         self.needs = needs            # 필수 입력 키 목록
         self.optional = optional      # 선택 입력 키 목록
         self.renderer = renderer      # 렌더 함수 (inputs, out_path)

@@ -20,6 +20,7 @@ import torch
 DEVICE = "cpu"  # GPU 메모리 절약을 위해 CPU 강제 사용
 GPU_AVAILABLE = False  # GPU 사용 안함
 
+
 # matplotlib 설정
 mpl.rcParams["savefig.dpi"] = 220
 mpl.rcParams["figure.dpi"]  = 220
