@@ -3,7 +3,7 @@ import os
 from copy import deepcopy
 from registry import get as gram_get
 from switch import make_opts, resolve_label, merge_caption
-import importlib, pkgutil
+import importlib, pkgutil, time
 from pathlib import Path
 from matplotlib import font_manager, rcParams
 from matplotlib.font_manager import FontProperties
@@ -202,8 +202,17 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
             if need not in inputs:
                 inputs[need] = "__MISSING__"
 
+        # 항상 같은 파일명으로 저장 (브라우저 캐시 우회는 응답에서 처리)
         out_path = os.path.join(outdir, f"{item['id']}_{item['type']}.png")
-        g.renderer(inputs, out_path)                       # 실제 렌더 (기존 그대로)
+
+        # 원자적 교체: 임시 파일로 먼저 저장 후 교체(부분 쓰기 노출 방지)
+        tmp_path = os.path.join(outdir, f".~{item['id']}_{item['type']}.png")
+        g.renderer(inputs, tmp_path)
+        os.replace(tmp_path, out_path)  # 같은 이름으로 교체
+
+        now = time.time()
+        os.utime(out_path, (now, now))
+
         outputs.append({"id": item["id"], "type": item["type"], "path": out_path})
     return outputs
 
@@ -254,7 +263,7 @@ async def generate_viz(request: VizRequest):
             str(outdir), 
             target_lang=request.target_lang, 
             bilingual=request.bilingual,
-            clear_outdir=False
+            clear_outdir=True
         )
         
         # 첫 번째 이미지 경로 반환 (여러 개 생성될 수 있음)
@@ -263,10 +272,13 @@ async def generate_viz(request: VizRequest):
         if not image_path:
             raise HTTPException(status_code=500, detail="이미지 생성 실패")
         
+        rev = str(time.time_ns())  # 항상 새로운 값 → 브라우저/뷰어 캐시 완전 우회
+        image_path_versioned = f"{image_path}?rev={rev}"
+        
         return VizResponse(
             paper_id=request.paper_id,
             index=request.index,
-            image_path=image_path,
+            image_path=image_path_versioned,
             success=True
         )
         

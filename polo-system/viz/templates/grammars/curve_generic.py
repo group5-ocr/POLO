@@ -87,7 +87,7 @@ def render_curve_generic(inputs, out_path):
     plt.title(inputs.get("title", ""))
     plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
 
-    # 캡션(한 번만) — glossary 플래그 + 컨텍스트 가드
+    # 캡션 — glossary 플래그 + 컨텍스트 가드
     msgs = []
     if diag: msgs.append("대각선=무작위 기준선(ROC)")
     lv = set(labels_seen)

@@ -15,7 +15,7 @@ def render_histogram(inputs, out_path):
     except Exception:
         return
 
-    bins = inputs.get("bins", "fd")  # "fd"|"sturges"|int
+    bins = inputs.get("bins", "fd")
     plt.figure(figsize=(5.6, 4.0))
     plt.hist(values, bins=bins if isinstance(bins, (int,str)) else 20)
     plt.xlabel(inputs.get("xlabel", "value"))

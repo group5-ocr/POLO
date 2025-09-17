@@ -410,7 +410,7 @@ def make_bar_group(cid: str, meta: dict, series_map: Dict[str, float]):
         }
     }
 
-# 루브릭 테이블
+# 평가지표 테이블
 RUBRICS: dict[str, dict] = {
     "metric.accuracy": {"mode": "up", "title": "Accuracy rubric",
                         "col": "min score",
@@ -468,60 +468,80 @@ RUBRICS: dict[str, dict] = {
                 "thr": [(0.02, "Excellent"), (0.05, "Good"), (0.10, "Fair"), (1.0, "Poor")]},
 }
 
-def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None = None):
+def collect_metric_keyword_hits(text: str, concept_idx) -> set[str]:
+    """숫자 없이 '지표 키워드'만 매칭된 CID 집합을 수집."""
+    hits = set()
+    for cid, meta in concept_idx.items():
+        if meta.get("category") != "metric":
+            continue
+        for pat in meta["patterns"]:
+            if pat.search(text):
+                hits.add(cid); break
+    return hits
+
+# 평가지표 하단 설명
+RUBRIC_CAPTIONS = {
+    "metric.accuracy": "정확도=(TP+TN)/전체. 클래스 불균형 상황에선 보조 지표와 함께 해석.",
+    "metric.precision": "Precision=TP/(TP+FP). 적중의 순도. 낮으면 오탐이 많음.",
+    "metric.recall": "Recall=TP/(TP+FN). 놓침 방지. 낮으면 미탐이 많음.",
+    "metric.f1": "F1=2·(Prec·Rec)/(Prec+Rec). 정밀도·재현율의 균형.",
+    "metric.auroc": "AUROC: 임계 전 범위에서 TPR 대 FPR 면적. 0.5는 무작위.",
+    "metric.auprc": "AUPRC: 클래스 희소 시 해석 유리. 기준선≈양성 비율.",
+    "metric.map_detection": "COCO mAP: IoU 0.50–0.95(0.05 간격) AP 평균.",
+    "metric.average_recall": "AR: 다수 임계에서의 평균 재현율.",
+    "metric.miou": "mIoU: 교집합/합집합의 클래스 평균. 세그멘테이션 품질.",
+    "metric.iou": "IoU: 교집합/합집합. 1에 가까울수록 정확.",
+    "metric.dice": "Dice=2·|∩|/(|A|+|B|). IoU와 유사, 민감도 높음.",
+    "metric.pq": "PQ: Panoptic Quality. 세그멘트 매칭+정확도 결합.",
+    "metric.fid": "FID↓: 생성 분포와 실제 분포의 거리. 낮을수록 좋음.",
+    "metric.kid": "KID↓: 커널 기반 분포 거리. 낮을수록 좋음.",
+    "metric.lpips": "LPIPS↓: 지각적 거리. 낮을수록 유사.",
+    "metric.inception_score": "IS: 클래스 다양성과 확신을 함께 반영.",
+    "metric.wer": "WER↓: 단어 오류율. 낮을수록 좋음.",
+    "metric.cer": "CER↓: 문자 오류율. 낮을수록 좋음.",
+}
+
+def _add_rubric_tables(spec: list, mentions: dict,
+                    numeric_cids: set[str] | None = None):
     """
-    숫자 잡힌 지표에만 루브릭 표 추가.
-    수치가 있으면 표 '위'에 headline(예: 'Ours: mAP 42.3%')을 표시.
-    표 '아래'에는 캡션(지표 설명)을 넣는다(렌더러에서 자동 생성 가능).
+    숫자 유무와 무관하게 '언급된 지표'에 대해 1회만 표 생성.
+    - 상단 헤드라인/수치(예: VOC2012: …)는 넣지 않음
+    - 캡션은 지표별 설명을 붙이고, 간격을 좁히기 위한 파라미터 전달
     """
     if numeric_cids is None:
-        numeric_cids = {cid for cid, by_method in mentions.items() if by_method}
+        # 기본: 숫자 없이 키워드만 매칭된 CID 들
+        numeric_cids = set(mentions.keys())
 
-    def _best_headline_for(cid: str, by_method: dict) -> str | None:
-        if not by_method:
-            return None
-        items = [(m, v) for m, v in by_method.items() if isinstance(v, (int, float))]
-        if not items:
-            return None
-        ours = next(((m, v) for m, v in items if str(m).lower().startswith("ours")), None)
-        name, v01 = ours if ours else max(items, key=lambda kv: kv[1])
-        metric_name = "mAP" if cid == "metric.map_detection" else RUBRICS.get(cid, {}).get("col", cid)
-        return f"{name}: {metric_name} {v01*100:.1f}%"
-
-    def _append_table(cid: str, rub: dict, by_method: dict | None):
+    def _append_table(cid: str, rub: dict):
         title_en = rub.get("title", cid)
+        if cid == "metric.map_detection":
+            title_en = "mAP rubric"
         title_ko = title_en.replace("rubric", "해석")
 
         rows   = [name for _, name in rub["thr"]]
         values = [[round(th, 3)] for th, _ in rub["thr"]]
 
-        inputs = {
-            # 기존 스키마(methods/metrics/values) 그대로 사용 — 렌더러가 변환
-            "methods": rows,
-            "metrics": [rub["col"]],
-            "values":  values,
-            "title":   {"en": title_en, "ko": title_ko},
-            # 표 아래 설명 위치(겹침 방지 기본값)
-            "caption_bottom": 0.12,
-            "caption_y": 0.006,
-        }
-        # 숫자 있으면 표 위쪽에 헤드라인 추가
-        if by_method:
-            hl = _best_headline_for(cid, by_method)
-            if hl:
-                inputs["headline"] = {"ko": hl, "en": hl}
-
-        spec.append({
+        item = {
             "id": f"{cid.split('.')[-1]}_rubric",
             "type": "metric_table",
             "labels": {"en": title_en, "ko": title_ko},
-            "inputs": inputs
-        })
+            "caption_labels": {"ko": RUBRIC_CAPTIONS.get(cid, "")},
+            "inputs": {
+                "methods": rows,
+                "metrics": [rub["col"]],
+                "values":  values,
+                "title":   {"en": title_en, "ko": title_ko},
+                # 간격
+                "caption_bottom": 0.14,
+                "caption_y": 0.02,      
+            }
+        }
+        spec.append(item)
 
     for cid in sorted(numeric_cids):
         rub = RUBRICS.get(cid)
         if rub:
-            _append_table(cid, rub, mentions.get(cid))
+            _append_table(cid, rub)
 
 # 학습 곡선 빌더
 MIN_POINTS_FOR_CURVE = 3
@@ -560,8 +580,9 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         if cond:
             spec.append(item)
 
-    # 루브릭 표: 실제 숫자가 잡힌 지표에만 추가
-    _add_rubric_tables(spec, mentions, numeric_cids)
+    # 평가지표
+    mentioned_cids = collect_metric_keyword_hits(text, cidx)
+    _add_rubric_tables(spec, mentions, numeric_cids=mentioned_cids)
 
     # 비교/벤치마크 → 그룹 막대
     if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
@@ -611,7 +632,6 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
 
     # 임베딩/특징 결합 → 도식 (흐름이 있을 때만)
     if _has_trigger(cidx, "viz.intent.fusion", text) or _has_trigger(cidx, "viz.trigger.embedding_sum", text):
-        import re
         # 결합/합치기 의사어휘가 실제로 등장?
         has_action = bool(re.search(r"(합치|결합|sum|add|concat|merge|fuse)", text, re.I))
         # 따옴표/대괄호/백틱 안의 명칭을 후보로 수집

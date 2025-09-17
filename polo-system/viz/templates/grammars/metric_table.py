@@ -1,81 +1,113 @@
 import matplotlib.pyplot as plt
+from matplotlib.table import Table
 from registry import Grammar, register
 
-def _t(v):
-    return (v.get("ko") or v.get("en") or "") if isinstance(v, dict) else str(v)
+def _label(v):
+    if isinstance(v, dict):
+        return v.get("ko") or v.get("en") or ""
+    return str(v)
 
 def render_metric_table(inputs, out_path):
-    title    = _t(inputs.get("title") or {"ko":"평가지표 해석"})
-    headline = _t(inputs.get("headline")) if inputs.get("headline") else None
-    caption  = _t(inputs.get("caption"))  if inputs.get("caption")  else None
+    # 필수
+    methods = inputs.get("methods", [])
+    metrics = inputs.get("metrics", [])
+    values  = inputs.get("values", [])
 
-    headers = inputs.get("headers")
-    rows    = inputs.get("rows")
-    # methods/metrics/values 스키마 지원
-    if rows is None and {"methods","metrics","values"} <= set(inputs):
-        methods = list(inputs["methods"])
-        metrics = list(inputs["metrics"])
-        values  = list(inputs["values"])
-        headers = [inputs.get("first_col_label","등급")] + metrics
-        rows    = [[methods[i]] + [values[i][j] for j in range(len(metrics))] for i in range(len(methods))]
+    # 제목/캡션
+    title   = _label(inputs.get("title", {"ko": "평가지표 해석"}))
+    caption = inputs.get("caption", "")
 
-    fig, ax = plt.subplots(figsize=(6.8, 4.2))
+    # 레이아웃/스타일 파라미터 (입력으로 오버라이드 가능)
+    fig_w, fig_h = float(inputs.get("fig_w", 7.0)), float(inputs.get("fig_h", 5.0))
+    title_size = int(inputs.get("title_size", 24))
+    cell_size = int(inputs.get("cell_size", 16))
+    caption_size = int(inputs.get("caption_size", 13))
+
+    # 표 내부 세로 패딩(행 높이 배율).
+    row_pad = float(inputs.get("row_pad", 1.00))
+
+    # 제목/캡션 위치(figure 좌표)
+    # title_y는 0.90~0.95, caption_y는 0.025~0.06 권장
+    title_y = float(inputs.get("title_y", 0.92))
+    title_gap        = float(inputs.get("title_gap", 0.030))
+    # 표-캡션 사이 간격(작게 줄일수록 캡션이 위로 붙음)
+    caption_gap      = float(inputs.get("caption_gap", 0.020))
+
+    bottom_margin = 0.08
+
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    fig.subplots_adjust(left=0.06, right=0.94, top=0.98, bottom=0.06)
+    ax = fig.add_subplot(111)
     ax.axis("off")
-    ax.set_title(title, fontsize=16, pad=6)
 
-    # 위쪽 headline
-    top_limit = 0.92
-    if headline:
-        y_head = float(inputs.get("headline_y", 0.935))
-        plt.figtext(0.5, y_head, headline, ha="center", va="top", fontsize=12)
-        top_limit = min(top_limit, y_head - 0.02)
+    # 제목
+    if title:
+        fig.text(0.5, title_y, title, ha="center", va="bottom", fontsize=title_size)
 
-    # 숫자 포맷
-    def f(x):
-        if isinstance(x, (int, float)):
-            return f"{x:.3f}".rstrip("0").rstrip(".")
-        return str(x)
-    rows_fmt = [[f(c) for c in r] for r in rows]
+    # 표 그리기
+    nrows = len(methods) + 1
+    ncols = len(metrics) + 1
 
-    tbl = ax.table(cellText=rows_fmt, colLabels=headers, loc="center", cellLoc="center", colLoc="center")
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(float(inputs.get("cell_fontsize", 12)))
-    tbl.scale(1.0, 1.2)
-    for (r,c), cell in tbl.get_celld().items():
-        cell.set_linewidth(1.2)
-        if r == 0:
-            cell.set_height(cell.get_height()*1.15)
-            cell.set_fontsize(float(inputs.get("header_fontsize", 12.5)))
-            cell.set_edgecolor("black")
-        else:
-            cell.set_edgecolor("black")
+    # 표가 차지할 박스(figure 내 비율).
+    top_edge = title_y - title_gap
+    tbl_bbox = [0.08, bottom_margin, 0.84, top_edge - bottom_margin]
+    tbl = Table(ax, bbox=tbl_bbox)
 
-    # 캡션 자동 생성(없을 때)
-    if not caption:
-        low = title.lower()
-        if "map" in low:
-            caption = "COCO mAP@[.5:.95]: IoU 0.50–0.95(0.05 간격)에서 AP 평균. 아래 등급은 최소 mAP 기준."
-        elif "accuracy" in low or "정확도" in low:
-            caption = "정확도=(TP+TN)/전체. 클래스 불균형 상황에선 보조 지표와 함께 해석."
-        elif "f1" in low:
-            caption = "F1=2·(Precision·Recall)/(Precision+Recall). 두 지표 균형을 요약."
+    # 셀 기본 크기(상대적 세팅).
+    cw = 1.0 / ncols
+    ch = 0.9 / nrows
 
-    bottom = float(inputs.get("caption_bottom", 0.12))
-    cap_y  = float(inputs.get("caption_y", 0.006))
+    # 좌측 헤더(행 이름) 레이블
+    row_header = _label(inputs.get("row_header", {"ko": "등급", "en": "Level"}))
+    tbl.add_cell(0, 0, cw, ch, text=row_header, loc="center",
+                facecolor="white", edgecolor="black")
+
+    # 상단 컬럼 헤더
+    for j, m in enumerate(metrics):
+        tbl.add_cell(0, j + 1, cw, ch, text=_label(m), loc="center",
+                    facecolor="white", edgecolor="black")
+
+    # 본문
+    for i, r in enumerate(methods):
+        # 행 이름
+        tbl.add_cell(i + 1, 0, cw, ch, text=_label(r), loc="center",
+                    facecolor="white", edgecolor="black")
+        # 값
+        for j in range(len(metrics)):
+            txt = ""
+            if i < len(values) and j < len(values[i]):
+                v = values[i][j]
+                if isinstance(v, (int, float)):
+                    txt = f"{v:g}"
+                else:
+                    txt = str(v)
+            tbl.add_cell(i + 1, j + 1, cw, ch, text=txt, loc="center",
+                        facecolor="white", edgecolor="black")
+
+    # 폰트/셀 높이 조정
+    for (_, _), cell in tbl.get_celld().items():
+        cell.get_text().set_fontsize(cell_size)
+
+    ax.add_table(tbl)
+
+    # 캡션 (figure 좌표로 직접 배치 → 값만 바꾸면 즉시 반영)
     if caption:
-        plt.tight_layout(rect=(0.0, bottom, 1.0, top_limit))
-        plt.figtext(0.5, cap_y, caption, ha="center", va="bottom", fontsize=10)
-    else:
-        plt.tight_layout(rect=(0.0, 0.05, 1.0, top_limit))
+        fig.canvas.draw()
+        tbl_box = tbl.get_window_extent(fig.canvas.get_renderer())\
+                    .transformed(fig.transFigure.inverted())
+        cap_y = max(0.02, tbl_box.y0 - caption_gap)
+        fig.text(0.5, cap_y, caption, ha="center", va="top", fontsize=caption_size)
 
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
+# Grammar 등록 (포지셔널 인자 사용: name, needs, optionals, renderer)
 register(Grammar(
     "metric_table",
-    [],
-    ["title","headers","rows","methods","metrics","values","first_col_label",
-    "headline","headline_y","caption","caption_bottom","caption_y",
-    "cell_fontsize","header_fontsize"],
+    ["methods", "metrics", "values"],
+    ["title", "caption",
+    "fig_w", "fig_h",
+    "title_size", "cell_size", "caption_size",
+    "row_pad", "title_y", "caption_y", "row_header"],
     render_metric_table
 ))

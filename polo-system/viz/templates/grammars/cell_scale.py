@@ -26,8 +26,8 @@ def render_cell_scale(inputs, out_path):
     grids = inputs.get("grids", [[13, 13], [26, 26]])
     grids = [_pair_grid(g) for g in grids[:2]] or [(13, 13), (26, 26)]
 
-    which_cell      = inputs.get("cell_xy", None)           # [cx_i, cy_i]
-    norm_center     = inputs.get("norm_center", [0.5, 0.5]) # [0..1] in cell
+    which_cell      = inputs.get("cell_xy", None)           
+    norm_center     = inputs.get("norm_center", [0.5, 0.5]) 
     norm_wh_cell    = inputs.get("norm_wh_cell", [0.7, 0.7])
     anchor_rel_cell = inputs.get("anchor_rel_cell", None)
 
@@ -94,7 +94,7 @@ def render_cell_scale(inputs, out_path):
                             edgecolor="#945c13", lw=1.6))
 
         # 이 축의 figure 좌표 bbox
-        bbox = ax.get_position(fig)  # Bbox in figure coords
+        bbox = ax.get_position(fig)
         cx = bbox.x0 + bbox.width/2
         # 패널 위/아래에 찍을 문자열 준비
         top_labels.append((cx, bbox.y1 + caption_top_pad, f"{gw}×{gh} grid"))
@@ -107,7 +107,7 @@ def render_cell_scale(inputs, out_path):
     for x, y, s in bottom_labels:
         fig.text(x, y, s, ha="center", va="top", fontsize=11, color="#333")
 
-    # 전체 제목도 figure 최상단에(패널 밖)
+    # 제목 위치
     fig.text(0.5, title_y, title, ha="center", va="top", fontsize=18)
 
     fig.savefig(out_path, bbox_inches="tight")
