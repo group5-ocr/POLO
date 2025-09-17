@@ -4,12 +4,6 @@ from matplotlib.patches import Rectangle
 from registry import Grammar, register
 import numpy as np
 
-import math
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from registry import Grammar, register
-import numpy as np
-
 def _tuplify_wh(v, default=(640, 640)):
     if isinstance(v, (list, tuple)) and len(v) == 2:
         return float(v[0]), float(v[1])
@@ -93,11 +87,11 @@ def render_cell_scale(inputs, out_path):
 
         # 강조 셀
         ax.add_patch(Rectangle((cell_x0, cell_y0), cell_w, cell_h,
-                               fill=False, edgecolor="#222", lw=1.6))
+                            fill=False, edgecolor="#222", lw=1.6))
         # 박스
         ax.add_patch(Rectangle((box_cx - bw/2, box_cy - bh/2), bw, bh,
-                               facecolor="#f0a63a", alpha=0.45,
-                               edgecolor="#945c13", lw=1.6))
+                            facecolor="#f0a63a", alpha=0.45,
+                            edgecolor="#945c13", lw=1.6))
 
         # 이 축의 figure 좌표 bbox
         bbox = ax.get_position(fig)  # Bbox in figure coords
@@ -105,7 +99,7 @@ def render_cell_scale(inputs, out_path):
         # 패널 위/아래에 찍을 문자열 준비
         top_labels.append((cx, bbox.y1 + caption_top_pad, f"{gw}×{gh} grid"))
         bottom_labels.append((cx, bbox.y0 - caption_bottom_pad,
-                              f"cell={cx_i},{cy_i}  size≈({bw:.1f}px, {bh:.1f}px)"))
+                            f"cell={cx_i},{cy_i}  size≈({bw:.1f}px, {bh:.1f}px)"))
 
     # 패널 위/아래 캡션을 figure 영역에 배치
     for x, y, s in top_labels:
@@ -123,6 +117,6 @@ register(Grammar(
     "cell_scale",
     [],  # required 없음
     ["img_wh", "grids", "cell_xy", "norm_center", "norm_wh_cell",
-     "anchor_rel_cell", "zoom", "dpi", "grid_lw", "title_pad", "title"],
+    "anchor_rel_cell", "zoom", "dpi", "grid_lw", "title_pad", "title"],
     render_cell_scale
 ))

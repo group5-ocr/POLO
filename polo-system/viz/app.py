@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 스펙(JSON 유사 딕셔너리) 리스트를 받아 각 항목을 PNG로 렌더링
 import os
 from copy import deepcopy
@@ -74,7 +73,31 @@ def _present_families(candidates):
     return present
 
 def _setup_matplotlib_fonts():
-    # (1) 한글 본문 후보 (환경변수 우선)
+    """
+    한글 폰트를 '설치되어 있든/없든' 최대한 자동으로 잡아준다.
+    1) 환경변수 FONT_KR_PATH, 2) ./fonts/*, 3) OS 공용 경로 순서로 폰트 파일을 찾아
+    font_manager.addfont 로 런타임 등록 후 family 우선순위를 세팅한다.
+    """
+    # 0) 런타임 등록 후보 경로 (존재하는 첫 파일 1개면 충분)
+    here = Path(__file__).parent
+    font_file_candidates = [
+        os.getenv("FONT_KR_PATH"),
+        str(here / "fonts" / "NotoSansKR-Regular.otf"),
+        str(here / "fonts" / "NanumGothic.ttf"),
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # macOS
+        "C:\\Windows\\Fonts\\malgun.ttf",              # Windows
+    ]
+    for p in filter(None, font_file_candidates):
+        try:
+            if os.path.exists(p):
+                font_manager.fontManager.addfont(p)  # ← 런타임 등록 (없던 폰트도 사용 가능)
+                break
+        except Exception:
+            pass
+
+    # 1) 한글 본문 후보 (환경변수로 family 강제 시 최우선)
     kr_candidates = (
         [os.getenv("FONT_KR_FAMILY")] if os.getenv("FONT_KR_FAMILY") else []
     ) + [
@@ -82,7 +105,7 @@ def _setup_matplotlib_fonts():
         "Malgun Gothic", "NanumGothic", "Source Han Sans K", "Source Han Sans KR",
     ]
 
-    # (2) 기호 폴백 후보 (Windows에 흔한 'Segoe UI Symbol'도 포함)
+    # 2) 기호 폴백
     sym_candidates = ["Noto Sans Symbols 2", "Segoe UI Symbol", "DejaVu Sans"]
 
     kr_present  = _present_families(kr_candidates)
@@ -97,7 +120,6 @@ def _setup_matplotlib_fonts():
     rcParams["font.family"] = family
     rcParams["font.sans-serif"] = family
     rcParams["axes.unicode_minus"] = False
-    # 수학기호는 mathtext로 렌더 → DejaVu Sans 기반이라 기호가 안전함
     rcParams["mathtext.fontset"] = "dejavusans"
 
 def _prepare_outdir(outdir, clear=False, patterns=("*.png", "*.json")):
@@ -161,9 +183,6 @@ def _localize_inputs(inputs, opts):
 
 # 랜더링 할때 결과 출력물 세팅
 def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str = "missing", clear_outdir: bool = True):
-    """
-    spec_list: [{ id, type, labels?, caption_labels?, inputs: {...} }, ...]
-    """
     _ensure_grammars_loaded() # 시각화 기법 로드
     _setup_matplotlib_fonts() # 폰트 한글화
     _prepare_outdir(outdir, clear=clear_outdir) # 이전 출력물 제거
@@ -172,7 +191,7 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
 
     outputs = []
     for item in spec_list:
-        g = gram_get(item["type"])                         # 문법 조회 (기존 그대로)
+        g = gram_get(item["type"])                         # 문법 조회
         raw_inputs = deepcopy(item.get("inputs", {}))      # 원본 보존
         raw_inputs = _inject_labels_into_inputs(item, raw_inputs, opts)
         inputs = _localize_inputs(raw_inputs, opts)        # ko/en 딕셔너리를 문자열로 변환

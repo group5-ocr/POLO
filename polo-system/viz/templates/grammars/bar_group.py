@@ -88,6 +88,6 @@ def _lab(x):
     return str(x)
 
 register(Grammar("bar_group",
-                 ["categories","series"],
-                 ["title","ylabel","ylim","annotate","legend","rotate","fmt","legend_out"],
-                 render_bar_group))
+                ["categories","series"],
+                ["title","ylabel","ylim","annotate","legend","rotate","fmt","legend_out"],
+                render_bar_group))

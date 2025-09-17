@@ -5,15 +5,12 @@
 - 나머지 개념 도식은 templates/generic_rules.build_concept_specs 에서 추가
 """
 from __future__ import annotations
-import re, json, math, random, hashlib, statistics
+import re, json, math, statistics
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 # 개념/예시 도식 트리거
 from templates.generic_rules import build_concept_specs
-
-# 스펙을 값 없이 템플릿으로 추가하지 않음
-ALLOW_FALLBACK_TEMPLATES = False
 
 # 히스토그램 필터
 _NUM = r"-?\d+(?:\.\d+)?"
@@ -81,7 +78,7 @@ def parse_benchmark(text, max_tasks=12, max_series=8):
             vals.setdefault(n.strip(), []).append(float(v))
     cats = cats[:max_tasks]
     series = [{"label": k, "values": (v + [0.0]*(len(cats)-len(v)))[:len(cats)]}
-              for k,v in list(vals.items())[:max_series]]
+            for k,v in list(vals.items())[:max_series]]
     return (cats, series) if cats and series else ([], [])
 
 # 카테고리 분해(스택): "Dataset A: Span 20%, ..." 라인 다수 → (categories, series)
@@ -116,16 +113,6 @@ def parse_special_tokens(text):
 
 # 유틸리티(라벨 한글화, 값 정규화)
 def _label(en, ko): return {"en": en, "ko": ko}
-
-def _stable_seed(text: str, salt: str = "") -> int:
-    h = hashlib.sha256((salt + "|" + (text or "")).encode("utf-8")).hexdigest()
-    return int(h[:8], 16)
-
-def _rng_from(text: str, salt: str = "") -> random.Random:
-    return random.Random(_stable_seed(text, salt))
-
-def _clip(v, lo=0.05, hi=0.95):
-    return max(lo, min(hi, v))
 
 # 용어 IO
 def _find_glossary_path():
@@ -443,7 +430,7 @@ RUBRICS: dict[str, dict] = {
     "metric.auprc": {"mode": "up", "title": "AUPRC rubric (baseline≈prevalence)",
                     "col": "min score",
                     "thr": [(0.70, "Excellent"), (0.50, "Good"), (0.30, "Fair"), (0.00, "Poor")]},
-    "metric.map_detection": {"mode": "up", "title": "mAP rubric (@[.5:.95])",
+    "metric.map_detection": {"mode": "up", "title": "mAP rubric",
                             "col": "min mAP",
                             "thr": [(0.55, "Excellent"), (0.40, "Good"), (0.25, "Fair"), (0.00, "Poor")]},
     "metric.average_recall": {"mode": "up", "title": "AR rubric",
@@ -482,63 +469,62 @@ RUBRICS: dict[str, dict] = {
 }
 
 def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None = None):
+    """
+    숫자 잡힌 지표에만 루브릭 표 추가.
+    수치가 있으면 표 '위'에 headline(예: 'Ours: mAP 42.3%')을 표시.
+    표 '아래'에는 캡션(지표 설명)을 넣는다(렌더러에서 자동 생성 가능).
+    """
     if numeric_cids is None:
         numeric_cids = {cid for cid, by_method in mentions.items() if by_method}
 
-    def _append_table(cid: str, rub: dict):
+    def _best_headline_for(cid: str, by_method: dict) -> str | None:
+        if not by_method:
+            return None
+        items = [(m, v) for m, v in by_method.items() if isinstance(v, (int, float))]
+        if not items:
+            return None
+        ours = next(((m, v) for m, v in items if str(m).lower().startswith("ours")), None)
+        name, v01 = ours if ours else max(items, key=lambda kv: kv[1])
+        metric_name = "mAP" if cid == "metric.map_detection" else RUBRICS.get(cid, {}).get("col", cid)
+        return f"{name}: {metric_name} {v01*100:.1f}%"
+
+    def _append_table(cid: str, rub: dict, by_method: dict | None):
         title_en = rub.get("title", cid)
         title_ko = title_en.replace("rubric", "해석")
+
         rows   = [name for _, name in rub["thr"]]
         values = [[round(th, 3)] for th, _ in rub["thr"]]
+
+        inputs = {
+            # 기존 스키마(methods/metrics/values) 그대로 사용 — 렌더러가 변환
+            "methods": rows,
+            "metrics": [rub["col"]],
+            "values":  values,
+            "title":   {"en": title_en, "ko": title_ko},
+            # 표 아래 설명 위치(겹침 방지 기본값)
+            "caption_bottom": 0.12,
+            "caption_y": 0.006,
+        }
+        # 숫자 있으면 표 위쪽에 헤드라인 추가
+        if by_method:
+            hl = _best_headline_for(cid, by_method)
+            if hl:
+                inputs["headline"] = {"ko": hl, "en": hl}
+
         spec.append({
             "id": f"{cid.split('.')[-1]}_rubric",
             "type": "metric_table",
             "labels": {"en": title_en, "ko": title_ko},
-            "inputs": {
-                "methods": rows,
-                "metrics": [rub["col"]],
-                "values":  values,
-                "title":   {"en": title_en, "ko": title_ko},
-            }
+            "inputs": inputs
         })
 
     for cid in sorted(numeric_cids):
         rub = RUBRICS.get(cid)
         if rub:
-            _append_table(cid, rub)
+            _append_table(cid, rub, mentions.get(cid))
 
 # 학습 곡선 빌더
-ALLOW_IMPUTED_CURVES = False
-ALLOW_CURVE_FRONT_IMPUTE = True
 MIN_POINTS_FOR_CURVE = 3
-
-def _build_series_with_front_impute(points, label, text, ylabel):
-    rnd = _rng_from(text, f"train-curve:{label}:{ylabel}")
-    points = sorted(points, key=lambda t: t[0])
-    xs_obs = [p[0] for p in points]
-    ys_obs = [p[1] for p in points]
-
-    x0, y0 = xs_obs[0], ys_obs[0]
-    x_last = xs_obs[-1]
-    x_min = 0 if x0 > 0 else x0
-
-    xs = list(range(int(x_min), int(x_last) + 1))
-    ys, mask = [], []
-    y = max(0.0, min(1.0, y0 - (0.04 + 0.03 * rnd.random())))
-    slope = (ys_obs[-1] - y) / max(1, (x_last - x_min))
-    slope = max(0.002, min(0.08, slope))
-    for x in xs:
-        if x < x0:
-            y = y + slope * 0.6 + rnd.uniform(-0.004, 0.004)
-            ys.append(_clip(y)); mask.append(0)
-        else:
-            if x in xs_obs:
-                y = ys_obs[xs_obs.index(x)]
-                ys.append(_clip(y)); mask.append(1)
-            else:
-                y = y + slope + rnd.uniform(-0.004, 0.004)
-                ys.append(_clip(y)); mask.append(0)
-    return xs, ys, mask, any(m == 0 for m in mask)
 
 def _dedup(spec):
     seen, out = set(), []
@@ -576,49 +562,6 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
 
     # 루브릭 표: 실제 숫자가 잡힌 지표에만 추가
     _add_rubric_tables(spec, mentions, numeric_cids)
-
-    # 곡선(학습/ROC/PR 템플릿) — ★모든 매칭은 glossary 기반★
-    if _has_trigger(cidx, "viz.trigger.curve_generic", text):
-        # glossary 힌트: diag/kind
-        diag_true  = _has_trigger(cidx, "viz.hint.curve.diag.roc", text)
-        diag_false = _has_trigger(cidx, "viz.hint.curve.diag.pr",  text)
-        kind = None
-        if _has_trigger(cidx, "viz.hint.curve.kind.threshold_sweep", text):
-            kind = "threshold_sweep"
-        elif _has_trigger(cidx, "viz.hint.curve.kind.focal_vs_ce", text):
-            kind = "focal_vs_ce"
-        elif _has_trigger(cidx, "viz.hint.curve.kind.map_vs_iou", text):
-            kind = "map_vs_iou"
-        elif _has_trigger(cidx, "viz.hint.curve.kind.calibration", text):
-            kind = "calibration"
-
-        inputs = {
-            "title": "Learning Curve", "xlabel": "epoch", "ylabel": "metric",
-            "series": [
-                {"label": "train", "x": [1,2,3,4,5], "y": [0.9,0.7,0.6,0.5,0.45]},
-                {"label": "val",   "x": [1,2,3,4,5], "y": [1.0,0.8,0.7,0.62,0.60]}
-            ],
-            "legend_loc": "upper right",
-            "annotate_last": True,
-            # caption 위치 기본값(프로젝트 공통 스타일)
-            "caption_bottom": 0.10,
-            "caption_y": 0.005,
-        }
-        # diag 우선순위: ROC 힌트가 있으면 True, PR 힌트가 있으면 False
-        if diag_true:
-            inputs["diag"] = True
-        elif diag_false:
-            inputs["diag"] = False
-        # kind 힌트
-        if kind:
-            inputs["kind"] = kind
-
-        spec.append({
-            "id": "curve_auto",
-            "type": "curve_generic",
-            "labels": {"ko": "곡선(예시)"},
-            "inputs": inputs
-        })
 
     # 비교/벤치마크 → 그룹 막대
     if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
@@ -666,23 +609,35 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
                 }
             })
 
-    # 임베딩/특징 결합 → 도식 (값 파싱 불필요)
+    # 임베딩/특징 결합 → 도식 (흐름이 있을 때만)
     if _has_trigger(cidx, "viz.intent.fusion", text) or _has_trigger(cidx, "viz.trigger.embedding_sum", text):
-        spec.append({
-            "id":"fusion_sum",
-            "type":"embedding_sum",
-            "labels":{"ko":"특징/임베딩 결합"},
-            "inputs":{
-                "title":{"ko":"특징/임베딩 결합"},
-                "rows":["Feature/Embedding A","Feature/Embedding B","(optional) C"],
-                "right":"Encoder / Fusion"
-            }
-        })
+        import re
+        # 결합/합치기 의사어휘가 실제로 등장?
+        has_action = bool(re.search(r"(합치|결합|sum|add|concat|merge|fuse)", text, re.I))
+        # 따옴표/대괄호/백틱 안의 명칭을 후보로 수집
+        feats = re.findall(r"[‘'\"`]{1}([^‘'\"`]{1,40})[’'\"`]{1}", text)
+        if not feats:
+            feats = re.findall(r"\[([^\[\]\n]{1,40})\]", text)
+        feats = [f.strip() for f in feats if f.strip()]
 
-    # 시퀀스 포맷/특수 토큰 → 도식 (문서에 실제 토큰 있을 때만)
+        if has_action and len(feats) >= 2:
+            spec.append({
+                "id":"fusion_sum",
+                "type":"embedding_sum",
+                "labels":{"ko":"특징/임베딩 결합"},
+                "inputs":{
+                    "title":{"ko":"특징/임베딩 결합"},
+                    "rows": feats[:3],
+                    "right":"Encoder / Fusion"
+                }
+            })
+
+    # 시퀀스 포맷/특수 토큰 → 도식 (흐름이 있을 때만)
     if _has_trigger(cidx, "viz.intent.sequence_format", text) or _has_trigger(cidx, "viz.trigger.token_sequence", text):
         tokens = parse_special_tokens(text)
-        if tokens:
+        # 경계/순서 기호가 실제 텍스트에 있는지 확인
+        has_flow = any(sym in text for sym in ["[CLS]","[SEP]","<bos>","<eos>","→","->","|"])
+        if tokens and len(tokens) >= 3 and has_flow:
             spec.append({
                 "id":"seq_format",
                 "type":"token_sequence",
@@ -694,18 +649,6 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
                 }
             })
 
-    # 곡선(학습/ROC/PR 템플릿)
-    _append_if(_has_trigger(cidx, "viz.trigger.curve_generic", text), {
-        "id":"curve_auto",
-        "type":"curve_generic",
-        "labels":{"ko":"곡선(예시)"},
-        "inputs":{"title":"Learning Curve","xlabel":"epoch","ylabel":"metric",
-                "series":[
-                    {"label":"train","x":[1,2,3,4,5],"y":[0.9,0.7,0.6,0.5,0.45]},
-                    {"label":"val","x":[1,2,3,4,5],"y":[1.0,0.8,0.7,0.62,0.60]}
-                ],
-                "legend_loc":"upper right","annotate_last":True}
-    })
 
     # 분포/히스토그램: 의도 트리거 + 값 파싱 성공 시에만
     vals = parse_hist_values(text)
@@ -725,33 +668,52 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
     )
         # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
-    # (E) 개념/예시 도식들
+    # 개념/예시 도식들
     spec += build_concept_specs(text, spec, mentions, numeric_cids)
 
-    # (F) 단일 포인트 학습곡선(옵션: 앞단 보정)
-    m = re.search(
-        r"(?:epoch|에폭)\s*(\d+)[^\n]{0,40}?"
-        r"(?:acc(?:uracy)?|정확도)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(%)?",
-        text, re.I
-    )
-    if m:
-        ep   = int(m.group(1))
-        val  = float(m.group(2))
-        y    = val / 100.0 if m.group(3) else val
-        points = [(ep, y)]
-        xs, ys, mask, imputed = _build_series_with_front_impute(points, "Model A", text, "정확도")
-        spec.append({
-            "id": "train_curve",
-            "type": "curve_generic",
-            "labels": _label("Learning curve", "학습 곡선"),
-            "inputs": {
-                "series": [{"x": xs, "y": ys, "label": _label("Model A", "모델 A"),
-                            "observed_mask": mask}],
-                "xlabel": _label("Epoch", "에폭"),
-                "ylabel": _label("Accuracy", "정확도"),
-                "title": _label("Learning curve" + (" (예시 보정)" if imputed else ""),
-                                "학습 곡선" + (" (예시 보정)" if imputed else ""))
-            }
-        })
+    # 학습곡선/ROC/PR 등 curve_generic — 실제 수치가 여러 개 있을 때만
+    # 더미/임퓨트 금지
+    # 용어사전 트리거(의도) + 최소 3개 포인트 필요
+    if _has_trigger(cidx, "viz.trigger.curve_generic", text) or _has_trigger(cidx, "viz.intent.curve_generic", text):
+
+        # (epoch, accuracy) 페어 추출 — 주변이 '예시/샘플/example/dummy'면 버림
+        pts = []
+        for m in re.finditer(
+            r"(?:epoch|에폭)\s*(\d+)[^\n]{0,40}?(?:acc(?:uracy)?|정확도)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(%)?",
+            text, re.I
+        ):
+            ep   = int(m.group(1))
+            val  = float(m.group(2))
+            y    = val / 100.0 if m.group(3) else val
+
+            ctx = text[max(0, m.start()-40): min(len(text), m.end()+40)].lower()
+            if re.search(r"예시|샘플|example|e\.g\.|dummy", ctx):
+                continue  # 문맥이 예시면 제외
+
+            pts.append((ep, y))
+
+        # 중복 epoch 제거 + 정렬 + 기본 유효성(포인트≥3, epoch 증가)
+        pts_dict = {}
+        for ep, y in pts:
+            pts_dict[ep] = y
+        points = sorted(pts_dict.items(), key=lambda t: t[0])
+
+        if len(points) >= 3 and all(points[i][0] < points[i+1][0] for i in range(len(points)-1)):
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+
+            spec.append({
+                "id": "train_curve_points",
+                "type": "curve_generic",
+                "labels": _label("Learning curve", "학습 곡선"),
+                "inputs": {
+                    "series": [{"x": xs, "y": ys, "label": _label("Model", "모델")}],
+                    "xlabel": _label("Epoch", "에폭"),
+                    "ylabel": _label("Accuracy", "정확도"),
+                    "title":  _label("Learning curve", "학습 곡선"),
+                    # 캡션/기타 옵션은 glossary 힌트로만 추가(예: diag/kind)
+                }
+            })
+            # 조건을 못 만족하면 아무 것도 추가하지 않음 (더미/예시 차트 생성 금지)
 
     return _dedup(spec)

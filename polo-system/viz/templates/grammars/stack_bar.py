@@ -84,7 +84,7 @@ def _lab(x):
     return str(x)
 
 register(Grammar("stack_bar",
-                 ["categories","series"],
-                 ["title","ylabel","normalize","annotate","rotate",
-                  "legend_out","inside_labels","inside_threshold"],
-                 render_stack_bar))
+                ["categories","series"],
+                ["title","ylabel","normalize","annotate","rotate",
+                "legend_out","inside_labels","inside_threshold"],
+                render_stack_bar))

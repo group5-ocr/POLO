@@ -35,8 +35,8 @@ def _parse_arrow_chain(text: str) -> list[str]:
 
 def _extract_confusion_2x2(text: str):
     m = re.search(r'(?:confusion\s*matrix|혼동\s*행렬)(.{0,120}?)(-?\d+(?:\.\d+)?)[^\d]+'
-                  r'(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)',
-                  text, re.I | re.S)
+                r'(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)',
+                text, re.I | re.S)
     if not m:
         return None
     a, b, c, d = map(float, m.groups()[-4:])
@@ -244,7 +244,7 @@ def build_concept_specs(text: str, spec: list,
                 "xlabel": _label("k (clusters)", "k (클러스터 수)"),
                 "ylabel": _label("avg overlap/IoU", "평균 겹침/IoU"),
                 "title":  _label(f"k tuning curve (k≈{kstar}){suffix}",
-                                 f"k 튜닝 곡선 (k≈{kstar}){suffix}")
+                                f"k 튜닝 곡선 (k≈{kstar}){suffix}")
             }
         })
 
@@ -260,7 +260,7 @@ def build_concept_specs(text: str, spec: list,
             inputs["grids"] = [(13,13), (26,26)]
             inputs["example_badge"] = True
         m = re.search(r"anchor[s]?\s*[:=]?\s*\(?\s*([0-9.]+)\s*[,x×]\s*([0-9.]+)\s*\)?",
-                      text, re.I)
+                    text, re.I)
         if m:
             inputs["anchor_rel_cell"] = [float(m.group(1)), float(m.group(2))]
         spec.append({
@@ -285,8 +285,8 @@ def build_concept_specs(text: str, spec: list,
                     {"id":"out13","label":_label("13×13 head","검출 헤드")},
                 ],
                 "edges": [{"src":"in26","dst":"reshape"},
-                          {"src":"reshape","dst":"concat"},
-                          {"src":"concat","dst":"out13"}],
+                        {"src":"reshape","dst":"concat"},
+                        {"src":"concat","dst":"out13"}],
             }
         })
 
@@ -361,13 +361,13 @@ def build_concept_specs(text: str, spec: list,
             {"id":"smx","label":_label("Softmax","소프트맥스")}
         ]
         edges = [{"src":"tok","dst":"emb"},{"src":"emb","dst":"enc"},
-                 {"src":"enc","dst":"dec"},{"src":"dec","dst":"smx"}]
+                {"src":"enc","dst":"dec"},{"src":"dec","dst":"smx"}]
         spec.append({
             "id":"transformer_flow",
             "type":"flow_arch",
             "labels": _label("Transformer (concept)","Transformer (개념)"),
             "inputs":{"title":_label("Transformer (concept)","Transformer (개념)"),
-                      "nodes":nodes,"edges":edges}
+                    "nodes":nodes,"edges":edges}
         })
 
     # Confusion Matrix 2×2 (본문에 네 수치가 있을 때만)
@@ -379,7 +379,7 @@ def build_concept_specs(text: str, spec: list,
                 "type":"confusion_matrix",
                 "labels": _label("Confusion Matrix","혼동행렬"),
                 "inputs":{"matrix": M, "labels": ["Neg","Pos"],
-                          "title": _label("Confusion Matrix","혼동행렬")}
+                        "title": _label("Confusion Matrix","혼동행렬")}
             })
 
     return spec

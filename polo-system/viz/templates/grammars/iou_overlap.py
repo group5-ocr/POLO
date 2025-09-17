@@ -21,7 +21,7 @@ def render_iou_overlap(inputs, out_path):
     A = inputs.get("A", [0.15, 0.15, 0.55, 0.55])
     B = inputs.get("B", [0.35, 0.25, 0.55, 0.55])
 
-    # 1) 받은 iou가 신뢰 구간(0.01~0.99)이면 사용, 아니면 박스 A/B로 계산
+    # 받은 iou가 신뢰 구간(0.01~0.99)이면 사용, 아니면 박스 A/B로 계산
     iou_from_input = inputs.get("iou", None)
     if isinstance(iou_from_input, (int, float)) and 0.01 < float(iou_from_input) < 0.99:
         iou_to_show = float(iou_from_input)

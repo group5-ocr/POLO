@@ -4,7 +4,7 @@ from registry import Grammar, register
 
 def _softmax(logits, tau=1.0):
     z = np.array(logits, dtype=float) / float(tau)
-    z -= z.max()                    # for stability
+    z -= z.max()                    
     ez = np.exp(z)
     return ez / ez.sum()
 
@@ -12,7 +12,7 @@ def render_softmax(inputs, out_path):
     # inputs
     taus = inputs.get("taus", [1.0])                  # e.g., [1.0] or [0.5,1.0,2.0]
     title = inputs.get("title", {"en":"Softmax","ko":"소프트맥스"})
-    xr = inputs.get("logit_range", [-6, 6])           # vary delta logit
+    xr = inputs.get("logit_range", [-6, 6])           
     x = np.linspace(float(xr[0]), float(xr[1]), 400)
 
     plt.figure(figsize=(6.8, 4.0))
