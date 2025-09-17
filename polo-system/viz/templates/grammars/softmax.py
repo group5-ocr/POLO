@@ -30,8 +30,26 @@ def render_softmax(inputs, out_path):
     if len(taus) > 1:
         plt.legend()
     plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    cap = None
+    try:
+        # title은 dict 또는 str일 수 있음. (그대로 유지)
+        if isinstance(title, dict):
+            _t = (title.get("ko") or title.get("en") or "Softmax")
+        else:
+            _t = str(title)
+
+        if isinstance(taus, (list, tuple)) and len(taus) > 1:
+            cap = "T↑ → 확률분포 평탄화,  T↓ → 날카로움 증가  (x축: 클래스 간 로그확률 차)"
+        else:
+            cap = "소프트맥스: z/τ → 확률 (안정화를 위해 최대 로짓을 빼고 계산)"
+    except Exception:
+        cap = None
+
+    if cap:
+        plt.figtext(0.5, 0.008, cap, ha="center", va="bottom", fontsize=9)
+
+    plt.tight_layout(rect=(0.0, 0.05, 1.0, 1.0))
+    plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0.25)
     plt.close()
 
 # 포지셔널 인자 4개로 등록

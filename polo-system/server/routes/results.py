@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from services.database import db as DB
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 router = APIRouter()
 
@@ -71,3 +73,52 @@ async def get_status(tex_id: int):
             "viz_pct": round(pct_viz, 2),
         }
     }
+
+@router.get("/{paper_id}/html")
+async def get_html_result(paper_id: str):
+    """
+    Easy 모델 결과 HTML 파일 제공
+    """
+    # HTML 파일 경로 찾기
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    html_path = server_dir / "data" / "outputs" / str(paper_id) / "easy_outputs" / "easy_results.html"
+    
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="HTML result not found")
+    
+    return FileResponse(
+        path=str(html_path),
+        media_type="text/html",
+        filename=f"polo_easy_explanation_{paper_id}.html"
+    )
+
+@router.get("/{paper_id}/ready")
+async def is_result_ready(paper_id: str):
+    """
+    Easy 결과 파일 존재 여부를 반환 (DB 연동 없이 로컬 파일만 확인)
+    { ok: bool, html: str|None, json: str|None }
+    """
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    out_dir = server_dir / "data" / "outputs" / str(paper_id) / "easy_outputs"
+    html_path = out_dir / "easy_results.html"
+    json_path = out_dir / "easy_results.json"
+
+    # 디버깅을 위한 로그 추가
+    print(f"🔍 [DEBUG] Ready 체크: paper_id={paper_id}")
+    print(f"🔍 [DEBUG] 경로: {out_dir}")
+    print(f"🔍 [DEBUG] 디렉토리 존재: {out_dir.exists()}")
+    print(f"🔍 [DEBUG] HTML 존재: {html_path.exists()}")
+    print(f"🔍 [DEBUG] JSON 존재: {json_path.exists()}")
+    
+    if out_dir.exists():
+        files = list(out_dir.iterdir())
+        print(f"🔍 [DEBUG] 디렉토리 내용: {[f.name for f in files]}")
+
+    return {
+        "ok": html_path.exists() or json_path.exists(),
+        "html": str(html_path) if html_path.exists() else None,
+        "json": str(json_path) if json_path.exists() else None,
+    }
+

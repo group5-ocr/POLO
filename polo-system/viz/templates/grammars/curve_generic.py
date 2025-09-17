@@ -10,13 +10,14 @@ def render_curve_generic(inputs, out_path):
     plt.figure(figsize=(5.2, 4.0))
 
     # 옵션
-    style          = inputs.get("style", "line")      # "line" | "step"
-    legend_loc     = inputs.get("legend_loc", None)   # 예: "upper right"
-    xlim           = inputs.get("xlim", None)         # [xmin, xmax]
-    ylim           = inputs.get("ylim", None)         # [ymin, ymax]
-    annotate_last  = bool(inputs.get("annotate_last", False))
-    diag           = bool(inputs.get("diag", False))  # ROC 기준선
+    style         = inputs.get("style", "line")      # "line" | "step"
+    legend_loc    = inputs.get("legend_loc", None)   # 예: "upper right"
+    xlim          = inputs.get("xlim", None)         # [xmin, xmax]
+    ylim          = inputs.get("ylim", None)         # [ymin, ymax]
+    annotate_last = bool(inputs.get("annotate_last", False))
+    diag          = bool(inputs.get("diag", False))  # ROC 기준선
 
+    # 곡선 그리기
     for s in series:
         x = [float(v) for v in s.get("x", [])]
         y = [float(v) for v in s.get("y", [])]
@@ -29,7 +30,7 @@ def render_curve_generic(inputs, out_path):
         else:
             line = plt.plot(x, y, marker="o", label=label)[0]
 
-        # 관측 누락 지점(임퓨트) 표시: observed_mask=false인 위치를 속빈 마커로
+        # 관측 누락 지점(임퓨트) 표시: observed_mask=false → 속빈 마커
         mask = s.get("observed_mask")
         if isinstance(mask, list) and len(mask) == len(x):
             color = line.get_color()
@@ -41,22 +42,61 @@ def render_curve_generic(inputs, out_path):
         if annotate_last:
             plt.text(x[-1], y[-1], f"{y[-1]:.3g}", ha="left", va="bottom", fontsize=9)
 
+    # 범례
     if any(s.get("label") for s in series):
         plt.legend(loc=legend_loc if legend_loc else None)
 
+    # 보조 요소
     if xlim: plt.xlim(*xlim)
     if ylim: plt.ylim(*ylim)
     if diag:
         plt.plot([0, 1], [0, 1], linestyle="--", linewidth=1)  # ROC 참고선
 
+    # 레이블/그리드
     plt.xlabel(inputs.get("xlabel", ""))
     plt.ylabel(inputs.get("ylabel", ""))
     plt.title(inputs.get("title", ""))
     plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
-    plt.tight_layout()
+
+    # ---- 캡션 (한 번만 구성해서 그림) ---------------------------------------
+    msgs = []
+    if diag:
+        msgs.append("대각선=무작위 기준선(ROC)")
+    if isinstance(series, list) and len(series) > 1:
+        msgs.append("여러 모델 비교: 범례 참고")
+    if annotate_last:
+        msgs.append("마지막 지점 값을 표시")
+
+    kind = inputs.get("kind")
+    if kind == "threshold_sweep":
+        msgs.append("임계↑ → Precision↑, Recall↓ · F1 최대점이 최적 임계 후보")
+    elif kind == "focal_vs_ce":
+        msgs.append("γ↑ → 쉬운 샘플 가중 감소, 어려운 샘플 비중↑")
+    elif kind == "map_vs_iou":
+        msgs.append("IoU 임계↑ → 더 엄격한 매칭 → mAP 감소 경향")
+    elif kind == "calibration":
+        msgs.append("완벽 보정: y=x · 아래쪽=과신, 위쪽=과소신")
+
+    # 여백/위치(프로젝트 공통 스타일에 맞춰 입력으로도 미세조정 가능)
+    bottom = float(inputs.get("caption_bottom", 0.10))  # 0.08~0.12 권장
+    y_pos  = float(inputs.get("caption_y", 0.005))      # 0.004~0.008 권장
+
+    if msgs:
+        # 아래 여백 예약 후 figtext로 축 밖에 캡션 출력 (tight_layout 재호출 X)
+        plt.tight_layout(rect=(0.0, bottom, 1.0, 1.0))
+        plt.figtext(0.5, y_pos, "  ·  ".join(msgs), ha="center", va="bottom", fontsize=9)
+
+    # 저장
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-register(Grammar("curve_generic", ["series"], ["xlabel","ylabel","title",
-                                              "style","legend_loc","xlim","ylim",
-                                              "annotate_last","diag"], render_curve_generic))
+
+register(Grammar(
+    "curve_generic",
+    ["series"],  # required
+    ["xlabel", "ylabel", "title",
+    "style", "legend_loc", "xlim", "ylim",
+    "annotate_last", "diag",
+    "kind", "caption_bottom", "caption_y"],
+    render_curve_generic
+))

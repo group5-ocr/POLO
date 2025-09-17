@@ -28,7 +28,7 @@ def render_iou_overlap(inputs, out_path):
     else:
         iou_to_show = _iou(A, B)
 
-    title       = inputs.get("title", "IoU overlap")
+    title       = inputs.get("title", "IoU(겹침) 예시")
     show_value  = bool(inputs.get("show_value", True))
     show_badge  = bool(inputs.get("example_badge", iou_from_input is None))
 
@@ -37,11 +37,11 @@ def render_iou_overlap(inputs, out_path):
     ax.set_xticks([]); ax.set_yticks([])
 
     ax.add_patch(Rectangle((A[0], A[1]), A[2], A[3],
-                           facecolor="#f5c16c", alpha=0.50,
-                           edgecolor="#b07d2a", linewidth=1.5, zorder=1))
+                        facecolor="#f5c16c", alpha=0.50,
+                        edgecolor="#b07d2a", linewidth=1.5, zorder=1))
     ax.add_patch(Rectangle((B[0], B[1]), B[2], B[3],
-                           facecolor="#f0a63a", alpha=0.50,
-                           edgecolor="#945c13", linewidth=1.5, zorder=2))
+                        facecolor="#f0a63a", alpha=0.50,
+                        edgecolor="#945c13", linewidth=1.5, zorder=2))
 
     if show_value:
         ax.text(0.04, 0.95, f"IoU ≈ {iou_to_show:.2f}",
@@ -52,8 +52,15 @@ def render_iou_overlap(inputs, out_path):
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#999"))
 
     plt.title(title)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.tight_layout(rect=(0.0, 0.05, 1.0, 1.0))
+    fig = plt.gcf()
+    plt.figtext(
+        0.5, 0.005,
+        "IoU = |A∩B| / |A∪B|  ·  겹치는 면적이 없으면 0, 완전 일치면 1",
+        ha="center", va="bottom", fontsize=9
+    )
+
+    plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0.10)
     plt.close()
 
 register(Grammar(

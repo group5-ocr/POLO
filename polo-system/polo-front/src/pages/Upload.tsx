@@ -48,16 +48,41 @@ export default function Upload() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [debugLogs, setDebugLogs] = useState<Array<{time: string, message: string}>>([]);
   const [easyResults, setEasyResults] = useState<any>(null);
   const [isLoadingEasy, setIsLoadingEasy] = useState(false);
+  const [easyReady, setEasyReady] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  // 디버그 로그 함수
-  const pushDebug = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logMessage = `[${timestamp}] ${message}`;
-    console.log(logMessage);
-    setDebugLogs(prev => [...prev.slice(-9), {time: timestamp, message}]); // 최근 10개만 유지
+  // 진행률 업데이트 함수
+  const updateProgress = (value: number) => {
+    setProgress(Math.min(100, Math.max(0, value)));
+  };
+
+  // 동적 로딩 게이지 애니메이션
+  const [progressAnimation, setProgressAnimation] = useState<NodeJS.Timeout | null>(null);
+
+  const startProgressAnimation = () => {
+    if (progressAnimation) {
+      clearInterval(progressAnimation);
+    }
+    
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      currentProgress += Math.random() * 3; // 0-3% 랜덤 증가
+      if (currentProgress >= 95) {
+        currentProgress = 95; // 95%에서 멈춤
+      }
+      setProgress(currentProgress);
+    }, 200); // 200ms마다 업데이트
+    
+    setProgressAnimation(interval);
+  };
+
+  const stopProgressAnimation = () => {
+    if (progressAnimation) {
+      clearInterval(progressAnimation);
+      setProgressAnimation(null);
+    }
   };
 
   // Easy 결과 로드 함수
@@ -68,53 +93,93 @@ export default function Upload() {
       if (response.ok) {
         const data = await response.json();
         setEasyResults(data);
-        pushDebug(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
+        console.log(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
       } else {
-        pushDebug(`[Easy 결과] 로드 실패: ${response.status}`);
+        console.log(`[Easy 결과] 로드 실패: ${response.status}`);
       }
     } catch (error) {
-      pushDebug(`[Easy 결과] 로드 에러: ${error}`);
+      console.log(`[Easy 결과] 로드 에러: ${error}`);
     } finally {
       setIsLoadingEasy(false);
     }
   };
 
-  // Easy 모델로 전송하는 함수
-  const handleSendToEasy = async () => {
-    if (!result?.doc_id) {
-      pushDebug('[Easy 모델] 논문 ID가 없습니다');
+  // 쉬운 논문 생성 함수 (통합된 기능)
+  const handleGenerateEasyPaper = async (paperIdOverride?: string) => {
+    const finalPaperId = paperIdOverride ?? result?.doc_id;
+    if (!finalPaperId) {
+      alert("먼저 논문을 업로드해주세요.");
       return;
     }
 
     setIsLoadingEasy(true);
-    pushDebug('[Easy 모델] 전송 시작...');
-
+    setProgress(0);
+    setEasyReady(false);
+    startProgressAnimation(); // 동적 애니메이션 시작
+    
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      
+      // 1단계: Easy 모델로 전송
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000); // 25분 타임아웃
+      
       const response = await fetch(`${apiBase}/api/upload/send-to-easy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          paper_id: result.doc_id
-        })
+          paper_id: finalPaperId
+        }),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
-        pushDebug(`[Easy 모델] 전송 성공: ${data.message || '처리 시작됨'}`);
+        console.log("Easy 모델 전송 성공:", data);
         
-        // 결과 로드 시도
-        setTimeout(() => {
-          loadEasyResults(result.doc_id!);
-        }, 2000);
+        // 2단계: 결과 파일 생성 폴링 (로컬 파일 존재 여부만 확인)
+        const maxWaitMs = 25 * 60 * 1000; // 25분
+        const intervalMs = 3000; // 3초 폴링
+        const start = Date.now();
+        let ready = false;
+        while (Date.now() - start < maxWaitMs) {
+          try {
+            const r = await fetch(`${apiBase}/api/results/${finalPaperId}/ready`);
+            if (r.ok) {
+              const j = await r.json();
+              if (j.ok) { 
+                ready = true; 
+                break; 
+              }
+            }
+          } catch {}
+          await new Promise(res => setTimeout(res, intervalMs));
+        }
+
+        if (ready) {
+          setEasyReady(true);
+          stopProgressAnimation(); // 애니메이션 중지
+          updateProgress(100);
+        } else {
+          console.warn('결과 파일 폴링 타임아웃');
+          stopProgressAnimation();
+        }
       } else {
         const errorData = await response.json();
-        pushDebug(`[Easy 모델] 전송 실패: ${errorData.detail || response.statusText}`);
+        console.error("Easy 모델 전송 실패:", errorData);
+        alert(`쉬운 논문 생성 실패: ${errorData.detail || response.statusText}`);
+        stopProgressAnimation();
+        setProgress(0);
       }
     } catch (error) {
-      pushDebug(`[Easy 모델] 전송 에러: ${error}`);
+      console.error("쉬운 논문 생성 에러:", error);
+      alert('쉬운 논문 생성 중 오류가 발생했습니다.');
+      stopProgressAnimation();
+      setProgress(0);
     } finally {
       setIsLoadingEasy(false);
     }
@@ -122,18 +187,28 @@ export default function Upload() {
 
   // Easy 결과를 HTML로 다운로드하는 함수
   const downloadEasyResultsAsHTML = () => {
-    if (!easyResults) return;
+    if (!result?.doc_id) return;
     
-    const html = generateEasyResultsHTML(easyResults);
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // 서버에서 생성된 HTML 파일 다운로드
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const downloadUrl = `${apiBase}/api/results/${result.doc_id}/html`;
+    
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `easy_results_${easyResults.paper_id}.html`;
+    a.href = downloadUrl;
+    a.download = `polo_easy_explanation_${result.doc_id}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  };
+
+  // Easy 결과를 브라우저에서 보는 함수
+  const viewEasyResultsInBrowser = () => {
+    if (!result?.doc_id) return;
+    
+    // 새 탭에서 HTML 결과 열기
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const viewUrl = `${apiBase}/api/results/${result.doc_id}/html`;
+    window.open(viewUrl, '_blank');
   };
 
   // Easy 결과 HTML 생성 함수
@@ -240,7 +315,7 @@ export default function Upload() {
     }
   }, [user, isLoading, navigate]);
 
-  const uploadFile = async (file: File) => {
+  const uploadFile = async (file: File): Promise<UploadResult | null> => {
     setUploading(true);
     setError(null);
     setResult(null);
@@ -248,7 +323,7 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
       console.log("[Upload] API Base URL:", apiBase);
-      pushDebug(`[convert] 호출 시작 → ${apiBase}/api/upload/convert`);
+      console.log(`[convert] 호출 시작 → ${apiBase}/api/upload/convert`);
 
       const formData = new FormData();
       formData.append("file", file);
@@ -261,7 +336,7 @@ export default function Upload() {
       if (!response.ok) {
         let detail = "업로드 실패";
         try { const j = await response.json(); detail = j.detail || detail; } catch {}
-        pushDebug(`[convert] 실패: ${response.status} ${detail}`);
+        console.log(`[convert] 실패: ${response.status} ${detail}`);
         throw new Error(`[convert] ${detail}`);
       }
 
@@ -269,12 +344,12 @@ export default function Upload() {
 
       // 서버에서 반환된 실제 논문 ID 사용
       setResult({ ...data, status: data.status ?? "processing" });
-      pushDebug(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
+      console.log(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
         try {
-          pushDebug(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
+          console.log(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
           const infoResponse = await fetch(
             `${
               import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
@@ -283,19 +358,43 @@ export default function Upload() {
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
-            pushDebug(`[download/info] 성공`);
+            console.log(`[download/info] 성공`);
           } else {
-            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
+            console.log(`[download/info] 실패: ${infoResponse.status}`);
           }
         } catch (err) {
           console.warn("다운로드 정보 조회 실패:", err);
-          pushDebug(`[download/info] 예외: ${String(err)}`);
+          console.log(`[download/info] 예외: ${String(err)}`);
         }
       }
+      return data as UploadResult;
     } catch (err) {
       setError(err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다.");
+      return null;
     } finally {
       setUploading(false);
+    }
+  };
+
+  // 전처리 → Easy 모델까지 한 번에 실행
+  const handleConvertAndGenerate = async () => {
+    try {
+      if (!selectedFile && !result?.doc_id) {
+        alert("먼저 PDF를 선택해주세요.");
+        return;
+      }
+      let docId = result?.doc_id;
+      if (!docId && selectedFile) {
+        const r = await uploadFile(selectedFile);
+        docId = r?.doc_id || undefined;
+      }
+      if (!docId) {
+        alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
+        return;
+      }
+      await handleGenerateEasyPaper(docId);
+    } catch (e) {
+      console.error("통합 실행 실패", e);
     }
   };
 
@@ -373,7 +472,7 @@ export default function Upload() {
       if (!response.ok) {
         let detail = "arXiv 업로드 실패";
         try { const j = await response.json(); detail = j.detail || detail; } catch {}
-        pushDebug(`[from-arxiv] 실패: ${response.status} ${detail}`);
+        console.log(`[from-arxiv] 실패: ${response.status} ${detail}`);
         throw new Error(`[from-arxiv] ${detail}`);
       }
 
@@ -413,13 +512,13 @@ export default function Upload() {
           if (infoResponse.ok) {
             const infoData = await infoResponse.json();
             setDownloadInfo(infoData);
-            pushDebug(`[download/info] 성공`);
+            console.log(`[download/info] 성공`);
           } else {
-            pushDebug(`[download/info] 실패: ${infoResponse.status}`);
+            console.log(`[download/info] 실패: ${infoResponse.status}`);
           }
         } catch (err) {
           console.warn("다운로드 정보 조회 실패:", err);
-          pushDebug(`[download/info] 예외: ${String(err)}`);
+          console.log(`[download/info] 예외: ${String(err)}`);
         }
       }
     } catch (err) {
@@ -489,7 +588,7 @@ export default function Upload() {
     <div className="upload-page">
       <div className="upload-container">
         <div className="upload-header">
-          <h1>논문 변환하기</h1>
+          <h1>쉬운 논문 생성</h1>
           <p>PDF 파일을 업로드하면 AI가 쉽게 이해할 수 있도록 변환해드려요!</p>
         </div>
 
@@ -590,10 +689,78 @@ export default function Upload() {
         {selectedFile && !uploading && (
           <div className="conversion-actions">
             <button
-              onClick={startConversion}
-              className="btn-primary btn-convert"
+              onClick={handleConvertAndGenerate}
+              className="btn-primary"
+              style={{ 
+                marginRight: 15,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '12px 24px',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: 'white',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.4)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+              }}
             >
-              논문 변환하기
+              쉬운 논문 생성
+            </button>
+            <button
+              onClick={() => {
+                if (!result?.doc_id) {
+                  alert("먼저 논문을 업로드해주세요.");
+                  return;
+                }
+                // 수학 모델 전송 로직 (기존 send-to-math 엔드포인트 호출)
+                const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+                fetch(`${apiBase}/api/upload/send-to-math`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ paper_id: result.doc_id })
+                })
+                .then(response => response.json())
+                .then(data => {
+                  console.log("수학 모델 전송 성공:", data);
+                  alert("수학 모델로 전송되었습니다.");
+                })
+                .catch(error => {
+                  console.error("수학 모델 전송 실패:", error);
+                  alert("수학 모델 전송에 실패했습니다.");
+                });
+              }}
+              style={{ 
+                marginRight: 15,
+                background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '12px 24px',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: 'white',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 15px rgba(25, 118, 210, 0.3)'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(25, 118, 210, 0.4)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(25, 118, 210, 0.3)';
+              }}
+            >
+              수학 모델
             </button>
             <button
               onClick={() => {
@@ -601,7 +768,25 @@ export default function Upload() {
                 setError(null);
                 setResult(null);
               }}
-              className="btn-secondary"
+              style={{
+                background: 'transparent',
+                border: '2px solid #e0e0e0',
+                borderRadius: '8px',
+                padding: '10px 22px',
+                fontSize: '16px',
+                fontWeight: '500',
+                color: '#666',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.borderColor = '#999';
+                e.currentTarget.style.color = '#333';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.borderColor = '#e0e0e0';
+                e.currentTarget.style.color = '#666';
+              }}
             >
               파일 다시 선택
             </button>
@@ -621,55 +806,16 @@ export default function Upload() {
         {result && (
           <div className="result-container">
             <div className="result-header">
-              <h3>
-                {result.status === "success" ? "변환 완료!" : "변환 실패"}
-              </h3>
-              <p>
-                {result.status === "success"
-                  ? "논문이 성공적으로 변환되었습니다"
-                  : "논문 변환 중 오류가 발생했습니다"}
-              </p>
+              <h3>전처리 완료</h3>
+              <p>논문이 분석되었습니다. 아래 버튼으로 쉬운 논문 생성을 시작하세요.</p>
               {result.is_arxiv_paper && result.arxiv_id && (
                 <div className="arxiv-info">
                   <span className="arxiv-badge">📄 arXiv 논문</span>
                   <span className="arxiv-id">ID: {result.arxiv_id}</span>
                 </div>
               )}
-              <div
-                className={`status-badge ${
-                  result.status === "success"
-                    ? "status-success"
-                    : "status-error"
-                }`}
-              >
-                <span className="status-icon">
-                  {result.status === "success" ? "✅" : "❌"}
-                </span>
-                <span className="status-text">
-                  {result.status === "success" ? "변환 성공" : "변환 실패"}
-                </span>
-              </div>
             </div>
 
-            <div className="result-info">
-              <div className="info-item">
-                <span className="info-label">파일명</span>
-                <span className="info-value">{result.filename}</span>
-              </div>
-              <div className="info-item">
-                <span className="info-label">파일 크기</span>
-                <span className="info-value">
-                  {(result.file_size / 1024).toFixed(2)} KB
-                </span>
-              </div>
-
-              <div className="info-item">
-                <span className="info-label">추출된 텍스트</span>
-                <span className="info-value">
-                  {result.extracted_text_length} 문자
-                </span>
-              </div>
-            </div>
 
 
             {downloadInfo && (
@@ -692,27 +838,6 @@ export default function Upload() {
                     </div>
                   )}
 
-                  {downloadInfo.files.math.length > 0 && (
-                    <div className="file-category">
-                      <h5>📐 수식 해설 ({downloadInfo.files.math.length}개)</h5>
-                      <div className="file-items">
-                        {downloadInfo.files.math.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() =>
-                                result.doc_id &&
-                                downloadFile(result.doc_id, "math")
-                              }
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {downloadInfo.files.preprocess.length > 0 && (
                     <div className="file-category">
@@ -758,61 +883,87 @@ export default function Upload() {
               </div>
             )}
 
-            {/* 디버그 로그 섹션 */}
-            {debugLogs.length > 0 && (
-              <div className="debug-section">
-                <h4>🔍 디버그 로그</h4>
-                <div className="debug-logs">
-                  {debugLogs.map((log, index) => (
-                    <div key={index} className="debug-log">
-                      <span className="log-time">[{log.time}]</span>
-                      <span className="log-message">{log.message}</span>
-                    </div>
-                  ))}
+            {/* 진행률 표시 */}
+            {isLoadingEasy && (
+              <div className="progress-section">
+                <h4>🔄 쉬운 논문 생성 중...</h4>
+                <div className="progress-container">
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ width: `${progress}%` }}
+                    ></div>
+                  </div>
+                  <span className="progress-text">{progress}%</span>
                 </div>
+                <p style={{ textAlign: 'center', marginTop: '10px', color: '#666' }}>
+                  AI가 논문을 쉬운 언어로 변환하고 있습니다...
+                </p>
               </div>
             )}
 
-            {/* 모델 전송 버튼 */}
-            <div className="model-buttons">
-              <button
-                className="btn-primary"
-                onClick={handleSendToEasy}
-                disabled={!result.doc_id || isLoadingEasy}
-              >
-                {isLoadingEasy ? "처리 중..." : "🤖 Easy 모델로 전송"}
-              </button>
-            </div>
-
-            {/* Easy 결과 표시 */}
-            {easyResults && (
-              <div className="easy-results">
-                <h4>📊 Easy 모델 결과</h4>
-                <div className="results-stats">
-                  <div className="stat-item">
-                    <span className="stat-number">{easyResults.total_sections || easyResults.total_chunks}</span>
-                    <span className="stat-label">총 섹션</span>
-                  </div>
-                  <div className="stat-item success">
-                    <span className="stat-number">{easyResults.success_count}</span>
-                    <span className="stat-label">성공</span>
-                  </div>
-                  <div className="stat-item failed">
-                    <span className="stat-number">{easyResults.failed_count}</span>
-                    <span className="stat-label">실패</span>
-                  </div>
-                </div>
-                
-                <div className="download-section">
-                  <button 
-                    onClick={downloadEasyResultsAsHTML}
-                    className="btn btn-secondary"
+            {/* Easy 모델 완료 시 결과 보기 버튼들 */}
+            {easyReady && (
+              <div className="model-buttons">
+                <h4 style={{ textAlign: 'center', marginBottom: '20px', color: '#2c3e50', fontSize: '18px' }}>
+                  쉬운 논문 생성 완료!
+                </h4>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '15px' }}>
+                  <button
+                    onClick={viewEasyResultsInBrowser}
+                    style={{
+                      background: 'linear-gradient(135deg, #4caf50 0%, #45a049 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '12px 24px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      color: 'white',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)'
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 20px rgba(76, 175, 80, 0.4)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 15px rgba(76, 175, 80, 0.3)';
+                    }}
                   >
-                    📄 Easy 결과 HTML 다운로드
+                    결과 보러가기
+                  </button>
+                  <button
+                    onClick={downloadEasyResultsAsHTML}
+                    style={{
+                      background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '12px 24px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      color: 'white',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 4px 15px rgba(255, 152, 0, 0.3)'
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 20px rgba(255, 152, 0, 0.4)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 15px rgba(255, 152, 0, 0.3)';
+                    }}
+                  >
+                    HTML 다운로드
                   </button>
                 </div>
               </div>
             )}
+
+            {/* 상세 결과/통계 UI는 간소화 요청에 따라 제거 */}
 
             {/* 로딩 상태 */}
             {isLoadingEasy && (
@@ -821,10 +972,10 @@ export default function Upload() {
               </div>
             )}
 
-            <div className="action-buttons">
-              <button className="btn-secondary" onClick={() => navigate("/")}>
-                홈으로 돌아가기
-              </button>
+              <div className="action-buttons">
+                <button className="btn-secondary" onClick={() => navigate("/")}>
+                  홈으로 돌아가기
+                </button>
             </div>
           </div>
         )}
