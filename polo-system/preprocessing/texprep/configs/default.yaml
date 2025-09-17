@@ -1,7 +1,7 @@
 # 파이프라인 최상위 설정 (configs/default.yaml)
 
-root_dir: "./data/raw"
-out_dir: "./data/out"
+root_dir: "./server/data/raw"
+out_dir: "./server/data/out"
 
 drop_envs:
   - tikzpicture

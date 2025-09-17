@@ -7,22 +7,14 @@ python install accelerate==0.33.0
 
 # GCP 설정
 
-moldel 안에 stone-booking-466716-n6-f6fff7380e05.json 을 넣는다!!
+model 안에 stone-booking-466716-n6-f6fff7380e05.json 을 넣는다!!
 
-cmd에
-set GOOGLE_APPLICATION_CREDENTIALS=C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json
-경로는 자기걸로 설정!
-
-set GOOGLE_CLOUD_PROJECT=stone-booking-466716-n6
-
-C:\POLO>set GOOGLE_CLOUD_TRANSLATE_LOCATION=global
-
-를 순서대로 입력
+SERVICE_ACCOUNT_PATH 상의 경로를 본인에 맞게 수정한다
 
 # 실행
 
 cd polo-system/models/math
-uvicorn app:app --host 0.0.0.0 --port 5004
+uvicorn app:app --port 5004
 
 # 호출
 
@@ -31,8 +23,8 @@ uvicorn app:app --host 0.0.0.0 --port 5004
   http://127.0.0.1:5004/count/C:\POLO\polo-system\models\math\iclr2022_conference.tex
 
 - JSON/tex 파일 받기
-  http://127.0.0.1:5004/math/C:/POLO/polo-system/models/math/yolo.tex
-  http://127.0.0.1:5004/math/C:\POLO\polo-system\models\math\iclr2022_conference.tex
+  http://127.0.0.1:5004/math/C:/POLO/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/math/C:\POLO\POLO\polo-system\models\math\iclr2022_conference.tex
 
 - 건강상태? 확인
   http://127.0.0.1:5004/health

@@ -41,6 +41,8 @@ class OriginFile(Base):
     origin_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"))
     filename: Mapped[str] = mapped_column(String)
+    create_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, nullable=True)
 
     user = relationship("User", back_populates="origin_files")
     tex_files = relationship("Tex", back_populates="origin_file")
@@ -78,6 +80,7 @@ class MathFile(Base):
     __tablename__ = "math_file"
     math_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     tex_id: Mapped[int] = mapped_column(ForeignKey("tex.tex_id"))
+    origin_id: Mapped[int] = mapped_column(Integer)
     filename: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     file_addr: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
@@ -108,22 +111,44 @@ class DBRouter:
         self.mode: str = "local"  # "pg" or "local"
 
     async def init(self) -> None:
+        # 환경변수 디버깅
+        postgres_user = os.getenv('POSTGRES_USER')
+        postgres_password = os.getenv('POSTGRES_PASSWORD')
+        postgres_host = os.getenv('POSTGRES_HOST')
+        postgres_port = os.getenv('POSTGRES_PORT', '5432')
+        postgres_db = os.getenv('POSTGRES_DB')
+        
+        print(f"[DEBUG] PostgreSQL 환경변수:")
+        print(f"  POSTGRES_USER: {postgres_user}")
+        print(f"  POSTGRES_PASSWORD: {'*' * len(postgres_password) if postgres_password else 'None'}")
+        print(f"  POSTGRES_HOST: {postgres_host}")
+        print(f"  POSTGRES_PORT: {postgres_port}")
+        print(f"  POSTGRES_DB: {postgres_db}")
+        
         pg_url = (
-            f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-            f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB')}"
+            f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
+            f"@{postgres_host}:{postgres_port}/{postgres_db}"
         )
+        print(f"[DEBUG] PostgreSQL URL: {pg_url}")
 
-        local_path = os.getenv("LOCAL_DB_PATH", "./data/local/polo.db")
+        # 절대 경로로 DB 경로 설정
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent.parent  # polo-system/server
+        default_db_path = server_dir / "data" / "local" / "polo.db"
+        local_path = os.getenv("LOCAL_DB_PATH", str(default_db_path))
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         sqlite_url = f"sqlite+aiosqlite:///{local_path}"
 
         try:
+            print(f"[DEBUG] PostgreSQL 연결 시도 중...")
             pg_engine = create_async_engine(pg_url, pool_pre_ping=True)
             await asyncio.wait_for(self._ping(pg_engine), timeout=2.0)
             self.engine = pg_engine
             self.mode = "pg"
             print("✅ PostgreSQL 연결 성공")
-        except Exception:
+        except Exception as e:
+            print(f"❌ PostgreSQL 연결 실패: {str(e)}")
+            print(f"❌ 오류 타입: {type(e).__name__}")
             self.engine = create_async_engine(sqlite_url)
             self.mode = "local"
             print("⚠️ PostgreSQL 연결 실패 → SQLite 사용")
@@ -163,7 +188,7 @@ DB = DBRouter()
 # ---------------------------
 async def create_origin_file(user_id: int, filename: str) -> int:
     async with DB.session() as s:
-        origin = OriginFile(user_id=user_id, filename=filename)
+        origin = OriginFile(user_id=user_id, filename=filename, id=user_id)
         s.add(origin)
         await s.commit()
         await s.refresh(origin)
@@ -177,6 +202,15 @@ async def create_tex(origin_id: int, file_addr: str) -> int:
         await s.commit()
         await s.refresh(tex)
         return tex.tex_id
+
+
+async def create_easy_file(tex_id: int, origin_id: int, filename: str, file_addr: str) -> int:
+    async with DB.session() as s:
+        easy = EasyFile(tex_id=tex_id, origin_id=origin_id, filename=filename, file_addr=file_addr)
+        s.add(easy)
+        await s.commit()
+        await s.refresh(easy)
+        return easy.easy_id
 
 
 # ---- 파이프라인 상태 ----
@@ -218,6 +252,12 @@ async def get_state(tex_id: int) -> Optional[Tex]:
         return res.scalar_one_or_none()
 
 
+async def get_origin_id_from_tex(tex_id: int) -> Optional[int]:
+    async with DB.session() as s:
+        res = await s.execute(select(Tex.origin_id).where(Tex.tex_id == tex_id))
+        return res.scalar_one_or_none()
+
+
 # ---- Chunk / Easy / Viz / Math ----
 async def save_easy_chunk(tex_id: int | str, index: int, rewritten_text: str) -> None:
     paper_id = str(tex_id)
@@ -247,11 +287,12 @@ async def save_viz_image(tex_id: int | str, index: int, image_path: str) -> None
 
 async def save_math_result(
     tex_id: int,
+    origin_id: int,
     result_path: Optional[str] = None,
     sections: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
     async with DB.session() as s:
-        math = MathFile(tex_id=tex_id, file_addr=result_path)
+        math = MathFile(tex_id=tex_id, origin_id=origin_id, file_addr=result_path)
         s.add(math)
         await s.commit()
         await s.refresh(math)
@@ -280,8 +321,15 @@ async def fetch_results(tex_id: int | str) -> Optional[Dict[str, Any]]:
         # math files
         math_rows = await s.execute(select(MathFile).where(MathFile.tex_id == int(paper_id)))
         math_files = [
-            {"math_id": m.math_id, "file_addr": m.file_addr}
+            {"math_id": m.math_id, "origin_id": m.origin_id, "file_addr": m.file_addr}
             for m in math_rows.scalars().all()
+        ]
+        
+        # easy files
+        easy_rows = await s.execute(select(EasyFile).where(EasyFile.tex_id == int(paper_id)))
+        easy_files = [
+            {"easy_id": e.easy_id, "origin_id": e.origin_id, "filename": e.filename, "file_addr": e.file_addr}
+            for e in easy_rows.scalars().all()
         ]
 
         # 상태
@@ -297,12 +345,13 @@ async def fetch_results(tex_id: int | str) -> Optional[Dict[str, Any]]:
             "math_done": st.math_done,
             "items": chunk_list,
             "math": {"files": math_files},
+            "easy": {"files": easy_files},
         }
 
 
 async def assemble_final(tex_id: int) -> Dict[str, Any]:
     data = await fetch_results(tex_id)
-    return data if data else {"paper_id": tex_id, "items": [], "math": {"files": []}}
+    return data if data else {"paper_id": tex_id, "items": [], "math": {"files": []}, "easy": {"files": []}}
 
 
 # ---------------------------

@@ -148,6 +148,13 @@ set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
     REM echo set HUGGINGFACE_HUB_CACHE=%%TEMP%%\hf_cache
     echo if defined HUGGINGFACE_TOKEN set HUGGINGFACE_TOKEN=%%HUGGINGFACE_TOKEN%%
   )
+  REM PostgreSQL 환경변수 전달
+  echo if defined POSTGRES_HOST set POSTGRES_HOST=%%POSTGRES_HOST%%
+  echo if defined POSTGRES_PORT set POSTGRES_PORT=%%POSTGRES_PORT%%
+  echo if defined POSTGRES_DB set POSTGRES_DB=%%POSTGRES_DB%%
+  echo if defined POSTGRES_USER set POSTGRES_USER=%%POSTGRES_USER%%
+  echo if defined POSTGRES_PASSWORD set POSTGRES_PASSWORD=%%POSTGRES_PASSWORD%%
+  echo if defined LOCAL_DB_PATH set LOCAL_DB_PATH=%%LOCAL_DB_PATH%%
   echo uvicorn --app-dir "%WORK_DIR%" %MODULE_APP% --host 0.0.0.0 --port %PORT%
   echo echo.
   echo echo [%TITLE%] stopped. Press any key to close...
@@ -172,20 +179,25 @@ set "ENV_FILE=%ROOT%server\.env"
 
 REM 고정 포트 사용
 set "SERVER_PORT=8000"
-set "PREPROCESS_PORT=5001"
-set "EASY_PORT=5002"
-set "MATH_PORT=5003"
-set "VIZ_PORT=5004"
+set "PREPROCESS_PORT=5002"
+set "EASY_PORT=5003"
+set "MATH_PORT=5004"
+set "VIZ_PORT=5005"
 echo [PORTS] Server:%SERVER_PORT% Preprocess:%PREPROCESS_PORT% Easy:%EASY_PORT% Math:%MATH_PORT% Viz:%VIZ_PORT%
 
 REM patch env
 call :PATCH_ENV_FILE "%ENV_FILE%" "%SERVER_PORT%" "%PREPROCESS_PORT%" "%EASY_PORT%" "%MATH_PORT%" "%VIZ_PORT%"
 
 REM also export to current process (so child windows inherit)
-for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
-  if not "%%a"=="" if not "%%a:~0,1%"=="#" (
-    set "%%a=%%b"
+if exist "%ENV_FILE%" (
+  for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    if not "%%a"=="" if not "%%a:~0,1%"=="#" (
+      set "%%a=%%b"
+      echo [ENV] Loaded: %%a=%%b
+    )
   )
+) else (
+  echo [WARN] .env file not found: %ENV_FILE%
 )
 
 REM dirs
@@ -231,38 +243,18 @@ if exist "%EASY_DIR%" (
   goto :end
 )
 
-echo [4/6] Start Math Model (Port %MATH_PORT%)
-if exist "%MATH_DIR%" (
-  echo [MATH] Using existing venv in %MATH_DIR%\venv
-  echo [MATH] Installing dependencies in existing venv...
-  cd /d "%MATH_DIR%"
-  call venv\Scripts\activate.bat
-  pip install --upgrade pip
-  pip install accelerate
-  pip install -r requirements.math.txt --force-reinstall
-  echo [MATH] Dependencies installed successfully
-  echo [MATH] Starting Math model directly...
-  
-  REM Math 모델을 직접 실행 (LAUNCH_PY_APP 함수 사용하지 않음)
-  set "TEMP_BAT=%TEMP%\polo_Math_%MATH_PORT%.bat"
-  > "%TEMP_BAT%" (
-    echo @echo off
-    echo setlocal EnableExtensions EnableDelayedExpansion
-    echo chcp 65001 ^>nul
-    echo cd /d "%MATH_DIR%"
-    echo call venv\Scripts\activate.bat
-    echo uvicorn app:app --host 0.0.0.0 --port %MATH_PORT%
-  )
-  start "Math Model" cmd /k "%TEMP_BAT%"
-  echo [MATH] Math model started on port %MATH_PORT%
-) else (
-  echo [ERROR] Math directory not found: %MATH_DIR%
-  goto :end
-)
+REM echo [4/6] Start Math Model (SKIPPED)
+REM if exist "%MATH_DIR%" (
+REM   echo [MATH] Skipped starting Math model (managed by teammate)
+REM ) else (
+REM   echo [ERROR] Math directory not found: %MATH_DIR%
+REM )
 
 echo [5/6] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
-  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER%"
+  REM 서버 의존성에 email-validator 추가
+  set "FALLBACK_SERVER_WITH_EMAIL=fastapi uvicorn httpx pydantic[email] asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
+  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER_WITH_EMAIL%"
 ) else (
   echo [ERROR] Server directory not found: %SERVER_DIR%
   goto :end
@@ -293,7 +285,7 @@ echo ========================================
 echo Preprocess: http://localhost:%PREPROCESS_PORT%
 echo Viz:        http://localhost:%VIZ_PORT%
 echo Easy:       http://localhost:%EASY_PORT%
-echo Math:       http://localhost:%MATH_PORT%
+REM echo Math:       http://localhost:%MATH_PORT%
 echo Backend:    http://localhost:%SERVER_PORT%
 echo Frontend:   http://localhost:5173
 echo.

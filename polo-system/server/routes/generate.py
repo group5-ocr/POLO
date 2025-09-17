@@ -55,7 +55,7 @@ async def preprocess_done(
     )
 
     # 2) Easy 배치 시작 (백그라운드)
-    out_dir = os.path.join("data", "outputs", str(tex_id), "easy_outputs")
+    out_dir = os.path.join("server", "data", "outputs", str(tex_id), "easy_outputs")
     bg.add_task(_run_easy_batch_and_record, tex_id, payload.jsonl_path, out_dir)
 
     return {"ok": True, "tex_id": tex_id}

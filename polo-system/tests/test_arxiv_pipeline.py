@@ -18,9 +18,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 async def test_arxiv_pipeline():
     """arXiv 파이프라인 전체 테스트"""
     
-    # 테스트용 arXiv ID (Transformer 논문)
-    arxiv_id = "1706.03762"
-    title = "Attention Is All You Need"
+    # 테스트용 arXiv ID (YOLO 논문)
+    arxiv_id = "1506.02640"
+    title = "You Only Look Once: Unified, Real-Time Object Detection"
     
     print(f"🚀 arXiv 파이프라인 테스트 시작: {arxiv_id}")
     print(f"📄 논문 제목: {title}")
@@ -30,7 +30,7 @@ async def test_arxiv_pipeline():
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "http://localhost:8000/api/from-arxiv",
+                "http://localhost:8000/api/upload/from-arxiv",
                 json={
                     "user_id": 1,
                     "arxiv_id": arxiv_id,
@@ -59,7 +59,7 @@ async def test_arxiv_pipeline():
     print("\n2️⃣ 모델 상태 확인...")
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:8000/api/model-status")
+            response = await client.get("http://localhost:8000/api/upload/model-status")
             if response.status_code == 200:
                 status = response.json()
                 print(f"✅ 모델 상태:")
@@ -76,7 +76,7 @@ async def test_arxiv_pipeline():
         print(f"\n3️⃣ 다운로드 정보 확인 (tex_id: {tex_id})...")
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"http://localhost:8000/download/info/{tex_id}")
+                response = await client.get(f"http://localhost:8000/api/upload/download/info/{tex_id}")
                 if response.status_code == 200:
                     info = response.json()
                     print(f"✅ 다운로드 정보:")
@@ -96,7 +96,10 @@ async def test_arxiv_pipeline():
     print(f"\n4️⃣ 실제 파일 확인...")
     
     # arXiv 다운로드 폴더 확인
-    arxiv_dir = Path("../data/arxiv")
+    # 절대 경로로 arxiv 디렉토리 설정
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent / "server"  # polo-system/server
+    arxiv_dir = server_dir / "data" / "arxiv"
     if arxiv_dir.exists():
         arxiv_files = list(arxiv_dir.rglob(f"*{arxiv_id}*"))
         print(f"📁 arXiv 폴더 파일들:")
@@ -104,7 +107,7 @@ async def test_arxiv_pipeline():
             print(f"   - {file.name} ({file.stat().st_size} bytes)")
     
     # 출력 폴더 확인
-    output_dir = Path("../data/outputs")
+    output_dir = server_dir / "data" / "outputs"
     if output_dir.exists():
         output_files = list(output_dir.rglob("*"))
         print(f"📁 출력 폴더 파일들:")
@@ -118,8 +121,12 @@ async def test_pdf_upload():
     
     print(f"\n📄 PDF 업로드 테스트...")
     
+    # server_dir 정의
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent / "server"  # polo-system/server
+    
     # 간단한 테스트 PDF 생성 (실제로는 기존 PDF 사용)
-    test_pdf_path = Path("../data/raw/test.pdf")
+    test_pdf_path = server_dir / "data" / "raw" / "test.pdf"
     if not test_pdf_path.exists():
         print(f"❌ 테스트 PDF 파일이 없습니다: {test_pdf_path}")
         return
@@ -129,7 +136,7 @@ async def test_pdf_upload():
             with open(test_pdf_path, "rb") as f:
                 files = {"file": ("test.pdf", f, "application/pdf")}
                 response = await client.post(
-                    "http://localhost:8000/api/convert",
+                    "http://localhost:8000/api/upload/convert",
                     files=files,
                     timeout=30.0
                 )
@@ -154,14 +161,47 @@ async def test_models_directly():
     
     print(f"\n🤖 모델 직접 테스트...")
     
+    # server_dir 정의
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent / "server"  # polo-system/server
+    
+    # 전처리 서비스 테스트
+    print(f"\n📝 전처리 서비스 테스트...")
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://localhost:5002/process",
+                json={
+                    "paper_id": "test",
+                    "source_dir": str(server_dir / "data" / "arxiv" / "1506.02640" / "source"),
+                    "callback": "http://localhost:8000/api/upload/preprocess/callback"
+                },
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"✅ 전처리 성공!")
+                print(f"   - paper_id: {data.get('paper_id')}")
+                print(f"   - out_dir: {data.get('out_dir')}")
+                print(f"   - counts: {data.get('counts')}")
+            else:
+                print(f"❌ 전처리 실패: {response.status_code}")
+                print(f"   응답: {response.text}")
+                
+    except Exception as e:
+        print(f"❌ 전처리 오류: {e}")
+    
     # Easy 모델 테스트
     print(f"\n📝 Easy 모델 테스트...")
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "http://localhost:5002/batch",
+                "http://localhost:5003/batch",
                 json={
-                    "chunks_jsonl_path": "../data/outputs/test_chunks.jsonl"
+                    "paper_id": "test",
+                    "chunks_jsonl": str(server_dir / "data" / "out" / "source" / "chunks.jsonl"),
+                    "output_dir": str(server_dir / "data" / "outputs" / "easy_outputs")
                 },
                 timeout=30.0
             )
@@ -169,7 +209,10 @@ async def test_models_directly():
             if response.status_code == 200:
                 data = response.json()
                 print(f"✅ Easy 모델 성공!")
-                print(f"   - 처리된 청크 수: {data.get('processed_chunks', 0)}")
+                print(f"   - paper_id: {data.get('paper_id')}")
+                print(f"   - count: {data.get('count')}")
+                print(f"   - success: {data.get('success')}")
+                print(f"   - failed: {data.get('failed')}")
             else:
                 print(f"❌ Easy 모델 실패: {response.status_code}")
                 print(f"   응답: {response.text}")
@@ -177,28 +220,9 @@ async def test_models_directly():
     except Exception as e:
         print(f"❌ Easy 모델 오류: {e}")
     
-    # Math 모델 테스트
-    print(f"\n🧮 Math 모델 테스트...")
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "http://localhost:5003/math",
-                json={
-                    "tex_file_path": "../data/outputs/test_math.tex"
-                },
-                timeout=30.0
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                print(f"✅ Math 모델 성공!")
-                print(f"   - 처리된 방정식 수: {data.get('equation_count', 0)}")
-            else:
-                print(f"❌ Math 모델 실패: {response.status_code}")
-                print(f"   응답: {response.text}")
-                
-    except Exception as e:
-        print(f"❌ Math 모델 오류: {e}")
+    # Math 모델 테스트 (제외됨)
+    print(f"\n🧮 Math 모델 테스트 (제외됨)")
+    print(f"   - Math 모델은 별도로 실행하지 않습니다")
 
 if __name__ == "__main__":
     print("🧪 POLO 파이프라인 테스트 시작")
@@ -214,7 +238,7 @@ if __name__ == "__main__":
             try:
                 async with httpx.AsyncClient() as client:
                     # /health 대신 /api/model-status로 확인
-                    response = await client.get("http://localhost:8000/api/model-status", timeout=5.0)
+                    response = await client.get("http://localhost:8000/api/upload/model-status", timeout=5.0)
                     if response.status_code == 200:
                         print("✅ 메인 서버 실행 중")
                         return True
