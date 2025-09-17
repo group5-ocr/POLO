@@ -147,6 +147,40 @@ def _extract_sections(src: str) -> dict:
         sections[key] = "\n".join(lines[start_i+1:end_i]).strip()[:2000]
     return sections
 
+# -------------------- 토큰 정규화 --------------------
+def _normalize_bracket_tokens(text: str) -> str:
+    """LRB/RRB(대소문자/공백 변형) 및 LLB 변형을 괄호로 정규화"""
+    import re
+    if not text:
+        return text
+    # 열림 괄호 토큰
+    text = re.sub(r"(?i)\bL\s*R\s*B\b", "(", text)
+    text = re.sub(r"(?i)\bL\s*L\s*B\b", "(", text)  # 일부 데이터에 등장하는 llb 변형 대응
+    # 닫힘 괄호 토큰
+    text = re.sub(r"(?i)\bR\s*R\s*B\b", ")", text)
+    return text
+
+# -------------------- 용어/토큰 후처리 --------------------
+def _postprocess_terms(text: str) -> str:
+    """모델명/약어 오인식 및 분절 교정 (예: YOLO→OLO, 노른자 등)"""
+    import re
+    if not text:
+        return text
+    # YOLO 분절/오역 교정
+    text = re.sub(r"(?i)\bY\s*O\s*L\s*O\b", "YOLO", text)
+    text = re.sub(r"(?i)\bO\s*L\s*O\b", "YOLO", text)  # OLO로 끊어진 경우 복원
+    text = text.replace("노른자", "YOLO").replace("욜로", "YOLO")
+
+    # mAP 분절 교정 (m A P → mAP)
+    text = re.sub(r"(?i)\bm\s*A\s*P\b", "mAP", text)
+
+    # R-CNN 계열 하이픈 누락/분절 최소 교정
+    text = re.sub(r"(?i)\bR\s*-?\s*CNN\b", "R-CNN", text)
+    text = re.sub(r"(?i)\bFast\s*-?\s*R\s*-?\s*CNN\b", "Fast R-CNN", text)
+    text = re.sub(r"(?i)\bFaster\s*-?\s*R\s*-?\s*CNN\b", "Faster R-CNN", text)
+
+    return text
+
 # -------------------- 스키마 --------------------
 GROUND_SCHEMA = {
     "title": "",
@@ -295,20 +329,35 @@ async def startup_event():
 # -------------------- 내부 유틸 (재해석) --------------------
 def _build_easy_prompt(text: str, section_title: str | None = None) -> str:
     title_line = f"[섹션] {section_title}\n\n" if section_title else ""
-    return (
-        title_line +
-        "아래 학술 텍스트를 '쉽게말해,'로 시작하여 고등학생도 이해할 수 있게 한국어로 재서술하라.\n"
-        "- 새로운 정보 추가 금지, 원문의 의미를 정확히 보존\n"
-        "- 문장을 짧고 명확하게 분할, 문단을 논리적으로 구분\n"
-        "- 존댓말로 서술(입니다/합니다/한다), ~요 금지\n"
-        "- 수식/기호/그림 내용은 설명만 하고 텍스트에 재삽입하지 말 것(수식은 별도로 복원됨)\n"
-        "- 목록이 자연스러우면 간단한 불릿을 사용\n"
-        "- 라텍스 명령어/표/그림 코드는 생성하지 말고 순수 텍스트로만 작성\n\n"
-        "출력 형식:\n"
-        "- 1~3개의 짧은 문단으로 나눠 작성\n"
-        "- 첫 문장은 반드시 '쉽게말해,'로 시작\n\n"
-        f"[원문]\n{text}\n\n[출력]\n"
+    system_block = (
+        "<|begin_of_text|>\n"
+        "<|start_header_id|>system<|end_header_id|>\n"
+        "너는 과학 해설가이자 커뮤니케이터다.\n"
+        "학술 논문을 일반인도 쉽게 이해할 수 있도록 한국어로 풀어쓴다.\n\n"
+        "- 논문 안의 전문 용어, 모델명, 알고리즘 이름은 맥락을 고려하여 원래 의미를 보존한다.\n"
+        "  예: YOLO → 'YOLO 객체 탐지 모델'(의미 유지, 오역 금지).\n"
+        "- 수식은 그대로 두되, 텍스트에서 의미를 단계적으로 설명한다(수식 자체는 생성하지 않음).\n"
+        "- 통계 지표/약어(mAP, F1 등)는 원어를 유지하고 괄호에 쉬운 해설을 덧붙인다.\n"
+        "- 직역이 아니라 설명 중심의 의역으로, 핵심 아이디어/성과/한계를 명확히 한다.\n"
+        "- 불필요한 배경과 과도한 전문 용어는 줄이고, 중학생도 이해할 수 있게 단계적으로 친절히 설명한다.\n"
+        "- 번역이 아니라 재해석이므로, 독자가 '아하, 이런 의미구나' 하고 납득할 수 있어야 한다.\n"
+        "- 출력은 순수 텍스트만. LaTeX 명령/환경/표/그림 코드는 생성 금지.\n"
+        "<|eot_id|>\n"
     )
+    user_block = (
+        "<|start_header_id|>user<|end_header_id|>\n"
+        "다음 문장을 맥락을 고려하여 중학생도 이해할 수 있도록 쉽게 재해석하라.\n\n"
+        "형식 지침:\n"
+        "- 새로운 정보는 추가하지 말고 원문 의미만 정확히 보존\n"
+        "- 1~3개의 짧은 문단으로 정리\n"
+        "- 간결한 문장, 자연스러운 문단 흐름\n"
+        "- 존댓말(~입니다/~합니다), ~요 금지\n"
+        "- LaTeX/표/그림 코드는 생성하지 말 것(수식은 시스템에서 별도 복원됨)\n"
+        "- 전문 용어/약어는 원어를 유지하고 괄호에 쉬운 해설 추가(예: mAP(평균 정밀도))\n\n"
+        f"{title_line}[원문]\n{text}\n\n[출력]\n"
+        "<|eot_id|>\n"
+    )
+    return system_block + user_block
 
 def _build_verify_prompt(first_pass_text: str, section_title: str | None = None) -> str:
     title_line = f"[섹션] {section_title}\n\n" if section_title else ""
@@ -341,7 +390,7 @@ def _extract_math_placeholders(text: str):
         block_idx += 1
         return key
 
-    text = re.sub(r"\$\$[\s\S]*?\$\$", _sub_block_dollar)
+    text = re.sub(r"\$\$[\s\S]*?\$\$", _sub_block_dollar, text)
 
     def _sub_equation_env(m):
         nonlocal block_idx
@@ -350,7 +399,7 @@ def _extract_math_placeholders(text: str):
         block_idx += 1
         return key
 
-    text = re.sub(r"\\begin\{(equation\*?|align\*?|eqnarray\*?)\}[\s\S]*?\\end\{\1\}", _sub_equation_env)
+    text = re.sub(r"\\begin\{(equation\*?|align\*?|eqnarray\*?)\}[\s\S]*?\\end\{\1\}", _sub_equation_env, text)
 
     # 인라인 수식
     inline_map = {}
@@ -363,7 +412,7 @@ def _extract_math_placeholders(text: str):
         inline_idx += 1
         return key
 
-    text = re.sub(r"\$(?!\$)(?:[^$\\]|\\.)+\$", _sub_inline)
+    text = re.sub(r"\$(?!\$)(?:[^$\\]|\\.)+\$", _sub_inline, text)
 
     return text, inline_map, block_map
 
@@ -372,9 +421,11 @@ def _clean_latex_text(text: str) -> str:
     """LLM 입력용으로 LaTeX 노이즈를 최대한 제거합니다(구조 파싱은 별도로 수행)."""
     import re
 
-    # LRB, RRB 변환 (괄호)
-    text = re.sub(r"LRB", "(", text)
-    text = re.sub(r"RRB", ")", text)
+    # LRB, RRB 변환 (괄호) - 대소문자/공백 변형 모두 처리
+    # 예: LRB, lrb, L R B, l r b → (
+    #     RRB, rrb, R R B, r r b → )
+    text = re.sub(r"(?i)\bL\s*R\s*B\b", "(", text)
+    text = re.sub(r"(?i)\bR\s*R\s*B\b", ")", text)
 
     # 인용/라벨/참조 제거
     text = re.sub(r"\\cite\{[^}]*\}", "", text)
@@ -567,12 +618,11 @@ async def _rewrite_text(text: str) -> str:
     # 수식 플레이스홀더 치환 → 비수식 LaTeX 정리
     text_no_math, inline_map, block_map = _extract_math_placeholders(text)
     cleaned_text = _clean_latex_text(text_no_math)
-    print(f"🔍 [DEBUG] 정리된 텍스트 미리보기: {cleaned_text[:200]}...")
+    cleaned_text = _normalize_bracket_tokens(cleaned_text)
 
     # 섹션 제목 힌트가 있으면 전달(없으면 None)
     section_title = None
     prompt = _build_easy_prompt(cleaned_text, section_title)
-    print(f"🔍 [DEBUG] 프롬프트 미리보기: {prompt[:300]}...")
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
     inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.inference_mode():
@@ -595,7 +645,8 @@ async def _rewrite_text(text: str) -> str:
     print(f"🔍 [DEBUG] 1차 결과: {result[:300]}...")
 
     # 2단계 검증/개선 (옵션, 기본 활성화)
-    use_verify = os.getenv("EASY_VERIFY", "true").lower() in ("1","true","yes")
+    # 검증 단계 비활성화 (요청에 따라 완전히 제거)
+    use_verify = False
     if use_verify:
         verify_prompt = _build_verify_prompt(result, section_title)
         v_inputs = tokenizer(verify_prompt, return_tensors="pt", truncation=True, max_length=2048)
@@ -623,7 +674,9 @@ async def _rewrite_text(text: str) -> str:
     for key, val in inline_map.items():
         result = result.replace(key, val)
 
-    print(f"🔍 [DEBUG] 최종 결과(복원 후) 미리보기: {result[:300]}...")
+    # 결과 후처리: LRB/RRB/LLB 잔여 토큰 정규화 + 용어 교정
+    result = _normalize_bracket_tokens(result)
+    result = _postprocess_terms(result)
     return result
 
 def _format_latex_output(text: str) -> str:
@@ -668,20 +721,14 @@ def _format_latex_output(text: str) -> str:
 # -------------------- Viz 호출 --------------------
 async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -> VizResult:
     try:
-        print(f"🔍 [DEBUG] Viz 모델 호출: {VIZ_MODEL_URL}/viz")
-        print(f"🔍 [DEBUG] 전송 데이터: paper_id={paper_id}, index={index}, text_length={len(text_ko)}")
-        print(f"🔍 [DEBUG] 전송 텍스트 미리보기: {text_ko[:200]}...")
         
         # Viz 모델이 실행 중인지 먼저 확인
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 health_response = await client.get(f"{VIZ_MODEL_URL.rstrip('/')}/health")
                 if health_response.status_code != 200:
-                    print(f"❌ [ERROR] Viz 모델 헬스체크 실패: {health_response.status_code}")
                     return VizResult(ok=False, index=index, error="Viz 모델이 실행되지 않음")
-                print(f"✅ [SUCCESS] Viz 모델 헬스체크 성공")
         except Exception as e:
-            print(f"❌ [ERROR] Viz 모델 헬스체크 실패: {e}")
             return VizResult(ok=False, index=index, error=f"Viz 모델 연결 불가: {e}")
         
         # 실제 Viz 요청
@@ -697,17 +744,14 @@ async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -
                     "text_type": "easy_korean",  # 쉽게 변환된 한국어임을 명시
                 },
             )
-            print(f"🔍 [DEBUG] Viz 모델 응답: {r.status_code}")
-            
             if r.status_code != 200:
-                print(f"❌ [ERROR] Viz 모델 응답 실패: {r.status_code} - {r.text}")
+                print(f"❌ [Easy] Viz 모델 응답 실패: {r.status_code}")
                 return VizResult(ok=False, index=index, error=f"Viz 모델 응답 실패: {r.status_code}")
             
             try:
                 data = r.json()
-                print(f"🔍 [DEBUG] Viz 모델 응답 데이터: {data}")
             except Exception as json_error:
-                print(f"❌ [ERROR] Viz 모델 응답 JSON 파싱 실패: {json_error}")
+                print(f"❌ [Easy] Viz 응답 파싱 실패: {json_error}")
                 return VizResult(ok=False, index=index, error=f"Viz 모델 응답 파싱 실패: {json_error}")
 
         img_path = data.get("image_path")
@@ -715,7 +759,6 @@ async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -
         if not img_path and data.get("image_base64"):
             out_path = out_dir / f"{index:06d}.png"
             out_path.write_bytes(base64.b64decode(data["image_base64"]))
-            print(f"✅ [SUCCESS] 이미지 저장: {out_path}")
             return VizResult(ok=True, index=index, image_path=str(out_path))
 
         if not img_path and data.get("image_url"):
@@ -724,7 +767,6 @@ async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -
                 rr = await client.get(data["image_url"])
                 rr.raise_for_status()
                 out_path.write_bytes(rr.content)
-            print(f"✅ [SUCCESS] 이미지 저장: {out_path}")
             return VizResult(ok=True, index=index, image_path=str(out_path))
 
         if img_path:
@@ -735,24 +777,16 @@ async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -
                 out_path = out_dir / f"{index:06d}.png"
                 import shutil
                 shutil.copy2(img_path_obj, out_path)
-                print(f"✅ [SUCCESS] 이미지 복사: {img_path} -> {out_path}")
                 return VizResult(ok=True, index=index, image_path=str(out_path))
             else:
-                print(f"✅ [SUCCESS] 이미지 경로: {img_path}")
                 return VizResult(ok=True, index=index, image_path=str(img_path))
 
-        print(f"❌ [ERROR] 이미지 경로 없음: {data}")
         return VizResult(ok=False, index=index, error="No image_path from viz")
     except httpx.ConnectError as e:
-        print(f"❌ [ERROR] Viz 모델 연결 실패: {e}")
         return VizResult(ok=False, index=index, error=f"Viz 모델 연결 실패: {e}")
     except httpx.TimeoutException as e:
-        print(f"❌ [ERROR] Viz 모델 타임아웃: {e}")
         return VizResult(ok=False, index=index, error=f"Viz 모델 타임아웃: {e}")
     except Exception as e:
-        print(f"❌ [ERROR] Viz 모델 처리 실패: {e}")
-        import traceback
-        traceback.print_exc()
         return VizResult(ok=False, index=index, error=str(e))
 
 # -------------------- 엔드포인트 --------------------
@@ -878,22 +912,12 @@ async def generate_json(request: TextRequest):
 
 @app.post("/batch", response_model=BatchResult)
 async def batch_generate(req: BatchRequest):
-    print(f"🔍 [DEBUG] Easy /batch 엔드포인트 호출됨")
-    print(f"🔍 [DEBUG] 요청 데이터:")
-    print(f"  - paper_id: {req.paper_id}")
-    print(f"  - chunks_jsonl: {req.chunks_jsonl}")
-    print(f"  - output_dir: {req.output_dir}")
+    print(f"🚀 [Easy] 배치 처리 시작: {req.paper_id}")
     
     # merged_body.tex 파일 경로로 변경
     tex_path = Path(req.chunks_jsonl).parent / "merged_body.tex"
     out_dir = Path(req.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"🔍 [DEBUG] 파일 경로 확인:")
-    print(f"  - tex_path: {tex_path}")
-    print(f"  - tex_path 존재: {tex_path.exists()}")
-    print(f"  - out_dir: {out_dir}")
-    print(f"  - out_dir 생성됨: {out_dir.exists()}")
 
     if not tex_path.exists():
         print(f"❌ [ERROR] merged_body.tex 파일이 존재하지 않음: {tex_path}")
@@ -901,7 +925,7 @@ async def batch_generate(req: BatchRequest):
 
     # LaTeX 파일을 섹션별로 분할
     sections = _parse_latex_sections(tex_path)
-    print(f"🔍 [DEBUG] 총 {len(sections)}개 섹션 파싱됨")
+    print(f"📊 [Easy] 총 {len(sections)}개 섹션 처리 시작")
     
     if not sections:
         print(f"❌ [ERROR] 유효한 섹션이 없음")
@@ -912,27 +936,21 @@ async def batch_generate(req: BatchRequest):
         print(f"❌ [ERROR] 모델이 로드되지 않음")
         raise HTTPException(status_code=500, detail="Model not loaded")
 
-    print(f"🔍 [DEBUG] 모델 상태: model={model is not None}, tokenizer={tokenizer is not None}")
-    print(f"🔍 [DEBUG] 디바이스: {device}, GPU 사용: {gpu_available}")
+    print(f"🔧 [Easy] 모델 로드 완료 (GPU: {gpu_available})")
 
     results: List[VizResult] = []
 
-    print(f"🔍 [DEBUG] 배치 처리 시작...")
     # 순차적으로 처리 (병렬 처리로 인한 메모리 부족 방지)
     for idx, section in enumerate(sections):
         try:
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 처리 시작: {section['title']}")
+            print(f"📝 [Easy] 섹션 {idx+1}/{len(sections)}: {section['title']}")
             ko = await _rewrite_text(section["content"])
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 변환 완료: {ko[:100]}...")
             
             # Google Translator로 한국어 번역
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 한국어 번역 시작...")
             ko_translated = _translate_to_korean(ko)
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 한국어 번역 완료: {ko_translated[:100]}...")
             
             # 한국어 번역본으로 Viz 처리
             vz = await _send_to_viz(req.paper_id, idx, ko_translated, out_dir)
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} Viz 완료: {vz.ok}")
             
             # 결과에 번역된 텍스트 저장
             vz.easy_text = ko_translated
@@ -942,19 +960,16 @@ async def batch_generate(req: BatchRequest):
             # 진행률 표시
             completed = len(results)
             progress = (completed / len(sections)) * 100
-            print(f"📊 [PROGRESS] {completed}/{len(sections)} ({progress:.1f}%) 완료")
+            print(f"📊 [Easy] 진행률: {completed}/{len(sections)} ({progress:.1f}%)")
             
         except Exception as e:
-            print(f"❌ [ERROR] 섹션 {idx}/{len(sections)} 처리 실패: {e}")
+            print(f"❌ [Easy] 섹션 {idx+1} 실패: {e}")
             results.append(VizResult(ok=False, index=idx, error=str(e)))
 
     ok_cnt = sum(1 for r in results if r.ok)
     fail_cnt = len(results) - ok_cnt
     
-    print(f"🔍 [DEBUG] 배치 처리 완료:")
-    print(f"  - 총 섹션: {len(sections)}")
-    print(f"  - 성공: {ok_cnt}")
-    print(f"  - 실패: {fail_cnt}")
+    print(f"✅ [Easy] 처리 완료: {ok_cnt}/{len(sections)} 성공")
     
     result = BatchResult(
         ok=fail_cnt == 0,
@@ -1012,10 +1027,8 @@ async def batch_generate(req: BatchRequest):
     with open(json_file_path, "w", encoding="utf-8") as f:
         json.dump(json_result, f, ensure_ascii=False, indent=2)
     
-    print(f"📄 [JSON] 결과 파일 저장: {json_file_path}")
-    print(f"📄 [LaTeX] 결과 파일 저장: {latex_result_path}")
-    print(f"📄 [HTML] 결과 파일 저장: {html_result_path}")
-    print(f"✅ [SUCCESS] Easy 모델 배치 처리 완료: {result}")
+    print(f"💾 [Easy] 결과 파일 저장 완료")
+    print(f"🎉 [Easy] 배치 처리 완료: {req.paper_id}")
     return result
 
 def _save_latex_results(sections: List[dict], results: List[VizResult], output_path: Path):
@@ -1072,6 +1085,26 @@ def _save_html_results(sections: List[dict], results: List[VizResult], output_pa
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>POLO - 쉬운 논문 설명</title>
+    <script>
+      // easy_results.json을 자동 로드하여 window.EASY_JSON으로 노출
+      (async function(){
+        try {
+          const res = await fetch('easy_results.json');
+          if (res.ok) {
+            const data = await res.json();
+            window.EASY_JSON = data;
+            console.log('[EASY_JSON] loaded', data);
+          }
+        } catch (e) { console.warn('EASY_JSON load failed', e); }
+      })();
+    </script>
+    <script>
+      window.MathJax = {
+        tex: {inlineMath: [["$","$"], ["\\(","\\)"]], displayMath: [["$$","$$"], ["\\[","\\]"]]},
+        options: {skipHtmlTags: ['script','noscript','style','textarea','pre','code']}
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
     <style>
         body {
             font-family: 'Times New Roman', 'Noto Serif KR', serif;
