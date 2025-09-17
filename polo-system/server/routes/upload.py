@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os, re, unicodedata, time
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional
 import tempfile
@@ -673,7 +673,7 @@ async def api_preprocess_callback(body: PreprocessCallback):
         raise HTTPException(status_code=500, detail=f"API Callback processing failed: {e}")
 
 @router.post("/upload/send-to-easy")
-async def send_to_easy(request: ModelSendRequest):
+async def send_to_easy(request: ModelSendRequest, bg: BackgroundTasks):
     """
     Easy 모델로 chunks.jsonl 전송
     """
@@ -700,8 +700,8 @@ async def send_to_easy(request: ModelSendRequest):
         
         print(f"🔍 [DEBUG] merged_body.tex 경로: {tex_path}")
         
-        # Easy 모델 URL
-        easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5002")
+        # Easy 모델 URL (5003으로 통일)
+        easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
         output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -710,52 +710,58 @@ async def send_to_easy(request: ModelSendRequest):
         print(f"  - tex_path: {str(tex_path)}")
         print(f"  - output_dir: {str(output_dir)}")
         
-        # Easy 모델로 전송 (merged_body.tex 경로를 chunks_jsonl 필드에 전달)
-        import httpx
-        async with httpx.AsyncClient(timeout=1200) as client:  # 20분으로 증가
-            print(f"🔍 [DEBUG] Easy 모델 전송 시작...")
-            response = await client.post(f"{easy_url}/batch", json={
-                "paper_id": paper_id,
-                "chunks_jsonl": str(tex_path),  # Easy 모델에서 tex_path로 사용
-                "output_dir": str(output_dir)
-            })
-            
-            print(f"🔍 [DEBUG] Easy 모델 응답: {response.status_code}")
-            print(f"🔍 [DEBUG] 응답 내용: {response.text[:500]}...")
-            
-            if response.status_code == 200:
-                try:
-                    response_data = response.json()
-                    print(f"🔍 [DEBUG] Easy 모델 응답 데이터: {response_data}")
-                    
-                    # Easy 모델 처리 완료 후 easy_file 생성
+        # Easy 모델로 전송 (비동기 백그라운드 실행, 즉시 202 반환)
+        import httpx, asyncio
+
+        async def _run_easy_batch():
+            try:
+                print(f"🔍 [DEBUG] Easy 모델 백그라운드 작업 시작...")
+                print(f"🔍 [DEBUG] Easy 모델 URL: {easy_url}")
+                print(f"🔍 [DEBUG] 전송할 데이터:")
+                print(f"  - paper_id: {paper_id}")
+                print(f"  - tex_path: {str(tex_path)}")
+                print(f"  - output_dir: {str(output_dir)}")
+                
+                async with httpx.AsyncClient(timeout=1200) as client:  # 20분 허용
+                    print(f"🔍 [DEBUG] Easy 모델 전송 시작(백그라운드)...")
+                    response = await client.post(f"{easy_url}/batch", json={
+                        "paper_id": paper_id,
+                        "chunks_jsonl": str(tex_path),  # Easy 모델에서 tex_path로 사용
+                        "output_dir": str(output_dir)
+                    })
+                    print(f"🔍 [DEBUG] Easy 모델 응답: {response.status_code}")
+                    print(f"🔍 [DEBUG] 응답 내용: {response.text[:500]}...")
+                    if response.status_code != 200:
+                        print(f"❌ [ERROR] Easy 모델 응답 실패: {response.status_code} - {response.text}")
+                        return
+
+                    # 처리 후 결과 파일을 DB에 기록(가능한 경우)
                     try:
-                        tex_id = int(paper_id)
-                        origin_id = await DB.get_origin_id_from_tex(tex_id)
-                        if origin_id:
-                            # Easy 모델 출력 파일들 찾기
-                            easy_files = list(output_dir.glob("*.png")) + list(output_dir.glob("*.jpg"))
-                            for easy_file in easy_files:
-                                await DB.create_easy_file(
-                                    tex_id=tex_id,
-                                    origin_id=origin_id,
-                                    filename=easy_file.name,
-                                    file_addr=str(easy_file)
-                                )
-                            print(f"✅ Easy 파일들 DB에 저장 완료: {len(easy_files)}개 파일")
+                        # paper_id가 doc_ 형태인 경우 DB 저장 스킵 (로컬 파일만 사용)
+                        if paper_id.startswith("doc_"):
+                            print(f"⚠️ doc_ 형태의 paper_id는 DB 저장 스킵: {paper_id}")
                         else:
-                            print(f"⚠️ origin_id를 찾을 수 없어서 Easy 파일 DB 저장 스킵")
+                            tex_id = int(paper_id)
+                            origin_id = await DB.get_origin_id_from_tex(tex_id)
+                            if origin_id:
+                                easy_files = list(output_dir.glob("*.png")) + list(output_dir.glob("*.jpg"))
+                                for easy_file in easy_files:
+                                    await DB.create_easy_file(
+                                        tex_id=tex_id,
+                                        origin_id=origin_id,
+                                        filename=easy_file.name,
+                                        file_addr=str(easy_file)
+                                    )
+                                print(f"✅ Easy 파일들 DB에 저장 완료: {len(easy_files)}개 파일")
+                            else:
+                                print(f"⚠️ origin_id를 찾을 수 없어 Easy 파일 DB 저장 스킵")
                     except Exception as db_error:
                         print(f"❌ Easy 파일 DB 저장 실패: {db_error}")
-                    
-                    return {"ok": True, "message": "Easy 모델로 전송 완료", "paper_id": paper_id, "response": response_data}
-                except Exception as json_error:
-                    print(f"⚠️ [WARNING] Easy 모델 응답 JSON 파싱 실패: {json_error}")
-                    return {"ok": True, "message": "Easy 모델로 전송 완료 (응답 파싱 실패)", "paper_id": paper_id}
-            else:
-                print(f"❌ [ERROR] Easy 모델 응답 실패: {response.status_code}")
-                print(f"❌ [ERROR] 응답 내용: {response.text}")
-                raise HTTPException(status_code=response.status_code, detail=f"Easy 모델 전송 실패: {response.text}")
+            except Exception as e:
+                print(f"❌ [ERROR] Easy 백그라운드 작업 실패: {e}")
+
+        asyncio.create_task(_run_easy_batch())
+        return JSONResponse(status_code=202, content={"ok": True, "message": "Easy 모델 전송을 시작했습니다", "paper_id": paper_id})
                 
     except httpx.ConnectError as e:
         print(f"❌ [ERROR] Easy 모델 연결 실패: {e}")
