@@ -45,6 +45,82 @@ uvicorn app:app --port 5004
 
 ---
 
+# 시스템 아키텍쳐
+```mermaid
+flowchart TD
+  U["User"] -->|HTTP| API["FastAPI app"]
+
+  subgraph E["API Endpoints"]
+    H["GET /health"]
+    C1["GET /count/{path}"]
+    C2["POST /count"]
+    M1["GET /math/{path}"]
+    M2["POST /math"]
+    HTML1["GET /html/{path}"]
+    HTML2["GET /html-live/{path}"]
+  end
+
+  API --> H
+  API --> C1
+  API --> C2
+  API --> M1
+  API --> M2
+  API --> HTML1
+  API --> HTML2
+
+  subgraph P["Processing Pipeline"]
+    R["Read TeX"]
+    X["Extract equations"]
+    F["Score complexity"]
+    O["Generate overview"]
+    EX["Explain advanced eqs"]
+    S["Sanitize"]
+    W["Write JSON and TeX"]
+  end
+
+  C1 --> R
+  C2 --> R
+  M1 --> R
+  M2 --> R
+  R --> X --> F --> O --> EX --> S --> W
+  O --> W
+  S --> W
+
+  subgraph M["Model and Cache"]
+    T["AutoTokenizer"]
+    LLM["Qwen2.5-Math-1.5B"]
+    HF["HF cache"]
+    DEV["GPU or CPU"]
+  end
+
+  T -.-> LLM
+  HF -.-> T
+  HF -.-> LLM
+  DEV -.-> LLM
+
+  subgraph G["Translation"]
+    GCLI["TranslationServiceClient"]
+    SA["Service Account JSON"]
+    PARENT["projects/.../locations/..."]
+    TR["Translate paragraphs"]
+  end
+
+  SA --> GCLI --> PARENT
+  TR --> W
+
+  subgraph V["HTML Render"]
+    RDR1["_render_html"]
+    RDR2["_render_live_html"]
+    MJ["MathJax"]
+  end
+
+  HTML1 --> RDR1 --> MJ
+  HTML2 --> RDR2 --> MJ
+
+```
+
+---
+
 # POLO Math Explainer API
 
 LaTeX 문서에서 수식을 자동으로 추출‧분류하고, \*\*영어 요약(Overview)\*\*과 \*\*영어 수식 해설(Example → Explanation → Conclusion 형식)\*\*을 생성하여 JSON/TeX 리포트로 저장하는 FastAPI 서비스입니다.
