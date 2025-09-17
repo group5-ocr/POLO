@@ -51,8 +51,8 @@ print(VERSION, flush=True)
 
 # ----- 경로 설정 -----
 INPUT_TEX_PATH = r"C:\\POLO\\polo-system\\models\\math\\yolo.tex"
-OUT_DIR        = "C:/POLO/POLO/polo-system/models/math/_build"
-# OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
+# OUT_DIR        = "C:/POLO/POLO/polo-system/models/math/_build"
+OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ----- 모델/토크나이저 설정 -----
@@ -326,8 +326,8 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
 # ======================================================================
 
 # 1) 로컬 키 파일로 직접 초기화(환경변수 불필요)
-SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
-# SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+# SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
 GCP_LOCATION = "global"   # 필요 시 "asia-northeast3" 등으로 변경
 
 gcp_translate_client = None
@@ -582,9 +582,314 @@ def run_pipeline(input_tex_path: str) -> Dict:
         }
     }
 
+# === HTML 미리보기(개요 + 수식 + 해설/번역) ===
+from fastapi.responses import HTMLResponse
+from urllib.parse import quote
+
+def _read_json(p: Path):
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot read JSON: {p} ({e})")
+
+def _render_html(doc_en: dict, doc_ko: dict) -> str:
+    # 공통 아이템: line_start/line_end/kind/env/equation/explanation
+    items_en = doc_en.get("items", [])
+    items_ko = doc_ko.get("items", [])
+    # (안전) index로 맞춰보기
+    ko_by_idx = {it.get("index"): it for it in items_ko}
+
+    def sec(it_en):
+        idx = it_en.get("index")
+        it_ko = ko_by_idx.get(idx, {})
+        title = f"Lines {it_en.get('line_start')}–{it_en.get('line_end')} / {it_en.get('kind')} {('['+it_en.get('env','')+']') if it_en.get('env') else ''}"
+
+        # 수식(원문 LaTeX) + 해설(EN/KR 탭)
+        eq = it_en.get("equation", "")
+        exp_en = it_en.get("explanation", "").strip()
+        exp_ko = it_ko.get("explanation", "").strip() or "<em>번역 없음</em>"
+
+        # 수식은 display 블록으로
+        eq_block = f"<div class='eq'>$$\n{eq}\n$$</div>"
+
+        # 해설은 탭(EN/KR)로
+        html = f"""
+        <section class="card">
+          <h3>{title}</h3>
+          {eq_block}
+          <div class="tabs">
+            <button class="tab active" data-for="en-{idx}">EN</button>
+            <button class="tab" data-for="ko-{idx}">KR</button>
+          </div>
+          <div id="en-{idx}" class="pane show">{exp_en}</div>
+          <div id="ko-{idx}" class="pane">{exp_ko}</div>
+        </section>
+        """
+        return html
+
+    overview_en = doc_en.get("overview","").strip() or "<em>No overview</em>"
+    overview_ko = doc_ko.get("overview","").strip() or "<em>개요 번역 없음</em>"
+
+    body_sections = "\n".join(sec(it) for it in items_en)
+
+    # 간단 스타일 + 탭 스크립트 + MathJax
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>POLO – LaTeX Math HTML Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {{ --bd:#e5e7eb; --fg:#111827; --muted:#6b7280; --bg:#0b0c0f; --panel:#111317; --acc:#6366f1; }}
+  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif; 
+          line-height:1.7; margin:0; color:#e5e7eb; background:#0b0c0f; }}
+  .wrap {{ max-width: 960px; margin: 0 auto; padding: 28px; }}
+  h1,h2,h3 {{ color:#fff; margin: 0 0 12px; }}
+  .muted {{ color:#9ca3af; }}
+  .card {{ background:#111317; border:1px solid #1f2937; border-radius:14px; padding:18px 20px; margin: 18px 0; }}
+  .eq {{ background:#0f1115; border:1px dashed #334155; border-radius:12px; padding:14px; overflow:auto; margin: 10px 0 14px; }}
+  .tabs {{ display:flex; gap:8px; margin-bottom:8px; }}
+  .tab {{ background:#0f1115; color:#e5e7eb; border:1px solid #334155; border-radius:999px; padding:6px 12px; cursor:pointer; }}
+  .tab.active {{ border-color:#6366f1; color:#fff; }}
+  .pane {{ display:none; white-space:pre-wrap; }}
+  .pane.show {{ display:block; }}
+  .topbar {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }}
+  .badge {{ font-size:12px; color:#cbd5e1; background:#0f1115; border:1px solid #334155; padding:6px 10px; border-radius:999px; }}
+  a.btn {{ text-decoration:none; background:#1d4ed8; color:#fff; padding:8px 12px; border-radius:10px; }}
+  .ovtabs {{ display:flex; gap:8px; margin-top:10px; }}
+</style>
+<script>
+  addEventListener('click', (e) => {{
+    if (!e.target.classList.contains('tab')) return;
+    const btn = e.target;
+    const paneId = btn.dataset.for;
+    // deactivate siblings
+    btn.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    const sec = btn.closest('section');
+    sec.querySelectorAll('.pane').forEach(p => p.classList.remove('show'));
+    sec.querySelector('#'+paneId).classList.add('show');
+  }});
+</script>
+<script>
+  window.MathJax = {{
+    tex: {{
+      inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
+      displayMath: [['\\\\[','\\\\]'], ['$$','$$']]
+    }},
+    svg: {{ fontCache: 'global' }}
+  }};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>POLO – Equation Overview & Explanations</h1>
+      <span class="badge">HTML Preview</span>
+    </div>
+
+    <div class="card">
+      <h2>Document Overview</h2>
+      <div class="ovtabs">
+        <button class="tab active" data-for="ov-en">EN</button>
+        <button class="tab" data-for="ov-ko">KR</button>
+      </div>
+      <div id="ov-en" class="pane show">{overview_en}</div>
+      <div id="ov-ko" class="pane">{overview_ko}</div>
+    </div>
+
+    {body_sections}
+
+    <div class="muted" style="margin-top:24px;">Rendered with MathJax • POLO</div>
+  </div>
+</body>
+</html>"""
+
+
+# === HTML 즉시 렌더(디스크 저장 없이) ===
+from fastapi.responses import HTMLResponse
+
+def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
+    # items: [{"index": int, "title": str, "equation": str, "exp_en": str, "exp_ko": str}, ...]
+    sections = []
+    for it in items:
+        eq_block = f"<div class='eq'>$$\n{it['equation']}\n$$</div>"
+        sections.append(f"""
+        <section class="card">
+          <h3>{it['title']}</h3>
+          {eq_block}
+          <div class="tabs">
+            <button class="tab active" data-for="en-{it['index']}">EN</button>
+            <button class="tab" data-for="ko-{it['index']}">KR</button>
+          </div>
+          <div id="en-{it['index']}" class="pane show">{it['exp_en']}</div>
+          <div id="ko-{it['index']}" class="pane">{it['exp_ko'] or '<em>번역 없음</em>'}</div>
+        </section>
+        """)
+    body_sections = "\n".join(sections)
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>POLO – Live Math Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {{ --bd:#1f2937; }}
+  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif;
+          line-height:1.7; margin:0; color:#e5e7eb; background:#0b0c0f; }}
+  .wrap {{ max-width: 960px; margin: 0 auto; padding: 28px; }}
+  h1,h2,h3 {{ color:#fff; margin: 0 0 12px; }}
+  .card {{ background:#111317; border:1px solid var(--bd); border-radius:14px; padding:18px 20px; margin: 18px 0; }}
+  .eq {{ background:#0f1115; border:1px dashed #334155; border-radius:12px; padding:14px; overflow:auto; margin: 10px 0 14px; }}
+  .tabs {{ display:flex; gap:8px; margin-bottom:8px; }}
+  .tab {{ background:#0f1115; color:#e5e7eb; border:1px solid #334155; border-radius:999px; padding:6px 12px; cursor:pointer; }}
+  .tab.active {{ border-color:#6366f1; color:#fff; }}
+  .pane {{ display:none; white-space:pre-wrap; }}
+  .pane.show {{ display:block; }}
+  .badge {{ font-size:12px; color:#cbd5e1; background:#0f1115; border:1px solid #334155; padding:6px 10px; border-radius:999px; }}
+</style>
+<script>
+  addEventListener('click', (e) => {{
+    if (!e.target.classList.contains('tab')) return;
+    const btn = e.target;
+    btn.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    const sec = btn.closest('section');
+    sec.querySelectorAll('.pane').forEach(p => p.classList.remove('show'));
+    sec.querySelector('#'+btn.dataset.for).classList.add('show');
+  }});
+</script>
+<script>
+  window.MathJax = {{
+    tex: {{
+      inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
+      displayMath: [['\\\\[','\\\\]'], ['$$','$$']]
+    }},
+    svg: {{ fontCache: 'global' }}
+  }};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;">
+      <h1>POLO – Equation Overview & Explanations (Live)</h1>
+      <span class="badge">No disk writes</span>
+    </div>
+
+    <div class="card">
+      <h2>Document Overview</h2>
+      <div class="tabs">
+        <button class="tab active" data-for="ov-en">EN</button>
+        <button class="tab" data-for="ov-ko">KR</button>
+      </div>
+      <div id="ov-en" class="pane show">{overview_en or '<em>No overview</em>'}</div>
+      <div id="ov-ko" class="pane">{overview_ko or '<em>개요 번역 없음</em>'}</div>
+    </div>
+
+    {body_sections}
+    <div style="color:#94a3b8;margin-top:24px;">Rendered with MathJax • POLO</div>
+  </div>
+</body>
+</html>"""
+
 # === FastAPI 앱 ===
 app = FastAPI(title="POLO Math Explainer API", version="1.2.0")
 
+@app.get("/html/{file_path:path}", response_class=HTMLResponse)
+async def html_preview(file_path: str):
+    """
+    1) 입력 TeX에서 수식 추출/해설/번역 파일 생성(run_pipeline)
+    2) 생성된 EN/KR JSON을 불러와 HTML로 렌더 (수식은 MathJax)
+    """
+    try:
+        # 1) 파이프라인 수행 (JSON/TeX/번역 생성)
+        result = run_pipeline(file_path)
+        out_dir = Path(result["outputs"]["out_dir"])
+
+        # 2) 산출물 로드 (영문/국문 JSON)
+        en_json = out_dir / "equations_explained.json"
+        ko_json = out_dir / "equations_explained.ko.json"
+        doc_en = _read_json(en_json)
+        doc_ko = _read_json(ko_json) if ko_json.exists() else {"overview":"", "items":[]}
+
+        # 3) HTML 구성
+        html = _render_html(doc_en, doc_ko)
+        return HTMLResponse(html)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {e}")
+
+@app.get("/html-live/{file_path:path}", response_class=HTMLResponse)
+async def html_live(file_path: str):
+    """
+    디스크에 JSON/TeX를 저장하지 않고:
+      1) TeX 읽기 → 수식 추출/필터링
+      2) LLM으로 개요/해설 생성(EN)
+      3) (옵션) GCP로 번역만 메모리에서 수행
+      4) HTML 바로 렌더
+    """
+    try:
+        p = Path(file_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Cannot find TeX file: {file_path}")
+
+        # 1) 원문 로드 + 수식 추출
+        src = p.read_text(encoding="utf-8", errors="ignore")
+        offsets = make_line_offsets(src)
+        pos_to_line = build_pos_to_line(offsets)
+        equations_all = extract_equations(src, pos_to_line)
+        equations_adv = [e for e in equations_all if is_advanced(e["body"])]
+
+        # 2) 개요 LLM (EN)
+        head, mid, tail = take_slices(src)
+        overview_prompt = f"""
+You will be given three slices of a LaTeX document (head / middle / tail).
+Please produce a concise English overview with:
+- One short paragraph describing the core topic and objective of the paper.
+- A few bullet points listing the main sections or ideas (if discernible).
+- Focus on how mathematical notation and symbols are used to support the overall flow.
+
+[HEAD]
+{head}
+
+[MIDDLE]
+{mid}
+
+[TAIL]
+{tail}
+""".strip()
+        overview_en = chat_overview(overview_prompt)
+
+        # 3) 수식별 해설(EN) + (옵션) 번역(KO)
+        items = []
+        for idx, it in enumerate(equations_adv, start=1):
+            exp_en = explain_equation_with_llm(it["body"])
+            # 필요 시 번역 (gcp_translate_client 준비되었을 때만)
+            exp_ko = translate_text_gcp(exp_en, target_lang="ko") if (gcp_translate_client and GCP_PARENT) else ""
+            title = f"Lines {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
+            items.append({
+                "index": idx,
+                "title": title,
+                "equation": it["body"],
+                "exp_en": exp_en,
+                "exp_ko": exp_ko
+            })
+
+        # 개요 번역도 메모리에서
+        overview_ko = translate_text_gcp(overview_en, target_lang="ko") if (gcp_translate_client and GCP_PARENT) else ""
+
+        # 4) HTML 즉시 렌더
+        html = _render_live_html(overview_en, overview_ko, items)
+        return HTMLResponse(html)
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {e}")
+    
 # 루트 접속 시 /health로 리다이렉트
 @app.get("/")
 async def root():
