@@ -1,21 +1,19 @@
 # --- Web / API ---
 fastapi==0.114.1
 uvicorn[standard]==0.30.6
-python-multipart==0.0.9
-watchfiles==0.24.0
-aiofiles==23.2.1
-python-dotenv==1.0.1
 httpx==0.27.2
-
-# --- Database ---
-asyncpg==0.29.0
-aiosqlite==0.20.0
-sqlalchemy[asyncio]==2.0.25
-alembic==1.13.1
-
-# --- Security ---
-bcrypt==4.1.2
-
-# --- External Services ---
+pydantic==2.9.1
+python-multipart==0.0.9   # 파일 업로드 받는다면 유지
+python-dotenv==1.0.1
 anyio==4.4.0
-arxiv==2.1.0
+
+# --- Database (async) ---
+SQLAlchemy==2.0.34
+asyncpg==0.29.0           # PostgreSQL async 드라이버
+aiosqlite==0.20.0         # 폴백용
+
+# --- Optional ---
+bcrypt==4.1.2             # 로그인/해시가 필요할 때만
+aiofiles==23.2.1          # 서버에서 직접 파일 저장 시만
+alembic==1.13.1           # 컨테이너에서 마이그레이션도 돌릴 때만
+# psycopg2-binary==2.9.9  # Alembic을 sync 드라이버로 돌릴 때만. 보통은 불필요.
