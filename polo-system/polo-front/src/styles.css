@@ -3163,8 +3163,145 @@ body,
 }
 
 .upload-container {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
+}
+
+/* 좌우 분할 레이아웃 */
+.upload-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  min-height: 600px;
+}
+
+.upload-left {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.upload-right {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 오른쪽 안내 영역 */
+.upload-guide {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 16px;
+  padding: 32px;
+  text-align: center;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+}
+
+.upload-guide h3 {
+  color: #1e40af;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.upload-guide-steps {
+  text-align: left;
+  margin-bottom: 24px;
+}
+
+.upload-guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  border-left: 3px solid #3b82f6;
+}
+
+.upload-guide-step-number {
+  background: #3b82f6;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.upload-guide-step-text {
+  color: #374151;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.upload-guide-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.upload-guide-feature {
+  background: rgba(255, 255, 255, 0.8);
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+.upload-guide-feature-icon {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.upload-guide-feature-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+
+.upload-guide-feature-desc {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.upload-guide-stats {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+}
+
+.upload-guide-stat {
+  text-align: center;
+}
+
+.upload-guide-stat-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1e40af;
+  display: block;
+}
+
+.upload-guide-stat-label {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 2px;
 }
 
 .upload-header {
@@ -3945,6 +4082,29 @@ body,
   /* 업로드 페이지 모바일 최적화 */
   .upload-page {
     padding: 20px 16px;
+  }
+
+  .upload-layout {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .upload-guide {
+    padding: 24px;
+  }
+
+  .upload-guide h3 {
+    font-size: 1.3rem;
+  }
+
+  .upload-guide-features {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .upload-guide-stats {
+    flex-direction: column;
+    gap: 12px;
   }
 
   .upload-header h1 {
@@ -4747,7 +4907,7 @@ body,
 }
 
 .progress-fill::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
