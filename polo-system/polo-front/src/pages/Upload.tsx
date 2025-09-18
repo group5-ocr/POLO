@@ -403,6 +403,34 @@ export default function Upload() {
     document.body.removeChild(a);
   };
 
+  // Math 결과를 브라우저에서 보는 함수
+  const viewMathResultsInBrowser = () => {
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const viewUrl = `${apiBase}/api/upload/download/math-html/${pid}`;
+
+    // 새 탭에서 HTML 파일 열기
+    window.open(viewUrl, "_blank");
+  };
+
+  // Math 결과 HTML 파일을 다운로드하는 함수
+  const downloadMathResultsAsHTML = () => {
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const downloadUrl = `${apiBase}/api/upload/download/math-html/${pid}`;
+
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `math_results_${pid}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   // Easy 결과 HTML 생성 함수
   const generateEasyResultsHTML = (easyResults: any) => {
     const sections = easyResults.sections || easyResults.chunks || [];
@@ -1388,7 +1416,7 @@ export default function Upload() {
                   해설을 생성했습니다.
                   <br />
                   <span style={{ color: "#1976d2", fontWeight: "600" }}>
-                    📊 수식 해설 보고서와 JSON 데이터가 생성되었습니다!
+                    ✨ MathJax로 렌더링된 수식 해설 HTML이 생성되었습니다!
                   </span>
                 </p>
                 <div
@@ -1400,20 +1428,7 @@ export default function Upload() {
                   }}
                 >
                   <button
-                    onClick={() => {
-                      const pid = result?.doc_id || currentPaperId;
-                      if (!pid) return;
-                      const apiBase =
-                        import.meta.env.VITE_API_BASE ??
-                        "http://localhost:8000";
-                      const downloadUrl = `${apiBase}/api/upload/download/math/${pid}`;
-                      const a = document.createElement("a");
-                      a.href = downloadUrl;
-                      a.download = `math_equations_${pid}.json`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }}
+                    onClick={viewMathResultsInBrowser}
                     style={{
                       background:
                         "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
@@ -1441,26 +1456,13 @@ export default function Upload() {
                         "0 4px 15px rgba(25, 118, 210, 0.3)";
                     }}
                   >
-                    📊 JSON 다운로드
+                    👁️ 결과 보러가기
                   </button>
                   <button
-                    onClick={() => {
-                      const pid = result?.doc_id || currentPaperId;
-                      if (!pid) return;
-                      const apiBase =
-                        import.meta.env.VITE_API_BASE ??
-                        "http://localhost:8000";
-                      const downloadUrl = `${apiBase}/api/upload/download/math/${pid}`;
-                      const a = document.createElement("a");
-                      a.href = downloadUrl;
-                      a.download = `math_report_${pid}.tex`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }}
+                    onClick={downloadMathResultsAsHTML}
                     style={{
                       background:
-                        "linear-gradient(135deg, #ff5722 0%, #e64a19 100%)",
+                        "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
                       border: "none",
                       borderRadius: "8px",
                       padding: "12px 24px",
@@ -1469,7 +1471,7 @@ export default function Upload() {
                       color: "white",
                       cursor: "pointer",
                       transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(255, 87, 34, 0.3)",
+                      boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
                       display: "flex",
                       alignItems: "center",
                       gap: "8px",
@@ -1477,15 +1479,15 @@ export default function Upload() {
                     onMouseOver={(e) => {
                       e.currentTarget.style.transform = "translateY(-2px)";
                       e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(255, 87, 34, 0.4)";
+                        "0 6px 20px rgba(255, 152, 0, 0.4)";
                     }}
                     onMouseOut={(e) => {
                       e.currentTarget.style.transform = "translateY(0)";
                       e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(255, 87, 34, 0.3)";
+                        "0 4px 15px rgba(255, 152, 0, 0.3)";
                     }}
                   >
-                    📄 TeX 다운로드
+                    💾 HTML 다운로드
                   </button>
                 </div>
                 <div
@@ -1500,7 +1502,7 @@ export default function Upload() {
                   }}
                 >
                   ✨ 수학 모델 기능: LaTeX 수식 추출, 중학생 수준 해설 생성,
-                  JSON/TeX 보고서 출력
+                  MathJax 렌더링, 영문/한글 탭 전환
                 </div>
               </div>
             )}

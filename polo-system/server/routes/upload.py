@@ -343,6 +343,25 @@ async def download_math_file(paper_id: str):
     
     raise HTTPException(status_code=404, detail=f"Math 모델 출력 파일을 찾을 수 없습니다: {paper_id}")
 
+@router.get("/upload/download/math-html/{paper_id}")
+async def download_math_html(paper_id: str):
+    """
+    Math 모델 HTML 결과 파일 다운로드
+    """
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    math_output_dir = server_dir / "data" / "outputs" / paper_id / "math_outputs"
+    html_file = math_output_dir / f"math_results_{paper_id}.html"
+    
+    if not html_file.exists():
+        raise HTTPException(status_code=404, detail=f"Math 모델 HTML 결과 파일을 찾을 수 없습니다: {paper_id}")
+    
+    return FileResponse(
+        path=str(html_file),
+        filename=f"{paper_id}_math_results.html",
+        media_type="text/html"
+    )
+
 @router.get("/upload/math-status/{paper_id}")
 async def get_math_status(paper_id: str):
     """
@@ -364,11 +383,12 @@ async def get_math_status(paper_id: str):
     # 시작 마커 파일 확인
     started_flag = math_output_dir / ".started"
     if started_flag.exists():
-        # JSON 파일 확인
+        # JSON, TeX, HTML 파일 확인
         json_file = math_output_dir / "equations_explained.json"
         tex_file = math_output_dir / "yolo_math_report.tex"
+        html_file = math_output_dir / f"math_results_{paper_id}.html"
         
-        if json_file.exists() and tex_file.exists():
+        if json_file.exists() and tex_file.exists() and html_file.exists():
             return {
                 "status": "completed",
                 "message": "Math 모델 처리가 완료되었습니다",
@@ -384,6 +404,12 @@ async def get_math_status(paper_id: str):
                         "path": str(tex_file),
                         "size": tex_file.stat().st_size,
                         "type": "tex"
+                    },
+                    {
+                        "name": f"math_results_{paper_id}.html",
+                        "path": str(html_file),
+                        "size": html_file.stat().st_size,
+                        "type": "html"
                     }
                 ]
             }
@@ -944,16 +970,29 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                         json_path = outputs.get("json")
                         report_tex = outputs.get("report_tex")
                         math_out_dir = outputs.get("out_dir")
-                        
+
                         if json_path and Path(json_path).exists():
                             import shutil
                             shutil.copy2(json_path, output_dir / "equations_explained.json")
                             print(f"✅ [SERVER] Math JSON 결과 복사 완료")
-                        
+
                         if report_tex and Path(report_tex).exists():
                             import shutil
                             shutil.copy2(report_tex, output_dir / "yolo_math_report.tex")
                             print(f"✅ [SERVER] Math TeX 결과 복사 완료")
+
+                        # HTML 파일 생성 (MathJax 렌더링된 수식 해설)
+                        try:
+                            html_response = await client.get(f"{math_url}/html-live/{str(tex_path)}")
+                            if html_response.status_code == 200:
+                                html_content = html_response.text
+                                html_file = output_dir / f"math_results_{paper_id}.html"
+                                html_file.write_text(html_content, encoding="utf-8")
+                                print(f"✅ [SERVER] Math HTML 결과 생성 완료: {html_file}")
+                            else:
+                                print(f"⚠️ [SERVER] Math HTML 생성 실패: {html_response.status_code}")
+                        except Exception as html_error:
+                            print(f"❌ [SERVER] Math HTML 생성 실패: {html_error}")
                         
                         # 처리 후 결과 파일을 DB에 기록(가능한 경우)
                         try:
@@ -976,7 +1015,7 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                                     print(f"⚠️ origin_id를 찾을 수 없어 Math 결과 DB 저장 스킵")
                         except Exception as db_error:
                             print(f"❌ Math 결과 DB 저장 실패: {db_error}")
-                            
+                        
                     except Exception as copy_error:
                         print(f"❌ [SERVER] Math 결과 파일 복사 실패: {copy_error}")
                         
