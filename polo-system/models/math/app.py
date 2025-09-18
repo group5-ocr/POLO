@@ -1,12 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 LaTeX 수식 해설 API (FastAPI) + GCP Translation(ko) 번역본 저장
-
-출력물(총 4개)
-- 원본 JSON:  equations_explained.json
-- 원본 TeX :  yolo_math_report.tex
-- 번역 JSON:  equations_explained.ko.json
-- 번역 TeX :  yolo_math_report.ko.tex
+(버그픽스: MathJax에서 \mathlarger, \mathbbm 깨짐 방지)
 """
 
 # === 셀 1: 환경 준비 & 모델 로드 ===
@@ -46,13 +41,13 @@ try:
 except Exception:
     pass
 
-VERSION = "POLO-Math-API v6.1 (dyn-maxnew + no-example + concl-guard)"
+VERSION = "POLO-Math-API v6.2 (mathjax-macros + eq-normalizer)"  # ★ 변경
 print(VERSION, flush=True)
 
 # ----- 경로 설정 -----
 INPUT_TEX_PATH = r"C:\\POLO\\polo-system\\models\\math\\yolo.tex"
 # OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
-OUT_DIR        = "C:/POLO/POLO/polo-system/models/math/_build"
+OUT_DIR = "C:/POLO/POLO/polo-system/models/math/_build"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ----- 모델/토크나이저 설정 -----
@@ -206,12 +201,10 @@ def complexity_score(eq: str) -> int:
     score += 2 * len(re.findall(r"\\begin\{(align|multline|cases|split)\*?\}", eq))
     score += 1 * (len(re.findall(r"_[A-Za-z0-9{\\]", eq)) >= 2)
     score += 1 * bool(_GREEK_RE.search(eq))
-    # 감점: 단순 곱/점
     score -= 1 * len(re.findall(r"\\times|\\cdot", eq))
     return score
 
 MIN_COMPLEXITY = 3
-
 def is_advanced(eq: str) -> bool:
     if numeric_only(eq):
         return False
@@ -256,36 +249,31 @@ def chat_overview(prompt: str) -> str:
 EXPLAIN_SYSTEM = (
     "You are an AI research equation explanation expert. "
     "You are given equations extracted from a LaTeX research paper. "
-    "Ignore very simple arithmetic (like addition, subtraction, multiplication, division). "
-    "For all other equations, explain them clearly so that even a middle school student can understand. "
-    "Always follow this structure: Explanation → Conclusion. "
-    "Base your explanation on the context of research papers (why the equation appears, what role it plays). "
-    "Do not translate or modify equation symbols (e.g., IOU, NMS, Class_i, Object, x_i, y_i). "
-    "Keep the original math notation exactly as it is."
+    "Ignore very simple arithmetic. "
+    "Explain clearly for a middle-school level. "
+    "Always: Explanation → Conclusion. "
+    "Do not modify math symbols."
 )
 
 EXPLAIN_TEMPLATE = """Please explain the following equation so that it can be understood by someone at least at a middle school level.
-Follow this exact order in your output: Explanation → Conclusion
+Follow this exact order: Explanation → Conclusion
 
-Format your answer in Markdown with the exact section headers:
+Format:
 ### Explanation
 ### Conclusion
 
-- Explanation: Provide bullet points explaining the meaning of symbols (∑, 𝟙, ^, _, √, \\, etc.) and the role of each term, in a clear and concise way.
-- Conclusion: Summarize in one sentence the core purpose of this equation in the context of the paper (e.g., loss composition, normalization, coordinate error, probability/log-likelihood, etc.).
-- (Important) Do not change the symbols or the order of the equation, and do not invent new symbols.
-- (Important) Do NOT translate technical identifiers (IOU, NMS, Class_i, Object, bbox, logits). Keep them verbatim.
-- (Important) Write only in English.
+- Explanation: bullet points for symbols and term roles.
+- Conclusion: one-sentence purpose.
+- Keep symbols verbatim. English only.
 
 [Equation]
 {EQUATION}
 """
 
 def _calc_gen_kwargs(eq_latex: str) -> dict:
-    # 수식 길이에 비례해 생성 한도를 늘려서 멀티라인 잘림 방지
     eq_tokens = len(tokenizer(eq_latex, add_special_tokens=False).input_ids)
-    base = 384 + int(eq_tokens * 2.0)   # 식이 길수록 설명 여유를 더
-    max_new = max(512, min(1536, base)) # 하한 512, 상한 1536
+    base = 384 + int(eq_tokens * 2.0)
+    max_new = max(512, min(1536, base))
     return dict(
         max_new_tokens=max_new,
         do_sample=False,
@@ -303,7 +291,6 @@ def explain_equation_with_llm(eq_latex: str) -> str:
     text = _generate_with_mask_from_messages(messages, gen_kw)
     return text.split(messages[-1]["content"])[-1].strip()
 
-# === [NEW] 결론 누락 보정 ===
 CONC_PROMPT = "Continue the previous answer. Output ONLY the missing section:\n\n### Conclusion\n"
 
 def ensure_conclusion(text: str, eq_latex: str) -> str:
@@ -323,22 +310,12 @@ def ensure_conclusion(text: str, eq_latex: str) -> str:
 
 # === [NEW] 수식/해설 Sanitizer ===============================================
 CJK_RE = re.compile(r"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7A3]")
-# 수식 블록( $$...$$ / \[...\] / \(...\) ) 탐지
 MATH_BLOCK_RE = re.compile(
     r"(?P<D2>\$\$[\s\S]*?\$\$)|(?P<LB>\\\[[\s\S]*?\\\])|(?P<LP>\\\([\s\S]*?\\\))",
     flags=re.MULTILINE
 )
 
-def _std_example(eq_body: str) -> str:
-    # 더 이상 사용하지 않지만, 남겨둬도 무방
-    return f"### Example\n$$\n{eq_body}\n$$\n"
-
 def _normalize_example_section(text: str, eq_body: str) -> str:
-    """
-    Example 섹션을 강제로 넣지 않는다.
-    - '### Example'이 있으면 그 블록을 통째로 제거
-    - 없으면 원문 유지
-    """
     sec_pat = re.compile(
         r"###\s*Example[\s\S]*?(?=(###\s*Explanation|###\s*Conclusion|\Z))",
         re.I
@@ -347,33 +324,46 @@ def _normalize_example_section(text: str, eq_body: str) -> str:
     return text.lstrip()
 
 def _drop_cjk_math_blocks(text: str) -> str:
-    """
-    Explanation/Conclusion 중 수식 블록에 CJK가 섞였으면 해당 수식 블록을 제거.
-    """
     def repl(m: re.Match) -> str:
         block = m.group(0)
         return "" if CJK_RE.search(block) else block
     return MATH_BLOCK_RE.sub(repl, text)
 
 def sanitize_explanation(exp_text: str, eq_body: str) -> str:
-    """
-    1) Example 섹션 제거
-    2) 다른 섹션 수식 중 CJK 섞인 블록 제거
-    3) 여백 정돈
-    """
     if not isinstance(exp_text, str):
         exp_text = str(exp_text)
     exp_text = _normalize_example_section(exp_text, eq_body)
     parts = re.split(r"(###\s*Explanation)", exp_text, flags=re.I)
     if len(parts) >= 3:
-        head = "".join(parts[:2])         # Explanation 헤더까지
-        tail = "".join(parts[2:])         # Explanation 이후
+        head = "".join(parts[:2])
+        tail = "".join(parts[2:])
         tail = _drop_cjk_math_blocks(tail)
         exp_text = head + tail
     else:
         exp_text = _drop_cjk_math_blocks(exp_text)
     exp_text = re.sub(r"\n{3,}", "\n\n", exp_text).strip()
     return exp_text
+# ============================================================================
+
+# === [NEW] MathJax 친화적 수식 정규화 =======================================  # ★ 변경
+_MATHBBM_ONE_RE = re.compile(r"\\mathbbm\s*\{\s*1\s*\}")
+_MATHBBM_ANY_RE = re.compile(r"\\mathbbm\s*\{")
+_MATHLARGER_INLINE_RE = re.compile(r"\\mathlarger\s+(?=[^\\\s]|\\[A-Za-z]+|\{)")
+
+def normalize_for_mathjax(eq: str) -> str:
+    """
+    MathJax에서 깨지는 토큰을 안전한 토큰으로 변환
+    - \mathbbm{1} -> \mathbf{1} (지시함수 1)
+    - \mathbbm{X} -> \mathbb{X}
+    - \mathlarger ... -> { ... } 또는 매크로에 맡김
+    """
+    s = eq
+    s = _MATHBBM_ONE_RE.sub(r"\\mathbf{1}", s)   # 가장 흔한 표기
+    s = _MATHBBM_ANY_RE.sub(r"\\mathbb{", s)     # 나머지는 \mathbb 대체
+    # \mathlarger 다음 토큰을 그냥 두고, 매크로도 추가로 정의해줌(이중 안전)
+    # 필요시 최소치로 제거:
+    # s = _MATHLARGER_INLINE_RE.sub("", s)
+    return s
 # ============================================================================
 
 # === 셀 6: LaTeX 리포트(.tex) ===
@@ -430,17 +420,16 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
 # ======================= 번역 유틸 섹션 ===============================
 # ======================================================================
 
-# 1) 로컬 키 파일로 직접 초기화(환경변수 불필요)
 # SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
 SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
-GCP_LOCATION = "global"   # 필요 시 "asia-northeast3" 등으로 변경
+
+GCP_LOCATION = "global"
 
 gcp_translate_client = None
 GCP_PARENT = None
 GCP_PROJECT_ID = None
 
 def init_gcp_local():
-    """로컬 서비스 계정 JSON만으로 Translation 클라이언트 초기화"""
     global gcp_translate_client, GCP_PARENT, GCP_PROJECT_ID
     if translate is None or service_account is None:
         print("[Warn] google-cloud-translate 또는 oauth2 패키지가 없습니다. 번역 기능을 사용할 수 없습니다.", flush=True)
@@ -478,12 +467,10 @@ def init_gcp_from_env():
     except Exception as e:
         print("[Warn] GCP Translation init failed (env):", e, flush=True)
 
-# 초기화: env 우선, 실패 시 local
 init_gcp_from_env()
 if gcp_translate_client is None:
     init_gcp_local()
 
-# 수식/괄호/용어 보호 정규식
 _MATH_ENV_NAMES = r"(?:equation|align|gather|multline|eqnarray|cases|split)\*?"
 _MATH_PATTERN = re.compile(
     r"(?P<D2>\${2}[\s\S]*?\${2})"
@@ -637,7 +624,7 @@ def translate_json_payload(in_json_path: str, out_json_path: str, target_lang="k
     print(f"[OK] 번역본 JSON 저장: {out_json_path}", flush=True)
 
 # === 메인 파이프라인 ===
-MAX_EXPLAINS = 40  # 과다 호출 방지 CAP
+MAX_EXPLAINS = 40
 
 def run_pipeline(input_tex_path: str) -> Dict:
     p = Path(input_tex_path)
@@ -676,15 +663,14 @@ def run_pipeline(input_tex_path: str) -> Dict:
     for idx, item in enumerate(target_items, start=1):
         print(f"[{idx}/{len(target_items)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
         raw_exp = explain_equation_with_llm(item["body"])
-        raw_exp = ensure_conclusion(raw_exp, item["body"])      # ★ 결론 보장
-        exp = sanitize_explanation(raw_exp, item["body"])       # ★ Example 제거 + CJK 수식 정리
+        raw_exp = ensure_conclusion(raw_exp, item["body"])
+        exp = sanitize_explanation(raw_exp, item["body"])
         explanations.append({
             "index": idx, "line_start": item["line_start"], "line_end": item["line_end"],
             "kind": item["kind"], "env": item["env"],
             "equation": item["body"], "explanation": exp
         })
 
-    # === 원본 저장 ===
     json_path = os.path.join(OUT_DIR, "equations_explained.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"overview": doc_overview, "items": explanations}, f, ensure_ascii=False, indent=2)
@@ -695,7 +681,6 @@ def run_pipeline(input_tex_path: str) -> Dict:
     Path(report_tex_path).write_text(report_tex, encoding="utf-8")
     print(f"저장된 TeX: {report_tex_path}", flush=True)
 
-    # === 번역본 저장 ===
     json_ko_path = os.path.join(OUT_DIR, "equations_explained.ko.json")
     tex_ko_path  = os.path.join(OUT_DIR, "yolo_math_report.ko.tex")
     try:
@@ -736,7 +721,7 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
         it_ko = ko_by_idx.get(idx, {})
         title = f"Lines {it_en.get('line_start')}–{it_en.get('line_end')} / {it_en.get('kind')} {('['+it_en.get('env','')+']') if it_en.get('env') else ''}"
 
-        eq = it_en.get("equation", "")
+        eq = normalize_for_mathjax(it_en.get("equation", ""))  # ★ 변경
         exp_en = it_en.get("explanation", "").strip()
         exp_ko = it_ko.get("explanation", "").strip() or "<em>번역 없음</em>"
 
@@ -761,6 +746,7 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
 
     body_sections = "\n".join(sec(it) for it in items_en)
 
+    # ★ 변경: MathJax에 매크로 주입 (mathbbm, mathlarger)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -802,7 +788,12 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
   window.MathJax = {{
     tex: {{
       inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
-      displayMath: [['\\\\[','\\\\]'], ['$$','$$']]
+      displayMath: [['\\\\[','\\\\]'], ['$$','$$']],
+      macros: {{
+        mathlarger: ['{{\\\\large #1}}', 1],  // ★ 매크로
+        mathbbm:    ['{{\\\\mathbb{{#1}}}}', 1],  // ★ 매크로
+        wt: ['{{\\\\widetilde{{#1}}}}', 1],
+      }}
     }},
     svg: {{ fontCache: 'global' }}
   }};
@@ -837,7 +828,7 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
 def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
     sections = []
     for it in items:
-        eq_block = f"<div class='eq'>$$\n{it['equation']}\n$$</div>"
+        eq_block = f"<div class='eq'>$$\n{normalize_for_mathjax(it['equation'])}\n$$</div>"  # ★ 변경
         sections.append(f"""
         <section class="card">
           <h3>{it['title']}</h3>
@@ -887,7 +878,12 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
   window.MathJax = {{
     tex: {{
       inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
-      displayMath: [['\\\\[','\\\\]'], ['$$','$$']]
+      displayMath: [['\\\\[','\\\\]'], ['$$','$$']],
+      macros: {{
+        mathlarger: ['{{\\\\large #1}}', 1],  // ★ 매크로
+        mathbbm:    ['{{\\\\mathbb{{#1}}}}', 1],  // ★ 매크로
+        wt: ['{{\\\\widetilde{{#1}}}}', 1],
+      }}
     }},
     svg: {{ fontCache: 'global' }}
   }};
@@ -918,14 +914,10 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
 </html>"""
 
 # === FastAPI 앱 ===
-app = FastAPI(title="POLO Math Explainer API", version="1.4.0")
+app = FastAPI(title="POLO Math Explainer API", version="1.4.1")  # ★ 변경
 
 @app.get("/html/{file_path:path}", response_class=HTMLResponse)
 async def html_preview(file_path: str):
-    """
-    1) 입력 TeX에서 수식 추출/해설/번역 파일 생성(run_pipeline)
-    2) 생성된 EN/KR JSON을 불러와 HTML로 렌더 (수식은 MathJax)
-    """
     try:
         result = run_pipeline(file_path)
         out_dir = Path(result["outputs"]["out_dir"])
@@ -942,13 +934,6 @@ async def html_preview(file_path: str):
 
 @app.get("/html-live/{file_path:path}", response_class=HTMLResponse)
 async def html_live(file_path: str):
-    """
-    디스크에 JSON/TeX를 저장하지 않고:
-      1) TeX 읽기 → 수식 추출/필터링
-      2) LLM으로 개요/해설 생성(EN) + Sanitizer 적용
-      3) (옵션) GCP로 번역만 메모리에서 수행
-      4) HTML 바로 렌더
-    """
     try:
         p = Path(file_path)
         if not p.exists():
@@ -1003,7 +988,6 @@ Please produce a concise English overview with:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {e}")
     
-# 루트 접속 시 /health로 리다이렉트
 @app.get("/")
 async def root():
     return RedirectResponse(url="/health")
@@ -1063,7 +1047,6 @@ async def math_post(req: MathRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
-# 직접 실행
 if __name__ == "__main__":
     try:
         import uvicorn

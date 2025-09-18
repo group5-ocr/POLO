@@ -15,158 +15,47 @@
 
 \\section*{Document Overview}
 assistant
-You are a clear, concise technical write-up that remaining a general technical audience.
+You are a clear, concise technical write-up that remaining the same as the original write-up.
 
 \newpage
 
-\section*{Lines 120–120 / inline(\$ \$) }
-assistant
-### Explanation
-The equation  represents the probability of an object being true, multiplied by the initial probability of the object being true. Here, \(\Pr(\textrm{ Object})\) is the probability of the object being true, and  is the initial probability of the object being true. The product of these two probabilities gives the overall probability of the object being true.
-
-### Conclusion
-The core purpose of this equation is to calculate the overall probability of an object being true, taking into account both the initial probability and the probability of the object being true. This can be useful in various contexts, such as machine learning, where we need to determine the likelihood of a particular event occurring based on initial conditions and subsequent events.
-
-
-\section*{Lines 124–124 / inline(\$ \$) }
-assistant
-### Explanation
-The equation \(\Pr(\textrm{Class}_i | \textrm{ Object})\) represents the probability that an object belongs to a certain class \(i\). Here, \(\Pr\) denotes the probability function, \(\textrm{Class}_i\) is the event that an object belongs to class \(i\), and \(\textrm{Object}\) is the event that we are considering an object.
-
-In simpler terms, this equation is used to determine the likelihood of an object being属于 a particular class based on certain features or characteristics. The probability is calculated using the conditional probability formula, which takes into account the relationship between the class and the object.
-
-### Conclusion
-The core purpose of this equation is to provide a measure of how likely it is that a given object belongs to a specific class. This is useful in various applications such as machine learning, pattern recognition, and natural language processing, where we need to classify objects based on their features or characteristics.
-
-For example, if we are building a system to recognize faces, this equation would help us determine the probability that a given image is of a particular person (class) based on the image's features (like age, gender, expression, etc.).
-
-The final answer is:
-\[
-\boxed{\Pr(\textrm{Class}_i | \textrm{Object})}
-\]
-
-
-\section*{Lines 127–130 / env [equation]}
+\section*{Lines 102–106 / env [align]}
 assistant
 ### Explanation
 
-The equation given is:
-
-This equation is about the probability of a class \( \textrm{Class}_i \) given an object, multiplied by the probability of the object, and then multiplied by the probability of the object being predicted correctly (denoted by ). This product is equal to the probability of the class \( \textrm{Class}_i \) multiplied by the probability of the object being predicted correctly.
-
-In simpler terms, this equation is saying that the probability of a class given an object, multiplied by the probability of the object, and then multiplied by the probability of the object being predicted correctly, is the same as the probability of the class multiplied by the probability of the object being predicted correctly.
-
-### Conclusion
-
-The core purpose of this equation in the context of the paper is to show that the probability of a class given an object, multiplied by the probability of the object, and then multiplied by the probability of the object being predicted correctly, is the same as the probability of the class multiplied by the probability of the object being predicted correctly. This equation is a way of ensuring that the probability of a class given an object is consistent with the overall probability of the class and the overall probability of the object being predicted correctly.
-
-
-\section*{Lines 179–185 / env [equation]}
-assistant
-### Explanation
-The function \(\phi(x)\) is defined piecewise. It behaves differently depending on the value of \(x\):
-- If \(x\) is greater than 0, \(\phi(x) = x\).
-- If \(x\) is less than or equal to 0, \(\phi(x) = 0.1x\).
-
-In simpler terms, \(\phi(x)\) returns the value of \(x\) itself if \(x\) is positive, and it returns 10% of \(x\) if \(x\) is zero or negative.
-
-### Conclusion
-The function \(\phi(x)\) is a piecewise function that outputs \(x\) if \(x\) is positive and \(0.1x\) if \(x\) is zero or negative. This function is useful in various applications where a linear relationship needs to be adjusted for negative inputs.
+The given equations are:
 
 \[
-\boxed{\phi(x) =
-\begin{cases}
-    x, & \text{if } x > 0\\
-    0.1x, & \text{otherwise}
-    \end{cases}}
+\sum_{n=1}^N\mathbb{E}(X_n^2) \leq N\cdot P 
+\]
+\[
+\sum_{n=1}^N\mathbb{E}(\overline{X}_n^2) \leq N\cdot \overline{P}
 \]
 
+Let's break down each part of the equations step by step.
 
-\section*{Lines 198–246 / env [multline]}
-assistant
-### Explanation
-The given equation represents a loss function used in image processing or computer vision tasks. It consists of several terms that measure different aspects of the difference between the original image and the estimated image. Let's break down each part of the equation:
+1. **Understanding the Summation Notation:**
+   - The symbol \(\sum\) represents the sum of a sequence.
+   - The index \(n\) starts at 1 and goes up to \(N\).
+   - \(\mathbb{E}(X_n^2)\) represents the expected value of the square of the random variable \(X_n\).
+   - \(\overline{X}_n\) represents the sample mean of the random variable \(X_n\).
+   - \(\overline{P}\) represents the sample proportion of the random variable \(P\).
 
-1. **First Term:**
-   \[
-   \lambda_\textbf{coord}
-   \sum_{i = 0}^{S^2}
-    \sum_{j = 0}^{B}
-     \mathlarger{\mathbbm{1}}_{ij}^{\text{Obj}}
-            \left[
-            \left(
-                x_i - \hat{x}_i
-            \right)^2 +
-            \left(
-                y_i - \hat{y}_i
-            \right)^2
-            \right]
-   \]
-   - \(\lambda_\textbf{coord}\): A weight factor.
-   - \(\sum_{i = 0}^{S^2}\): Sum over all spatial coordinates \(i\).
-   - \(\sum_{j = 0}^{B}\): Sum over all classes \(j\).
-   - \(\mathlarger{\mathbbm{1}}_{ij}^{\text{ objective}}\): An indicator function that is 1 if the \(i\)-th spatial coordinate is in the \(j\)-th class, and 0 otherwise.
-   - \((x_i - \hat{x}_i)^2\): The squared difference between the original \(x\)-coordinate and the estimated \(x\)-coordinate.
-   - \((y_i - \hat{y}_i)^2\): The squared difference between the original \(y\)-coordinate and the estimated \(y\)-coordinate.
-   - This term measures the total squared error in the coordinates of the image.
+2. **Interpreting the Inequalities:**
+   - The first inequality states that the sum of the expected values of the squares of \(N\) random variables \(X_n\) is less than or equal to \(N\) times the expected value of the square of a constant \(P\).
+   - The second inequality states that the sum of the expected values of the squares of the sample means of \(N\) random variables \(\overline{X}_n\) is less than or equal to \(N\) times the expected value of the square of a sample proportion \(\overline{P}\).
 
-2. **Second Term:**
-   \[
-   + \lambda_\textbf{coord}
-   \sum_{i = 0}^{S^2}
-    \sum_{j = 0}^{B}
-         \mathlarger{\mathbbm{1}}_{ij}^{\text{ objective}}
-         \left[
-        \left(
-            \sqrt{w_i} - \sqrt{\hat{w}_i}
-        \right)^2 +
-        \left(
-            \sqrt{h_i} - \sqrt{\hat{h}_i}
-        \right)^2
-        \right]
-   \]
-   - This term measures the total squared error in the aspect ratio of the image.
+3. **Conclusion:**
+   - Both inequalities are essentially stating that the sum of the expected values of the squares of the random variables (or their sample means) is bounded by a linear function of the expected value of the square of a constant or a sample proportion.
 
-3. **Third Term:**
-   \[
-   + \sum_{i = 0}^{S^2}
-    \sum_{j = 0}^{B}
-        \mathlarger{\mathbbm{1}}_{ij}^{\text{ objective}}
-        \left(
-            C_i - \hat{C}_i
-        \right)^2
-   \]
-   - This term measures the total squared error in the color channel values of the image.
-
-4. **Fourth Term:**
-   \[
-   + \lambda_\textrm{no objective}
-   \sum_{i = 0}^{S^2}
-    \sum_{j = 0}^{B}
-    \mathlarger{\mathbbm{1}}_{ij}^{\text{ no objective}}
-        \left(
-            C_i - \hat{C}_i
-        \right)^2
-   \]
-   - This term is similar to the third term but with a different weight factor \(\lambda_\textrm{no objective}\).
-
-5. **Fifth Term:**
-   \[
-   + \sum_{i = 0}^{S^2}
-\mathlarger{\mathbbm{1}}_i^{\text{ objective}}
-    \sum_{c \in \textrm{classes}}
-        \left(
-            p_i(c) - \hat{p}_i(c)
-        \right)^2
-   \]
-   - This term measures the total squared error in the probability distribution of the classes.
-
-### Conclusion
-The overall loss function is the sum of all these individual terms. The goal is to minimize this loss function to obtain the best estimate of the original image. The weight factors \(\lambda_\textbf{coord}\) and \(\lambda_\textrm{no objective}\) can be adjusted to balance the contributions of different terms in the loss function.
+### Final Answer
 
 \[
-\boxed{\text{The loss function is minimized to obtain the best estimate of the original image.}}
+\boxed{\sum_{n=1}^N\mathbb{E}(X_n^2) \leq N\cdot P, \quad \sum_{n=1}^N\mathbb{E}(\overline{X}_n^2) \leq N\cdot \overline{P}}
 \]
+
+assistant
+The final answer is \(\boxed{\sum_{n=1}^N\mathbb{E}(X_n^2) \leq N\cdot P, \quad \sum_{n=1}^N\mathbb{E}(\overline{X}_n^2) \leq N\cdot \overline{P}}\).
 
 
 \end{document}
