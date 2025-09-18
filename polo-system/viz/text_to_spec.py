@@ -46,7 +46,6 @@ def parse_hist_values(text, min_n=20, min_unique=8):
         return vals
     return []
 
-
 # 구성/비율: "Label 12%" 여러 개 → 100±5%면 parts로 채택
 _COMPOSE_PAT = re.compile(r'(?P<label>[A-Za-z가-힣0-9/+\-_. ]{2,30})\s*[:=]?\s*(?P<pct>\d{1,3})\s*%')
 def parse_composition_parts(text, max_labels=10):
@@ -194,6 +193,154 @@ def _looks_like_grid_or_range(text: str, pos: int) -> bool:
         return True
     return False
 
+# --- 유니코드 지수/마이너스 정규화 ---
+_SUP_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+
+def _normalize_superscript(expr: str) -> str:
+    # 10⁻⁶ → 10^-6 , 유니코드 마이너스(−) → -, 슈퍼스크립트 숫자 → 일반 숫자
+    s = expr.replace("−", "-").replace("⁻", "^-")
+    return s.translate(_SUP_DIGITS)
+
+def _parse_ber_value(token: str) -> float | None:
+    t = _normalize_superscript(token.strip())
+    # 10^-6
+    m = re.search(r"10\s*\^\s*(-?\d+)", t)
+    if m:
+        try:
+            return 10.0 ** (int(m.group(1)))
+        except Exception:
+            pass
+    # 1e-6, 3.2e-5
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[eE]\s*(-?\d+)", t)
+    if m:
+        try:
+            return float(m.group(1)) * (10.0 ** int(m.group(2)))
+        except Exception:
+            pass
+    # 소수 직접
+    try:
+        v = float(t)
+        return v if 0 < v < 1 else None
+    except Exception:
+        return None
+
+# --- BER vs SNR spec 빌더 ---
+def build_spec_ber_snr(text: str) -> dict:
+    T = text
+    pairs_dc, pairs_mod = [], []
+
+    # 윈도우 600으로 확대 (문장 떨어져 있어도 페어링)
+    rx1 = re.finditer(
+        r"(?P<snr>\d+(?:\.\d+)?)\s*dB.{0,600}?(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)",
+        T, re.I | re.S
+    )
+    rx2 = re.finditer(
+        r"(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)\s*(?:at|@|에서)?.{0,600}?SNR\s*[:=]?\s*(?P<snr>\d+(?:\.\d+)?)\s*dB",
+        T, re.I | re.S
+    )
+
+    for m in list(rx1) + list(rx2):
+        snr = float(m.group("snr"))
+        ber = _parse_ber_value(m.group("ber"))
+        if not ber:
+            continue
+        ctx = T[max(0, m.start()-120): min(len(T), m.end()+120)].lower()
+        if "deepcode" in ctx:
+            pairs_dc.append([snr, ber])
+        elif ("modulo-sk" in ctx) or ("모듈로" in ctx):
+            pairs_mod.append([snr, ber])
+        else:
+            pairs_mod.append([snr, ber])
+
+    def _uniq_sorted(pairs):
+        seen, out = set(), []
+        for x, y in pairs:
+            k = (round(x, 3), round(y, 12))
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append([x, y])
+        return sorted(out, key=lambda t: t[0])
+
+    pairs_dc, pairs_mod = _uniq_sorted(pairs_dc), _uniq_sorted(pairs_mod)
+    if not (pairs_dc or pairs_mod):
+        return {}
+    series = []
+    if pairs_dc:
+        series.append({"name": "Deepcode", "points": pairs_dc})
+    if pairs_mod:
+        series.append({"name": "Modulo-SK", "points": pairs_mod})
+    return {
+        "series": series,
+        "title": "BER vs SNR",
+        "x_label": "SNR (dB)",
+        "y_label": "BER",
+        "y_log": True
+    }
+
+# --- BER vs Rounds spec 빌더 ---
+def build_spec_ber_rounds(text: str) -> dict:
+    T = text
+    pairs_dc, pairs_mod = [], []
+
+    N_PAT = r"(?:N\s*=\s*(?P<n1>\d+)|(?P<n2>\d+)\s*(?:rounds?|라운드|회))"
+    B_PAT = r"(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)"
+
+    # 윈도우 600으로 확대
+    rx1 = re.finditer(fr"{N_PAT}.{{0,600}}?{B_PAT}", T, re.I | re.S)
+    rx2 = re.finditer(fr"{B_PAT}.{{0,600}}?{N_PAT}", T, re.I | re.S)
+
+    for m in list(rx1) + list(rx2):
+        n = int((m.group("n1") or m.group("n2") or "0"))
+        ber = _parse_ber_value(m.group("ber"))
+        if not ber:
+            continue
+        ctx = T[max(0, m.start()-120): min(len(T), m.end()+120)].lower()
+        if "deepcode" in ctx:
+            pairs_dc.append([n, ber])
+        elif ("modulo-sk" in ctx) or ("모듈로" in ctx):
+            pairs_mod.append([n, ber])
+        else:
+            pairs_mod.append([n, ber])
+
+    def _uniq_sorted(pairs):
+        seen, out = set(), []
+        for x, y in pairs:
+            k = (int(x), round(y, 12))
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append([x, y])
+        return sorted(out, key=lambda t: t[0])
+
+    pairs_dc, pairs_mod = _uniq_sorted(pairs_dc), _uniq_sorted(pairs_mod)
+    if not (pairs_dc or pairs_mod):
+        return {}
+    series = []
+    if pairs_dc:
+        series.append({"name": "Deepcode", "points": pairs_dc})
+    if pairs_mod:
+        series.append({"name": "Modulo-SK", "points": pairs_mod})
+    return {
+        "series": series,
+        "title": "BER vs Rounds",
+        "x_label": "Rounds (N)",
+        "y_label": "BER",
+        "y_log": True
+    }
+
+# --- 트리거 체크 유틸 (그대로 사용) ---
+def _has_trigger(concept_idx, key: str, text: str) -> bool:
+    meta = concept_idx.get(key)
+    if meta and meta.get("patterns"):
+        return any(p.search(text) for p in meta["patterns"])
+    for _, m in concept_idx.items():
+        if m.get("category") == key:
+            for p in m.get("patterns", []):
+                if p.search(text):
+                    return True
+    return False
+
 # 평가지표 범위
 # (glossary에 norm_range/min_reasonable가 없을 때만 사용)
 METRIC_RANGES = {
@@ -255,14 +402,6 @@ def _forbidden_tokens(concept_idx) -> set[str]:
             out.update([t for t in _g_label_tokens(meta) if t])
     return out
 
-def _has_trigger(concept_idx, category: str, text: str) -> bool:
-    for _, meta in concept_idx.items():
-        if meta.get("category") == category:
-            for pat in meta["patterns"]:
-                if pat.search(text):
-                    return True
-    return False
-
 def _norm_range_from_meta(cid: str, meta: dict) -> tuple[float, float]:
     rng = meta.get("entry", {}).get("norm_range")
     if isinstance(rng, (list, tuple)) and len(rng) == 2:
@@ -305,6 +444,75 @@ def _coerce_metric_value(cid: str, meta: dict, val: float, is_pct: bool):
     if is_pct and 0 <= val <= 100:      return (val, True)
     if b <= 1.0 and val > 1.0:          return None
     return None
+
+# 산점도 전용 숫자 파서
+_SCAT_PAIR = re.compile(r'\(\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*\)')
+_SCAT_X    = re.compile(r'(?:^|\b)x\s*[:=]\s*\[\s*([^\]]+)\s*\]', re.I)
+_SCAT_Y    = re.compile(r'(?:^|\b)y\s*[:=]\s*\[\s*([^\]]+)\s*\]', re.I)
+
+def _to_float_list_csv(s: str):
+    return [float(t) for t in re.findall(r'[-+]?\d+(?:\.\d+)?', s or '')]
+
+def parse_scatter_points(text: str, min_n: int = 10):
+    """
+    (x,y) 쌍 또는 x:[..], y:[..] 병렬 리스트를 찾아 반환.
+    - 최소 포인트 미만이면 빈 리스트 반환
+    - 수평/수직/단일점(변동 없음) 형태면 빈 리스트 반환
+    - 절대 '예시/더미' 생성 없음
+    """
+    xs, ys = [], []
+
+    # (x, y) 쌍
+    for m in _SCAT_PAIR.finditer(text):
+        xs.append(float(m.group(1))); ys.append(float(m.group(2)))
+
+    # x:[..], y:[..] 병렬 리스트
+    if len(xs) < min_n:
+        mx = _SCAT_X.search(text); my = _SCAT_Y.search(text)
+        if mx and my:
+            xlist = _to_float_list_csv(mx.group(1))
+            ylist = _to_float_list_csv(my.group(1))
+            if len(xlist) == len(ylist):
+                xs, ys = xlist, ylist
+
+    # 기본 유효성 체크
+    if len(xs) >= min_n:
+        try:
+            if len(set(xs)) <= 1 or len(set(ys)) <= 1:
+                return [], []
+        except Exception:
+            return [], []
+        return xs, ys
+
+    return [], []
+
+# (2) 축 라벨 선택: 용어사전 키를 '하드코딩'하지 않음.
+#     호출부에서 실제 존재하는 glossary 카테고리 키와 라벨쌍을 넘겨주면,
+#     매칭되는 첫 쌍을 적용. 없으면 x/y 기본값을 반환.
+def _L(en, ko):
+    return {"en": en, "ko": ko}
+
+def pick_scatter_axis_labels_from_glossary(text: str, concept_idx):
+    """
+    매칭되는 첫 항목의 entry.axis_labels.x/y를 사용.
+    없으면 기본 x/y 반환.
+    """
+    xlab = _L("x", "x")
+    ylab = _L("y", "y")
+
+    for cid, meta in concept_idx.items():
+        if meta.get("category") != "viz.trigger.scatter":
+            continue
+        entry = meta.get("entry", {})
+        pats  = meta.get("patterns", [])
+        for p in pats:
+            if p.search(text):
+                al = entry.get("axis_labels", {})
+                if isinstance(al.get("x"), dict) and isinstance(al.get("y"), dict):
+                    return al["x"], al["y"]
+                # axis_labels가 없으면 다음 매칭 후보로 넘어감
+                break
+    return xlab, ylab
 
 # 특수 토큰 필터
 def _pick_method_token(chunk: str, stopwords: set[str],
@@ -584,6 +792,28 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
     mentioned_cids = collect_metric_keyword_hits(text, cidx)
     _add_rubric_tables(spec, mentions, numeric_cids=mentioned_cids)
 
+    # 산점도: 트리거가 있어도 '실데이터'가 없으면 생성하지 않음(예시/더미 금지)
+    if _has_trigger(cidx, "viz.trigger.scatter", text):
+        xs, ys = parse_scatter_points(text, min_n=10)
+        if xs and ys:
+            # 축 라벨: 사전에서 별도 축-키를 안 쓰는 경우 기본값 (x/y)로만
+            xlab = {"en": "x", "ko": "x"}
+            ylab = {"en": "y", "ko": "y"}
+
+            spec.append({
+                "id": "ratios_scatter",       
+                "type": "dist_scatter",
+                "labels": {"ko": "산점도", "en": "Scatter"},
+                "inputs": {
+                    "x": xs,
+                    "y": ys,
+                    "xlabel": xlab,
+                    "ylabel": ylab,
+                    "title": {"ko": "산점도", "en": "Scatter"}
+                }
+            })
+        # else: 데이터 부족 → 추가하지 않음
+
     # 비교/벤치마크 → 그룹 막대
     if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
         cats, series = parse_benchmark(text)
@@ -689,7 +919,10 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
     # 개념/예시 도식들
-    spec += build_concept_specs(text, spec, mentions, numeric_cids)
+    spec += build_concept_specs(
+    text, spec, mentions, numeric_cids,
+    has_trigger=lambda cid: _has_trigger(cidx, cid, text)
+)
 
     # 학습곡선/ROC/PR 등 curve_generic — 실제 수치가 여러 개 있을 때만
     # 더미/임퓨트 금지
@@ -736,4 +969,26 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
             })
             # 조건을 못 만족하면 아무 것도 추가하지 않음 (더미/예시 차트 생성 금지)
 
+    # BER vs SNR (trigger: viz.trigger.ber_snr)
+    if _has_trigger(cidx, "viz.trigger.ber_snr", text):
+        snr_spec = build_spec_ber_snr(text)
+        if snr_spec.get("series"):
+            spec.append({
+                "id": "ber_vs_snr",
+                "type": "ber_vs_snr",
+                "labels": {"ko": "BER 대 SNR", "en": "BER vs SNR"},
+                "inputs": snr_spec
+            })
+
+    # BER vs Rounds
+    if _has_trigger(cidx, "viz.trigger.ber_rounds", text):
+        r_spec = build_spec_ber_rounds(text)
+        if r_spec.get("series"):
+            spec.append({
+                "id": "ber_vs_rounds",
+                "type": "ber_vs_rounds",
+                "labels": {"ko": "BER 대 라운드수", "en": "BER vs Rounds"},
+                "inputs": r_spec
+            })
     return _dedup(spec)
+

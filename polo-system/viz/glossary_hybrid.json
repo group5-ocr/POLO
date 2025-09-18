@@ -1690,5 +1690,255 @@
       "en": ["calibration", "reliability diagram"],
       "ko": ["보정", "신뢰도 보정", "리라이어빌리티"]
     }
+  },
+  {
+    "concept_id": "viz.trigger.scatter",
+    "category": "viz.trigger.scatter",
+    "labels": { "en": "Scatter plot trigger", "ko": "산점도 트리거" },
+    "regex": {
+      "en": ["\\bscatter(?:\\s*plot)?\\b", "\\bpoint\\s*cloud\\b"],
+      "ko": ["산점도", "산포도"]
+    },
+    "aliases": {
+      "en": ["scatter", "scatter plot"],
+      "ko": ["산점도", "산포도"]
+    },
+
+    "axis_labels": {
+      "x": { "en": "Width (normalized)", "ko": "폭 (정규화)" },
+      "y": { "en": "Height (normalized)", "ko": "높이 (정규화)" }
+    }
+  },
+  {
+    "concept_id": "viz.trigger.ber_snr",
+    "category": "plot",
+    "labels": { "en": "BER vs SNR", "ko": "BER 대 SNR" },
+    "aliases": {
+      "en": ["BER curve", "error-rate curve", "SNR curve"],
+      "ko": ["BER 곡선", "오류확률 곡선", "SNR 곡선"]
+    },
+    "regex": {
+      "en": [
+        "\\bBER\\b.*\\bSNR\\b",
+        "error\\s*rate.*SNR",
+        "bit\\s*error.*SNR",
+        "\\bfeedback\\s*SNR\\b",
+        "\\bfeedforward\\s*SNR\\b",
+        "\\bSNR\\b.*\\bdB\\b",
+        "\\bE[ _]?b\\s*/\\s*N[ _]?0\\b",
+        "\\bE[ _]?s\\s*/\\s*N[ _]?0\\b",
+        "10\\s*\\^\\s*-?\\d+",
+        "\\\\times\\s*10\\s*\\^\\s*\\{?-?\\d+\\}?|\\cdot\\s*10\\s*\\^\\s*\\{?-?\\d+\\}?"
+      ],
+      "ko": [
+        "오류\\s*확률.*SNR",
+        "\\bBER\\b.*SNR",
+        "비트\\s*오류.*SNR",
+        "피드백\\s*SNR",
+        "(피드포워드|전방향|순방향)\\s*SNR",
+        "\\bSNR\\b.*\\bdB\\b",
+        "10⁻\\d+|10\\s*\\^\\s*-?\\d+",
+        "E\\s*/\\s*N\\s*0|E\\s*\\/?\\s*N0|Eb\\s*/\\s*N0|Es\\s*/\\s*N0",
+        "\\\\times\\s*10\\s*\\^\\s*\\{?-?\\d+\\}?|\\cdot\\s*10\\s*\\^\\s*\\{?-?\\d+\\}?"
+      ]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.ber_rounds",
+    "category": "plot",
+    "labels": { "en": "BER vs rounds", "ko": "BER 대 라운드수" },
+    "aliases": {
+      "en": ["BER vs iterations", "BER vs N"],
+      "ko": ["BER vs N", "오류확률 vs 반복수", "BER vs 라운드"]
+    },
+    "regex": {
+      "en": [
+        "\\bBER\\b.*rounds?",
+        "error\\s*prob.*rounds?",
+        "\\bBER\\b.*N\\s*=",
+        "\\bN\\s*=\\s*\\d+",
+        "rounds?\\s*=\\s*\\d+",
+        "10\\s*\\^\\s*-?\\d+",
+        "\\biterations?\\b"
+      ],
+      "ko": [
+        "오류\\s*확률.*라운드",
+        "\\bBER\\b.*라운드",
+        "\\bBER\\b.*N\\s*=",
+        "\\bN\\s*=\\s*\\d+",
+        "라운드\\s*=\\s*\\d+",
+        "반복\\s*(횟수|수)|회차",
+        "10⁻\\d+|10\\s*\\^\\s*-?\\d+",
+        "반복(?:수|횟수)"
+      ]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.modulo_explain",
+    "category": "concept",
+    "labels": { "en": "Modulo-SK explainer", "ko": "Modulo-SK 개념도" },
+    "aliases": {
+      "en": ["Modulo coding", "SK with modulo"],
+      "ko": [
+        "모듈로 코딩",
+        "SK 방식 모듈로",
+        "능동 피드백",
+        "수동 피드백",
+        "디더"
+      ]
+    },
+    "regex": {
+      "en": [
+        "Modulo-?SK",
+        "Schalkwijk-?Kailath.*modulo",
+        "\\bactive\\s*feedback\\b",
+        "\\bpassive\\s*feedback\\b",
+        "\\bdither\\b"
+      ],
+      "ko": [
+        "모듈로-?SK",
+        "Schalkwijk-?Kailath.*모듈로",
+        "능동\\s*피드백",
+        "수동\\s*피드백",
+        "디더"
+      ]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.cell_scale",
+    "category": "concept",
+    "labels": { "en": "Cell→Pixel scale", "ko": "셀→픽셀 스케일" },
+    "aliases": {
+      "en": ["grid scale", "anchor scale"],
+      "ko": ["그리드 스케일", "앵커 스케일"]
+    },
+    "regex": {
+      "en": [
+        "\\b(cell|grid)\\b.*(0\\s*~\\s*1|0~1|sigmoid)",
+        "\\banchor(s)?\\b.*(width|height)"
+      ],
+      "ko": ["셀|격자|grid.*(0\\s*~\\s*1|0~1|시그모이드)", "앵커.*(폭|높이)"]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.k_tuning",
+    "category": "concept",
+    "labels": { "en": "k tuning curve", "ko": "k 튜닝 곡선" },
+    "aliases": {
+      "en": ["elbow curve", "k selection curve"],
+      "ko": ["엘보우 곡선", "k 선택 곡선"]
+    },
+    "regex": {
+      "en": [
+        "\\bk\\s*[- ]?tuning",
+        "elbow\\s*method",
+        "optimal\\s*k",
+        "\\bk\\s*-?means\\b",
+        "\\bcluster(ing)?\\b"
+      ],
+      "ko": [
+        "k\\s*튜닝",
+        "엘보우",
+        "최적\\s*k",
+        "k\\s*-?means|k\\s*-?미(ㅡ|)언즈",
+        "클러스터(링)?"
+      ]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.activation_panel",
+    "category": "concept",
+    "labels": { "en": "Activation functions", "ko": "활성화 함수" },
+    "aliases": {
+      "en": ["activation panel"],
+      "ko": ["활성화 패널"]
+    },
+    "regex": {
+      "en": [
+        "ReLU",
+        "Leaky\\s*ReLU",
+        "PReLU",
+        "ELU",
+        "SELU",
+        "GELU",
+        "SiLU",
+        "Swish",
+        "Softplus",
+        "Mish",
+        "Tanh",
+        "Sigmoid",
+        "Hard\\s*(Sigmoid|Swish|Tanh)",
+        "ReLU6"
+      ],
+      "ko": [
+        "렐루",
+        "리키\\s*렐루",
+        "프리루",
+        "엘루",
+        "세루",
+        "겔루",
+        "젤루",
+        "시루",
+        "스위시",
+        "소프트\\s*플러스",
+        "미시",
+        "탄하|탄슈",
+        "시그모이드",
+        "하드\\s*(시그모이드|스위시|탄하|탄슈)",
+        "ReLU6"
+      ]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.softmax_temp",
+    "category": "concept",
+    "labels": { "en": "Softmax temperature", "ko": "소프트맥스 온도" },
+    "aliases": {
+      "en": ["softmax scaling", "temperature parameter"],
+      "ko": ["소프트맥스 스케일링", "온도 파라미터"]
+    },
+    "regex": {
+      "en": ["soft\\s*max|softmax", "temperature|tau|τ"],
+      "ko": ["소프트\\s*맥스|소프트맥스", "온도|tau|τ"]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.pipeline_arrows",
+    "category": "concept",
+    "labels": { "en": "Pipeline arrows", "ko": "파이프라인 화살표" },
+    "aliases": {
+      "en": ["pipeline flow", "arrow chain"],
+      "ko": ["파이프라인 흐름", "화살표 체인"]
+    },
+    "regex": {
+      "en": ["\\w+\\s*(->|→|⇒|⟶)\\s*\\w+"],
+      "ko": ["\\S+\\s*(->|→|⇒|⟶)\\s*\\S+"]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.transformer_concept",
+    "category": "concept",
+    "labels": { "en": "Transformer (concept)", "ko": "Transformer (개념)" },
+    "aliases": {
+      "en": ["transformer block", "seq2seq transformer"],
+      "ko": ["트랜스포머 블록", "seq2seq 트랜스포머"]
+    },
+    "regex": {
+      "en": ["transformer.*encoder.*decoder", "encoder.*decoder.*transformer"],
+      "ko": ["트랜스포머.*인코더.*디코더", "인코더.*디코더.*트랜스포머"]
+    }
+  },
+  {
+    "concept_id": "viz.trigger.confusion_matrix",
+    "category": "concept",
+    "labels": { "en": "Confusion matrix", "ko": "혼동행렬" },
+    "aliases": {
+      "en": ["classification matrix"],
+      "ko": ["분류 행렬"]
+    },
+    "regex": {
+      "en": ["confusion\\s*matrix"],
+      "ko": ["혼동\\s*행렬"]
+    }
   }
 ]

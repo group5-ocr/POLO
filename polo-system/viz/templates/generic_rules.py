@@ -1,25 +1,19 @@
-# 개념/예시 도식 빌더
-# 텍스트에 '수치'가 없어도, 의미 있는 트리거가 있으면 예시 도식 생성
+# 개념/예시 도식 빌더 — glossary 트리거만 사용 (정규식 하드코딩 제거)
 
 from __future__ import annotations
 import re, math, random, hashlib
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable
 
 def _label(en, ko):
     return {"en": en, "ko": ko}
 
-# 시드 고정 랜덤
-import hashlib
+# ---------- 공통 유틸 ----------
 def _stable_seed(text: str, salt: str = "") -> int:
     h = hashlib.sha256((salt + "|" + (text or "")).encode("utf-8")).hexdigest()
     return int(h[:8], 16)
 def _rng_from(text: str, salt: str = "") -> random.Random:
     return random.Random(_stable_seed(text, salt))
 def _clip(v, lo=0.05, hi=0.95): return max(lo, min(hi, v))
-
-# 헬퍼
-def _nums(text):
-    return [float(x.replace(',', '')) for x in re.findall(r'-?\d+(?:\.\d+)?', text)]
 
 def _parse_arrow_chain(text: str) -> list[str]:
     seps = r'(?:->|→|⇒|⟶)'
@@ -34,52 +28,30 @@ def _parse_arrow_chain(text: str) -> list[str]:
     return best
 
 def _extract_confusion_2x2(text: str):
-    m = re.search(r'(?:confusion\s*matrix|혼동\s*행렬)(.{0,120}?)(-?\d+(?:\.\d+)?)[^\d]+'
-                r'(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)',
-                text, re.I | re.S)
-    if not m:
-        return None
+    m = re.search(
+        r'(?:confusion\s*matrix|혼동\s*행렬)(.{0,120}?)(-?\d+(?:\.\d+)?)[^\d]+'
+        r'(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)',
+        text, re.I | re.S
+    )
+    if not m: return None
     a, b, c, d = map(float, m.groups()[-4:])
     return [[a, b], [c, d]]
 
-def _extract_points_2d(text: str):
-    pts = []
-    for m in re.finditer(r'\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)', text):
-        x, y = float(m.group(1)), float(m.group(2))
-        pts.append({"x": x, "y": y})
-    return pts
+def _extract_grids(text: str) -> list[tuple[int,int]]:
+    grids = []
+    for m in re.finditer(r"(\d{1,3})\s*[×x]\s*(\d{1,3})", text, re.I):
+        gw, gh = int(m.group(1)), int(m.group(2))
+        if 1 <= gw <= 256 and 1 <= gh <= 256:
+            grids.append((gw, gh))
+    grids = list(dict.fromkeys(grids))
+    if 4 <= gw <= 256 and 4 <= gh <= 256:
+        grids.append((gw, gh))
+    return grids
 
-def _has_wh_evidence(text: str) -> bool:
-    rx = [
-        r"\b\d+\s*[×x]\s*\d+\b",                    # 640x480
-        r"\b\d+(?:\.\d+)?\s*[×x]\s*\d+(?:\.\d+)?\b",# 0.42×0.31
-        r"\(\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*\)", # (0.6,0.4)
-        r"\b(?:aspect|비율)\s*\d+\s*:\s*\d+\b",
-        r"width\s*[:=]\s*\d+(?:\.\d+)?",
-        r"height\s*[:=]\s*\d+(?:\.\d+)?",
-        r"폭\s*[:=]\s*\d+(?:\.\d+)?|높이\s*[:=]\s*\d+(?:\.\d+)?",
-    ]
-    t = text
-    return any(re.search(p, t, re.I) for p in rx)
-
-def _ratios_from_text(text: str, k_range=(2,5), n_total=300):
-    rnd = _rng_from(text, "wh-mixture")
-    k = rnd.randint(k_range[0], k_range[1])
-    pts = []
-    centers = [(rnd.uniform(0.15,0.85), rnd.uniform(0.15,0.85)) for _ in range(k)]
-    for (cx,cy) in centers:
-        angle = rnd.uniform(0, math.pi)
-        a, b  = rnd.uniform(0.03,0.08), rnd.uniform(0.02,0.06)
-        ca, sa = math.cos(angle), math.sin(angle)
-        for _ in range(max(40, n_total//k)):
-            u, v = rnd.gauss(0,1), rnd.gauss(0,1)
-            x = cx + a*ca*u - b*sa*v
-            y = cy + a*sa*u + b*ca*v
-            pts.append([_clip(round(x,3)), _clip(round(y,3))])
-    for _ in range(max(5, int(0.05*n_total))):
-        pts.append([_clip(rnd.uniform(0.05,0.95)), _clip(rnd.uniform(0.05,0.95))])
-    rnd.shuffle(pts)
-    return pts[:n_total]
+def _extract_img_wh(text: str):
+    m = re.search(r"(\d{2,4})\s*[×x]\s*(\d{2,4})(?:\s*px|\s*픽셀|\s*pixels)?", text, re.I)
+    if m: return [int(m.group(1)), int(m.group(2))]
+    return [640, 640]
 
 def _read_k_target(text: str, default: int = 5):
     pats = [
@@ -100,10 +72,8 @@ def _k_curve_from_text(text: str):
     ks    = list(range(1, 11))
     kstar, has_hint = _read_k_target(text, 5)
 
-    y0         = 0.45 + 0.04 * rnd.random()
-    y_plateau  = 0.80 + 0.06 * rnd.random()
-    pre_slope  = 0.025 + 0.008 * rnd.random()
-    post_slope = 0.006 + 0.004 * rnd.random()
+    y0, y_plateau  = 0.45 + 0.04*rnd.random(), 0.80 + 0.06*rnd.random()
+    pre_slope, post_slope = 0.025 + 0.008*rnd.random(), 0.006 + 0.004*rnd.random()
 
     ys, y = [], y0
     for k in ks:
@@ -116,24 +86,6 @@ def _k_curve_from_text(text: str):
         y = min(y, y_plateau + rnd.uniform(-0.01, 0.01))
         ys.append(round(_clip(y), 3))
     return ks, ys, kstar, has_hint
-
-def _extract_grids(text: str) -> list[tuple[int,int]]:
-    grids = []
-    for m in re.finditer(r"(\d{1,3})\s*[×x]\s*(\d{1,3})", text, re.I):
-        gw, gh = int(m.group(1)), int(m.group(2))
-        if 1 <= gw <= 256 and 1 <= gh <= 256:
-            grids.append((gw, gh))
-    grids = list(dict.fromkeys(grids))
-    if len(grids) >= 2:
-        grids.sort(key=lambda g: g[0]*g[1])
-        return [grids[0], grids[-1]]
-    return grids
-
-def _extract_img_wh(text: str):
-    m = re.search(r"(\d{2,4})\s*[×x]\s*(\d{2,4})(?:\s*px|\s*픽셀|\s*pixels)?", text, re.I)
-    if m:
-        return [int(m.group(1)), int(m.group(2))]
-    return [640, 640]
 
 def _activation_mentions(text: str) -> list[dict]:
     text_l = text.lower()
@@ -164,12 +116,9 @@ def _activation_mentions(text: str) -> list[dict]:
             m = re.search(fr"{k}\s*[:=]?\s*({NUM})", chunk, re.I)
             if m:
                 val = float(m.group(1))
-                if "beta" in k or "β" in k:
-                    out["beta"] = val
-                elif "slope" in k:
-                    out["alpha"] = val
-                else:
-                    out["alpha"] = val
+                if "beta" in k or "β" in k: out["beta"] = val
+                elif "slope" in k:          out["alpha"] = val
+                else:                       out["alpha"] = val
         return out
 
     funcs: list[dict] = []
@@ -207,49 +156,39 @@ def _parse_taus_from_text(text: str) -> list[float]:
                 pass
     return sorted(set(round(v, 3) for v in vals))
 
-# 빌더
-def build_concept_specs(text: str, spec: list,
-                        mentions: dict,
-                        numeric_cids: set[str] | None = None) -> list:
+# 빌더: glossary 트리거 기반
+def build_concept_specs(
+    text: str,
+    spec: list,
+    mentions: dict,
+    numeric_cids: set[str] | None = None,
+    has_trigger=None,   # ← 추가: glossary 트리거 콜백
+) -> list:
+
     numeric_cids = numeric_cids or set()
-    T  = lambda rx: re.search(rx, text, re.I | re.S) is not None
+    if has_trigger is None:
+        # 필수: JSON 트리거를 쓰기 위해 반드시 콜백이 필요
+        has_trigger = lambda cid: False
 
-    # (w,h) 산점
-    if T(r"width.*height|w[, ]?h|가로.*세로|비율"):
-        has_num = _has_wh_evidence(text)
-        spec.append({
-            "id": "ratios_scatter",
-            "type": "dist_scatter",
-            "labels": _label("(w,h) Scatter", "(w,h) 산점"),
-            "inputs": {
-                "points": _ratios_from_text(text, k_range=(2,5), n_total=300),
-                "xlabel": _label("width (norm)", "폭 (정규화)"),
-                "ylabel": _label("height (norm)", "높이 (정규화)"),
-                "title":  _label("(w,h) Scatter" + ("" if has_num else " (예시)"),
-                                "(w,h) 산점" + ("" if has_num else " (예시)")),
-                "example_badge": (not has_num)
-            }
-        })
-
-    # k 튜닝 곡선
-    if T(r"\bk[-\s]*means|\bk\s*(?:=|≈|~)\s*\d+|cluster|클러스터|튜닝"):
+    # k 튜닝 곡선 — 숫자 없어도 트리거면 그린다 (기본 k★=5)
+    if has_trigger and has_trigger("viz.trigger.k_tuning"):
         ks, ys, kstar, has_hint = _k_curve_from_text(text)
         suffix = "" if has_hint else " (예시)"
         spec.append({
             "id": "k_vs_quality",
             "type": "curve_generic",
-            "labels": _label("k tuning curve", "k 튜닝 곡선"),
+            "labels": {"en":"k tuning curve","ko":"k 튜닝 곡선"},
             "inputs": {
-                "series": [{"x": ks, "y": ys, "label": _label("avg quality", "평균 품질")}],
-                "xlabel": _label("k (clusters)", "k (클러스터 수)"),
-                "ylabel": _label("avg overlap/IoU", "평균 겹침/IoU"),
-                "title":  _label(f"k tuning curve (k≈{kstar}){suffix}",
-                                f"k 튜닝 곡선 (k≈{kstar}){suffix}")
+                "series": [{"x": ks, "y": ys, "label": {"en":"avg quality","ko":"평균 품질"}}],
+                "xlabel": {"en":"k (clusters)","ko":"k (클러스터 수)"},
+                "ylabel": {"en":"avg overlap/IoU","ko":"평균 겹침/IoU"},
+                "title":  {"en": f"k tuning curve (k≈{kstar}){suffix}",
+                        "ko": f"k 튜닝 곡선 (k≈{kstar}){suffix}"}
             }
         })
 
-    # 셀 스케일/앵커 개념
-    if T(r"(cell|셀|격자|grid).*(0\s*~\s*1|0~1|sigmoid|시그모이드)"):
+    # 셀→픽셀 스케일
+    if has_trigger("viz.trigger.cell_scale"):
         grids = _extract_grids(text)
         img_wh = _extract_img_wh(text)
         inputs = {"img_wh": img_wh}
@@ -270,28 +209,8 @@ def build_concept_specs(text: str, spec: list,
             "inputs": {"title": _label("Cell→Pixel scale", "셀 내부 → 픽셀 스케일"), **inputs}
         })
 
-    # 고해상도 특징 결합(예시 허용, 데이터셋 소개문에서 제외)
-    if T(r"(concat|skip|pass\s?-?\s?through|스킵|업샘플).*(feature|특징|채널)") and not T(r"celeba|lsun|cifar|imagenet"):
-        spec.append({
-            "id": "highres_fusion",
-            "type": "flow_arch",
-            "labels": _label("High-res fusion", "특징 결합(개념)"),
-            "inputs": {
-                "title": _label("High-res fusion (concept)", "특징 결합(개념)"),
-                "nodes": [
-                    {"id":"in26","label":_label("26×26 features","고해상도 특성")},
-                    {"id":"reshape","label":_label("reshape/slice","리셰이프")},
-                    {"id":"concat","label":_label("concat along C","채널 방향 결합")},
-                    {"id":"out13","label":_label("13×13 head","검출 헤드")},
-                ],
-                "edges": [{"src":"in26","dst":"reshape"},
-                        {"src":"reshape","dst":"concat"},
-                        {"src":"concat","dst":"out13"}],
-            }
-        })
-
-    # IoU 겹침 도식(실수 값이 있으면 표시)
-    if T(r"\bIoU\b|Intersection\s*over\s*Union|겹치(는|ㅁ)"):
+    # IoU 개념 (숫자 있으면 반영)
+    if has_trigger("viz.trigger.iou_concept"):
         iou_val = None
         for key in ("metric.iou", "metric.miou"):
             if key in mentions and mentions[key]:
@@ -307,8 +226,8 @@ def build_concept_specs(text: str, spec: list,
             "inputs": inputs
         })
 
-    # 활성화 함수 패널(언급된 것만)
-    if T(r"활성화\s*함수|ReLU|Leaky\s*ReLU|Tanh|Sigmoid|ELU|GELU|PReLU|SELU|SiLU|Swish|Softplus|Mish|Hard\s*(Sigmoid|Swish|Tanh)|ReLU6"):
+    # 활성화 함수 패널
+    if has_trigger("viz.trigger.activation_panel"):
         funcs = _activation_mentions(text)
         if funcs:
             spec.append({
@@ -322,8 +241,8 @@ def build_concept_specs(text: str, spec: list,
                 }
             })
 
-    # Softmax (temperature/τ) — 수치가 없으면 예시곡선(0.5,1,2)
-    if re.search(r"\bsoft\s*max\b|소프트\s*맥스|소프트맥스", text, re.I):
+    # 소프트맥스 온도
+    if has_trigger("viz.trigger.softmax_temp"):
         taus = _parse_taus_from_text(text)
         is_example = False
         if not taus:
@@ -339,20 +258,30 @@ def build_concept_specs(text: str, spec: list,
             "inputs": {"title": title, "taus": taus, "logit_range": [-6, 6], "example_badge": is_example}
         })
 
-    # "A -> B -> C" 체인이 있으면 그대로 파이프라인
-    chain = _parse_arrow_chain(text)
-    if chain:
-        nodes = [{"id": f"n{i}", "label": _label(chain[i], chain[i])} for i in range(len(chain))]
-        edges = [{"src": f"n{i}", "dst": f"n{i+1}"} for i in range(len(chain)-1)]
-        spec.append({
-            "id": "flow_from_text",
-            "type": "flow_arch",
-            "labels": _label("Pipeline", "파이프라인"),
-            "inputs": {"title": _label("Pipeline", "파이프라인"), "nodes": nodes, "edges": edges}
-        })
+    # 파이프라인 화살표
+    if has_trigger("viz.trigger.pipeline_arrows"):
+        # 원본 로직: 텍스트의 "A -> B -> C" 그대로 쓰는 버전이었다면 거기 함수 사용
+        seps = r'(?:->|→|⇒|⟶)'
+        best = []
+        for line in text.splitlines():
+            if re.search(seps, line):
+                s = re.sub(r'\s*(->|→|⇒|⟶)\s*', '->', line)
+                toks = [t.strip(' []()') for t in s.split('->') if t.strip()]
+                toks = [t for t in toks if 2 <= len(t) <= 40]
+                if len(toks) >= 3 and len(toks) > len(best):
+                    best = toks
+        if best:
+            nodes = [{"id": f"n{i}", "label": _label(best[i], best[i])} for i in range(len(best))]
+            edges = [{"src": f"n{i}", "dst": f"n{i+1}"} for i in range(len(best)-1)]
+            spec.append({
+                "id": "flow_from_text",
+                "type": "flow_arch",
+                "labels": _label("Pipeline", "파이프라인"),
+                "inputs": {"title": _label("Pipeline", "파이프라인"), "nodes": nodes, "edges": edges}
+            })
 
-    # Transformer 간단 개념 흐름
-    if T(r"transformer") and T(r"encoder") and T(r"decoder"):
+    # 트랜스포머 개념
+    if has_trigger("viz.trigger.transformer_concept"):
         nodes = [
             {"id":"tok","label":_label("Tokens","토큰")},
             {"id":"emb","label":_label("Embed + PosEnc","임베딩 + 위치부호화")},
@@ -370,15 +299,17 @@ def build_concept_specs(text: str, spec: list,
                     "nodes":nodes,"edges":edges}
         })
 
-    # Confusion Matrix 2×2 (본문에 네 수치가 있을 때만)
-    if T(r"confusion\s*matrix|혼동\s*행렬"):
-        M = _extract_confusion_2x2(text)
-        if M:
+    # 혼동행렬
+    if has_trigger("viz.trigger.confusion_matrix"):
+        m = re.search(r'(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)[^\d]+(-?\d+(?:\.\d+)?)',
+                    text, re.I)
+        if m:
+            a, b, c, d = map(float, m.groups())
             spec.append({
                 "id":"conf_mat",
                 "type":"confusion_matrix",
                 "labels": _label("Confusion Matrix","혼동행렬"),
-                "inputs":{"matrix": M, "labels": ["Neg","Pos"],
+                "inputs":{"matrix": [[a,b],[c,d]], "labels": ["Neg","Pos"],
                         "title": _label("Confusion Matrix","혼동행렬")}
             })
 
