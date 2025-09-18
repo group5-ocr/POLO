@@ -87,10 +87,11 @@ async def get_html_result(paper_id: str):
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="HTML result not found")
     
+    # 브라우저에서 바로 열리도록 inline으로 제공 (다운로드 강제 방지)
     return FileResponse(
         path=str(html_path),
         media_type="text/html",
-        filename=f"polo_easy_explanation_{paper_id}.html"
+        headers={"Content-Disposition": f"inline; filename=polo_easy_explanation_{paper_id}.html"}
     )
 
 @router.get("/{paper_id}/ready")
@@ -105,19 +106,34 @@ async def is_result_ready(paper_id: str):
     html_path = out_dir / "easy_results.html"
     json_path = out_dir / "easy_results.json"
 
-    # 디버깅을 위한 로그 추가
-    print(f"🔍 [DEBUG] Ready 체크: paper_id={paper_id}")
-    print(f"🔍 [DEBUG] 경로: {out_dir}")
-    print(f"🔍 [DEBUG] 디렉토리 존재: {out_dir.exists()}")
-    print(f"🔍 [DEBUG] HTML 존재: {html_path.exists()}")
-    print(f"🔍 [DEBUG] JSON 존재: {json_path.exists()}")
-    
-    if out_dir.exists():
-        files = list(out_dir.iterdir())
-        print(f"🔍 [DEBUG] 디렉토리 내용: {[f.name for f in files]}")
+    # 결과 파일 존재 여부 확인
+    if not out_dir.exists():
+        return {
+            "ok": False,
+            "status": "not_found",
+            "html": None,
+            "json": None,
+        }
 
+    status = "idle"
+    if (out_dir / ".started").exists():
+        status = "processing"
+    if html_path.exists() or json_path.exists():
+        status = "ready"
+    
+    # 디버깅을 위한 로그 (너무 자주 출력되지 않도록 제한)
+    import time
+    if not hasattr(is_result_ready, '_last_log_time'):
+        is_result_ready._last_log_time = 0
+    
+    current_time = time.time()
+    if current_time - is_result_ready._last_log_time > 30:  # 30초마다 로그
+        print(f"🔍 [READY] paper_id={paper_id}, status={status}, html={html_path.exists()}, json={json_path.exists()}")
+        is_result_ready._last_log_time = current_time
+    
     return {
         "ok": html_path.exists() or json_path.exists(),
+        "status": status,
         "html": str(html_path) if html_path.exists() else None,
         "json": str(json_path) if json_path.exists() else None,
     }

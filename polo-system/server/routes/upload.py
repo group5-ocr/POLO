@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os, re, unicodedata, time
+import httpx
+import asyncio
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -239,8 +241,11 @@ async def download_file(filename: str):
 @router.get("/upload/download/easy/{paper_id}")
 async def download_easy_file(paper_id: str):
     """
-    Easy 모델 출력 파일 다운로드 (이미지들)
+    Easy 모델 출력 파일 다운로드 (이미지들을 ZIP으로 압축)
     """
+    import zipfile
+    import tempfile
+    
     current_file = Path(__file__).resolve()
     server_dir = current_file.parent.parent  # polo-system/server
     easy_output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
@@ -254,12 +259,17 @@ async def download_easy_file(paper_id: str):
     if not image_files:
         raise HTTPException(status_code=404, detail=f"Easy 모델 출력 이미지를 찾을 수 없습니다: {paper_id}")
     
-    # 첫 번째 이미지 반환 (또는 ZIP으로 압축해서 반환할 수도 있음)
-    return FileResponse(
-        path=str(image_files[0]),
-        filename=f"{paper_id}_easy_{image_files[0].name}",
-        media_type="image/png"
-    )
+    # ZIP 파일 생성
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+        with zipfile.ZipFile(tmp_file.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for img_file in image_files:
+                zipf.write(img_file, img_file.name)
+        
+        return FileResponse(
+            path=tmp_file.name,
+            filename=f"{paper_id}_viz_images.zip",
+            media_type="application/zip"
+        )
 
 @router.get("/upload/download/easy-json/{paper_id}")
 async def download_easy_json(paper_id: str):
@@ -572,7 +582,7 @@ async def preprocess_callback(body: PreprocessCallback):
         try:
             if jsonl_files:
                 import httpx, os
-                easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5002")
+                easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
                 print(f"🔍 [DEBUG] Easy 배치 트리거 시작")
                 print(f"🔍 [DEBUG] easy_url: {easy_url}")
                 print(f"🔍 [DEBUG] jsonl_files: {jsonl_files}")
@@ -587,10 +597,10 @@ async def preprocess_callback(body: PreprocessCallback):
                 print(f"  - output_dir: {str(out_dir)}")
                 
                 async with httpx.AsyncClient(timeout=60) as client:
-                    print(f"🔍 [DEBUG] HTTP 요청 시작: {easy_url}/batch")
-                    r = await client.post(f"{easy_url}/batch", json={
+                    print(f"🔍 [DEBUG] HTTP 요청 시작: {easy_url}/from-transport")
+                    r = await client.post(f"{easy_url}/from-transport", json={
                         "paper_id": str(tex_id),
-                        "chunks_jsonl": str(jsonl_files[0]),
+                        "transport_path": str(jsonl_files[0]),
                         "output_dir": str(out_dir),
                     })
                     print(f"🔍 [DEBUG] Easy 배치 응답: {r.status_code}")
@@ -679,61 +689,65 @@ async def send_to_easy(request: ModelSendRequest, bg: BackgroundTasks):
     """
     try:
         paper_id = request.paper_id
-        print(f"🔍 [DEBUG] Easy 모델 전송 요청: paper_id={paper_id}")
+        print(f"🚀 [SERVER] Easy 모델 전송 요청: paper_id={paper_id}")
         
         # 전처리 결과 파일 경로 찾기
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent  # polo-system/server
         source_dir = server_dir / "data" / "out" / "source"
         
-        print(f"🔍 [DEBUG] source_dir: {source_dir}")
-        print(f"🔍 [DEBUG] source_dir 존재: {source_dir.exists()}")
-        
         if not source_dir.exists():
+            print(f"❌ [SERVER] 전처리 결과 디렉토리 없음: {source_dir}")
             raise HTTPException(status_code=404, detail="전처리 결과를 찾을 수 없습니다")
         
         # merged_body.tex 파일 찾기 (Easy 모델이 섹션 기반으로 변경됨)
         tex_path = source_dir / "merged_body.tex"
         
         if not tex_path.exists():
+            print(f"❌ [SERVER] merged_body.tex 파일 없음: {tex_path}")
             raise HTTPException(status_code=404, detail="merged_body.tex 파일을 찾을 수 없습니다")
-        
-        print(f"🔍 [DEBUG] merged_body.tex 경로: {tex_path}")
         
         # Easy 모델 URL (5003으로 통일)
         easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
         output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"🔍 [DEBUG] Easy 모델 전송 데이터:")
+        print(f"📁 [SERVER] Easy 모델 전송 준비 완료:")
         print(f"  - easy_url: {easy_url}")
         print(f"  - tex_path: {str(tex_path)}")
         print(f"  - output_dir: {str(output_dir)}")
         
         # Easy 모델로 전송 (비동기 백그라운드 실행, 즉시 202 반환)
-        import httpx, asyncio
 
         async def _run_easy_batch():
             try:
-                print(f"🔍 [DEBUG] Easy 모델 백그라운드 작업 시작...")
-                print(f"🔍 [DEBUG] Easy 모델 URL: {easy_url}")
-                print(f"🔍 [DEBUG] 전송할 데이터:")
-                print(f"  - paper_id: {paper_id}")
-                print(f"  - tex_path: {str(tex_path)}")
-                print(f"  - output_dir: {str(output_dir)}")
+                print(f"🔄 [SERVER] Easy 모델 백그라운드 작업 시작...")
+                
+                # Easy 모델 연결 테스트
+                try:
+                    async with httpx.AsyncClient(timeout=10) as test_client:
+                        test_response = await test_client.get(f"{easy_url}/health")
+                        if test_response.status_code != 200:
+                            print(f"❌ [SERVER] Easy 모델 연결 실패: {test_response.status_code}")
+                            return
+                        print(f"✅ [SERVER] Easy 모델 연결 확인됨")
+                except Exception as e:
+                    print(f"❌ [SERVER] Easy 모델 연결 테스트 실패: {e}")
+                    return
                 
                 async with httpx.AsyncClient(timeout=1200) as client:  # 20분 허용
-                    print(f"🔍 [DEBUG] Easy 모델 전송 시작(백그라운드)...")
-                    response = await client.post(f"{easy_url}/batch", json={
+                    print(f"📤 [SERVER] Easy 모델로 전송 시작...")
+                    # Easy 모델의 새로운 /from-transport 엔드포인트 사용
+                    response = await client.post(f"{easy_url}/from-transport", json={
                         "paper_id": paper_id,
-                        "chunks_jsonl": str(tex_path),  # Easy 모델에서 tex_path로 사용
+                        "transport_path": str(tex_path),
                         "output_dir": str(output_dir)
                     })
-                    print(f"🔍 [DEBUG] Easy 모델 응답: {response.status_code}")
-                    print(f"🔍 [DEBUG] 응답 내용: {response.text[:500]}...")
+                    print(f"📥 [SERVER] Easy 모델 응답: {response.status_code}")
                     if response.status_code != 200:
-                        print(f"❌ [ERROR] Easy 모델 응답 실패: {response.status_code} - {response.text}")
+                        print(f"❌ [SERVER] Easy 모델 응답 실패: {response.status_code} - {response.text}")
                         return
+                    print(f"✅ [SERVER] Easy 모델 처리 완료")
 
                     # 처리 후 결과 파일을 DB에 기록(가능한 경우)
                     try:
@@ -760,8 +774,18 @@ async def send_to_easy(request: ModelSendRequest, bg: BackgroundTasks):
             except Exception as e:
                 print(f"❌ [ERROR] Easy 백그라운드 작업 실패: {e}")
 
-        asyncio.create_task(_run_easy_batch())
-        return JSONResponse(status_code=202, content={"ok": True, "message": "Easy 모델 전송을 시작했습니다", "paper_id": paper_id})
+        # 백그라운드 작업 시작
+        task = asyncio.create_task(_run_easy_batch())
+        
+        # 처리 시작 마커 파일 생성 → 결과 폴더 폴링 시 'processing' 상태 표시 가능
+        try:
+            started_flag = output_dir / ".started"
+            started_flag.write_text("started", encoding="utf-8")
+        except Exception as e:
+            print(f"❌ [SERVER] 시작 마커 파일 생성 실패: {e}")
+        
+        print(f"✅ [SERVER] Easy 모델 백그라운드 작업 시작됨")
+        return JSONResponse(status_code=202, content={"ok": True, "message": "Easy 모델 전송을 시작했습니다", "paper_id": paper_id, "status": "processing"})
                 
     except httpx.ConnectError as e:
         print(f"❌ [ERROR] Easy 모델 연결 실패: {e}")

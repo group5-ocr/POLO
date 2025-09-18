@@ -51,6 +51,7 @@ export default function Upload() {
   const [easyResults, setEasyResults] = useState<any>(null);
   const [isLoadingEasy, setIsLoadingEasy] = useState(false);
   const [easyReady, setEasyReady] = useState(false);
+  const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
   // 진행률 업데이트 함수
@@ -59,7 +60,8 @@ export default function Upload() {
   };
 
   // 동적 로딩 게이지 애니메이션
-  const [progressAnimation, setProgressAnimation] = useState<NodeJS.Timeout | null>(null);
+  const [progressAnimation, setProgressAnimation] = useState<number | null>(null);
+  const [progressPhase, setProgressPhase] = useState<string>("");
 
   const startProgressAnimation = () => {
     if (progressAnimation) {
@@ -67,13 +69,28 @@ export default function Upload() {
     }
     
     let currentProgress = 0;
+    const phases = [
+      "파일 분석 중...",
+      "AI 모델 로딩 중...",
+      "텍스트 변환 중...",
+      "시각화 생성 중...",
+      "결과 저장 중..."
+    ];
+    
     const interval = setInterval(() => {
-      currentProgress += Math.random() * 3; // 0-3% 랜덤 증가
-      if (currentProgress >= 95) {
-        currentProgress = 95; // 95%에서 멈춤
+      currentProgress += Math.random() * 2 + 1; // 1-3% 랜덤 증가
+      if (currentProgress >= 90) {
+        currentProgress = 90; // 90%에서 멈춤
       }
+      
+      // 단계별 메시지 업데이트
+      const newPhase = Math.floor((currentProgress / 90) * phases.length);
+      if (newPhase < phases.length) {
+        setProgressPhase(phases[newPhase]);
+      }
+      
       setProgress(currentProgress);
-    }, 200); // 200ms마다 업데이트
+    }, 300); // 300ms마다 업데이트
     
     setProgressAnimation(interval);
   };
@@ -83,6 +100,7 @@ export default function Upload() {
       clearInterval(progressAnimation);
       setProgressAnimation(null);
     }
+    setProgressPhase("완료!");
   };
 
   // Easy 결과 로드 함수
@@ -93,7 +111,8 @@ export default function Upload() {
       if (response.ok) {
         const data = await response.json();
         setEasyResults(data);
-        console.log(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
+        console.log(`[Easy 결과] 로드 완료:`, data);
+        console.log(`[Easy 결과] 섹션 수: ${data.count || data.sections?.length || 0}개`);
       } else {
         console.log(`[Easy 결과] 로드 실패: ${response.status}`);
       }
@@ -142,26 +161,52 @@ export default function Upload() {
         console.log("Easy 모델 전송 성공:", data);
         
         // 2단계: 결과 파일 생성 폴링 (로컬 파일 존재 여부만 확인)
-        const maxWaitMs = 25 * 60 * 1000; // 25분
-        const intervalMs = 3000; // 3초 폴링
+        const maxWaitMs = 60 * 60 * 1000; // 60분 (충분한 처리 시간 확보)
+        const intervalMs = 3000; // 3초 폴링 (더 자주 확인)
         const start = Date.now();
         let ready = false;
+        let pollCount = 0;
+        
+        console.log(`[Easy 폴링] 시작: paper_id=${finalPaperId}`);
+        
         while (Date.now() - start < maxWaitMs) {
           try {
             const r = await fetch(`${apiBase}/api/results/${finalPaperId}/ready`);
             if (r.ok) {
               const j = await r.json();
-              if (j.ok) { 
+              pollCount++;
+              
+              console.log(`[Easy 폴링] ${pollCount}회차: status=${j.status}, ok=${j.ok}`);
+              
+              if (j.status === 'processing') {
+                // 처리 중일 때 진행률 업데이트
+                updateProgress(Math.min(90, Math.max(progress, 20)));
+              } else if (j.status === 'ready' && j.ok) {
+                console.log(`[Easy 폴링] 완료: 결과 파일 생성됨`);
                 ready = true; 
                 break; 
+              } else if (j.status === 'not_found') {
+                console.log(`[Easy 폴링] 대기 중: 결과 디렉토리 없음`);
+                updateProgress(Math.min(80, Math.max(progress, 30)));
               }
+            } else {
+              console.log(`[Easy 폴링] 서버 응답 실패: ${r.status}`);
             }
-          } catch {}
+          } catch (error) {
+            console.log(`[Easy 폴링] 요청 실패: ${error}`);
+          }
+          
+          // 10회마다 로그 출력
+          if (pollCount % 10 === 0) {
+            console.log(`[Easy 폴링] ${pollCount}회차 완료, 계속 대기 중...`);
+          }
+          
           await new Promise(res => setTimeout(res, intervalMs));
         }
 
         if (ready) {
           setEasyReady(true);
+          setCurrentPaperId(finalPaperId);
           stopProgressAnimation(); // 애니메이션 중지
           updateProgress(100);
         } else {
@@ -187,15 +232,16 @@ export default function Upload() {
 
   // Easy 결과를 HTML로 다운로드하는 함수
   const downloadEasyResultsAsHTML = () => {
-    if (!result?.doc_id) return;
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
     
     // 서버에서 생성된 HTML 파일 다운로드
     const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-    const downloadUrl = `${apiBase}/api/results/${result.doc_id}/html`;
+    const downloadUrl = `${apiBase}/api/results/${pid}/html`;
     
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = `polo_easy_explanation_${result.doc_id}.html`;
+    a.download = `polo_easy_explanation_${pid}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -203,12 +249,30 @@ export default function Upload() {
 
   // Easy 결과를 브라우저에서 보는 함수
   const viewEasyResultsInBrowser = () => {
-    if (!result?.doc_id) return;
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
     
     // 새 탭에서 HTML 결과 열기
     const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-    const viewUrl = `${apiBase}/api/results/${result.doc_id}/html`;
+    const viewUrl = `${apiBase}/api/results/${pid}/html`;
     window.open(viewUrl, '_blank');
+  };
+
+  // VIZ 이미지들을 다운로드하는 함수
+  const downloadVizImages = () => {
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+    
+    // 서버에서 VIZ 이미지들 다운로드
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const downloadUrl = `${apiBase}/api/upload/download/easy/${pid}`;
+    
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = `polo_viz_images_${pid}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // Easy 결과 HTML 생성 함수
@@ -891,14 +955,34 @@ export default function Upload() {
                   <div className="progress-bar">
                     <div 
                       className="progress-fill" 
-                      style={{ width: `${progress}%` }}
+                      style={{ 
+                        width: `${progress}%`,
+                        background: 'linear-gradient(90deg, #4caf50 0%, #8bc34a 50%, #cddc39 100%)',
+                        transition: 'width 0.3s ease-in-out',
+                        borderRadius: '10px',
+                        boxShadow: '0 2px 10px rgba(76, 175, 80, 0.3)'
+                      }}
                     ></div>
                   </div>
-                  <span className="progress-text">{progress}%</span>
+                  <div style={{ 
+                    textAlign: 'center', 
+                    marginTop: '10px', 
+                    color: '#4caf50',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}>
+                    {progressPhase || "처리 중..."}
+                  </div>
                 </div>
-                <p style={{ textAlign: 'center', marginTop: '10px', color: '#666' }}>
+                <div style={{ 
+                  textAlign: 'center', 
+                  marginTop: '15px', 
+                  color: '#666',
+                  fontSize: '12px',
+                  fontStyle: 'italic'
+                }}>
                   AI가 논문을 쉬운 언어로 변환하고 있습니다...
-                </p>
+                </div>
               </div>
             )}
 
@@ -906,9 +990,14 @@ export default function Upload() {
             {easyReady && (
               <div className="model-buttons">
                 <h4 style={{ textAlign: 'center', marginBottom: '20px', color: '#2c3e50', fontSize: '18px' }}>
-                  쉬운 논문 생성 완료!
+                  🎉 쉬운 논문 생성 완료!
                 </h4>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '15px' }}>
+                <p style={{ textAlign: 'center', marginBottom: '20px', color: '#666', fontSize: '14px' }}>
+                  AI가 논문을 중학생도 이해할 수 있는 쉬운 언어로 변환했습니다.<br/>
+                  전문 용어는 굵게 표시되고, 핵심 문장은 형광펜으로 강조됩니다.<br/>
+                  <span style={{ color: '#4caf50', fontWeight: '600' }}>✨ 시각화 이미지도 함께 생성되었습니다!</span>
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '15px', flexWrap: 'wrap' }}>
                   <button
                     onClick={viewEasyResultsInBrowser}
                     style={{
@@ -921,7 +1010,10 @@ export default function Upload() {
                       color: 'white',
                       cursor: 'pointer',
                       transition: 'all 0.3s ease',
-                      boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)'
+                      boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
                     }}
                     onMouseOver={(e) => {
                       e.currentTarget.style.transform = 'translateY(-2px)';
@@ -932,7 +1024,7 @@ export default function Upload() {
                       e.currentTarget.style.boxShadow = '0 4px 15px rgba(76, 175, 80, 0.3)';
                     }}
                   >
-                    결과 보러가기
+                    👁️ 결과 보러가기
                   </button>
                   <button
                     onClick={downloadEasyResultsAsHTML}
@@ -946,7 +1038,10 @@ export default function Upload() {
                       color: 'white',
                       cursor: 'pointer',
                       transition: 'all 0.3s ease',
-                      boxShadow: '0 4px 15px rgba(255, 152, 0, 0.3)'
+                      boxShadow: '0 4px 15px rgba(255, 152, 0, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
                     }}
                     onMouseOver={(e) => {
                       e.currentTarget.style.transform = 'translateY(-2px)';
@@ -957,8 +1052,47 @@ export default function Upload() {
                       e.currentTarget.style.boxShadow = '0 4px 15px rgba(255, 152, 0, 0.3)';
                     }}
                   >
-                    HTML 다운로드
+                    💾 HTML 다운로드
                   </button>
+                  <button
+                    onClick={downloadVizImages}
+                    style={{
+                      background: 'linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '12px 24px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      color: 'white',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 4px 15px rgba(156, 39, 176, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 20px rgba(156, 39, 176, 0.4)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 15px rgba(156, 39, 176, 0.3)';
+                    }}
+                  >
+                    🖼️ 이미지 다운로드
+                  </button>
+                </div>
+                <div style={{ 
+                  marginTop: '15px', 
+                  padding: '10px', 
+                  backgroundColor: '#f8f9fa', 
+                  borderRadius: '6px', 
+                  fontSize: '12px', 
+                  color: '#666',
+                  textAlign: 'center'
+                }}>
+                  ✨ 새로운 기능: 자동 굵게 처리, 핵심 문장 하이라이트, 수식 제거, 한글 번역, 시각화 이미지 생성
                 </div>
               </div>
             )}
