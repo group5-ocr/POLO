@@ -23,6 +23,12 @@ class MathFileItem(BaseModel):
     file_addr: Optional[str] = None
 
 
+class EasyFileItem(BaseModel):
+    easy_id: int
+    filename: Optional[str] = None
+    file_addr: Optional[str] = None
+
+
 class FinalResult(BaseModel):
     paper_id: int
     total_chunks: int
@@ -31,6 +37,7 @@ class FinalResult(BaseModel):
     math_done: bool
     items: List[ResultItem]
     math: Dict[str, List[MathFileItem]]
+    easy: Dict[str, List[EasyFileItem]]
 
 
 @router.get("/{tex_id}", response_model=FinalResult)
