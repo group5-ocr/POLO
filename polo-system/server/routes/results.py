@@ -15,6 +15,7 @@ class ResultItem(BaseModel):
     text: Optional[str] = None
     rewritten_text: Optional[str] = None
     image_path: Optional[str] = None
+    original_images: Optional[List[Dict[str, Any]]] = None
 
 
 class MathFileItem(BaseModel):
@@ -130,4 +131,83 @@ async def is_result_ready(paper_id: str):
         "html": str(html_path) if html_path.exists() else None,
         "json": str(json_path) if json_path.exists() else None,
     }
+
+@router.get("/{paper_id}/original-images")
+async def get_original_images(paper_id: str):
+    """
+    원본 논문 이미지들을 ZIP으로 압축하여 다운로드
+    """
+    import zipfile
+    import tempfile
+    
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    
+    # 전처리 결과 디렉토리에서 원본 이미지 찾기
+    source_dir = server_dir / "data" / "out" / "source"
+    arxiv_dir = server_dir / "data" / "arxiv"
+    
+    # 이미지 파일들 찾기
+    image_files = []
+    
+    # 1. source 디렉토리에서 찾기
+    if source_dir.exists():
+        for ext in ['*.pdf', '*.jpg', '*.jpeg', '*.png', '*.eps']:
+            image_files.extend(list(source_dir.glob(ext)))
+    
+    # 2. arxiv 디렉토리에서 찾기
+    if arxiv_dir.exists():
+        for paper_dir in arxiv_dir.iterdir():
+            if paper_dir.is_dir():
+                for ext in ['*.pdf', '*.jpg', '*.jpeg', '*.png', '*.eps']:
+                    image_files.extend(list(paper_dir.rglob(ext)))
+    
+    if not image_files:
+        raise HTTPException(status_code=404, detail="원본 이미지를 찾을 수 없습니다")
+    
+    # ZIP 파일 생성
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+        with zipfile.ZipFile(tmp_file.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for img_file in image_files:
+                # 상대 경로로 ZIP에 추가
+                arcname = img_file.name
+                zipf.write(img_file, arcname)
+        
+        return FileResponse(
+            path=tmp_file.name,
+            filename=f"{paper_id}_original_images.zip",
+            media_type="application/zip"
+        )
+
+@router.get("/{paper_id}/image/{filename}")
+async def get_single_image(paper_id: str, filename: str):
+    """
+    단일 원본 이미지 파일 다운로드
+    """
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    
+    # 여러 위치에서 이미지 파일 찾기
+    search_paths = [
+        server_dir / "data" / "out" / "source" / filename,
+        server_dir / "data" / "arxiv" / "1506.02640" / "source" / filename,
+    ]
+    
+    # arxiv 디렉토리에서 재귀 검색
+    arxiv_dir = server_dir / "data" / "arxiv"
+    if arxiv_dir.exists():
+        for paper_dir in arxiv_dir.iterdir():
+            if paper_dir.is_dir():
+                search_paths.append(paper_dir / "source" / filename)
+                search_paths.extend(list(paper_dir.rglob(filename)))
+    
+    for search_path in search_paths:
+        if search_path.exists():
+            return FileResponse(
+                path=str(search_path),
+                filename=filename,
+                media_type="application/octet-stream"
+            )
+    
+    raise HTTPException(status_code=404, detail=f"이미지 파일을 찾을 수 없습니다: {filename}")
 

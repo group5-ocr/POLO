@@ -743,7 +743,7 @@ export default function Upload() {
                 <p>여기를 클릭하거나 파일을 드래그하여 업로드하세요</p>
                 <div className="upload-info">
                   <span>• PDF 파일만 지원</span>
-                  <span>• 최대 50MB</span>
+                  <span>• 최대 80MB</span>
                 </div>
               </>
             )}
@@ -870,8 +870,7 @@ export default function Upload() {
         {result && (
           <div className="result-container">
             <div className="result-header">
-              <h3>전처리 완료</h3>
-              <p>논문이 분석되었습니다. 아래 버튼으로 쉬운 논문 생성을 시작하세요.</p>
+              <h3>잠시만 기다려주세요...</h3>
               {result.is_arxiv_paper && result.arxiv_id && (
                 <div className="arxiv-info">
                   <span className="arxiv-badge">📄 arXiv 논문</span>
@@ -899,48 +898,6 @@ export default function Upload() {
                       >
                         이미지 다운로드
                       </button>
-                    </div>
-                  )}
-
-
-                  {downloadInfo.files.preprocess.length > 0 && (
-                    <div className="file-category">
-                      <h5>
-                        📄 전처리 파일 ({downloadInfo.files.preprocess.length}
-                        개)
-                      </h5>
-                      <div className="file-items">
-                        {downloadInfo.files.preprocess.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() => downloadFile(file.name, "json")}
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {downloadInfo.files.raw.length > 0 && (
-                    <div className="file-category">
-                      <h5>📁 원본 파일 ({downloadInfo.files.raw.length}개)</h5>
-                      <div className="file-items">
-                        {downloadInfo.files.raw.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() => downloadFile(file.name, "raw")}
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
                     </div>
                   )}
                 </div>
@@ -1024,7 +981,7 @@ export default function Upload() {
                       e.currentTarget.style.boxShadow = '0 4px 15px rgba(76, 175, 80, 0.3)';
                     }}
                   >
-                    👁️ 결과 보러가기
+                    결과 보러가기
                   </button>
                   <button
                     onClick={downloadEasyResultsAsHTML}
@@ -1052,7 +1009,7 @@ export default function Upload() {
                       e.currentTarget.style.boxShadow = '0 4px 15px rgba(255, 152, 0, 0.3)';
                     }}
                   >
-                    💾 HTML 다운로드
+                    다운로드
                   </button>
                   <button
                     onClick={downloadVizImages}
@@ -1083,26 +1040,6 @@ export default function Upload() {
                     🖼️ 이미지 다운로드
                   </button>
                 </div>
-                <div style={{ 
-                  marginTop: '15px', 
-                  padding: '10px', 
-                  backgroundColor: '#f8f9fa', 
-                  borderRadius: '6px', 
-                  fontSize: '12px', 
-                  color: '#666',
-                  textAlign: 'center'
-                }}>
-                  ✨ 새로운 기능: 자동 굵게 처리, 핵심 문장 하이라이트, 수식 제거, 한글 번역, 시각화 이미지 생성
-                </div>
-              </div>
-            )}
-
-            {/* 상세 결과/통계 UI는 간소화 요청에 따라 제거 */}
-
-            {/* 로딩 상태 */}
-            {isLoadingEasy && (
-              <div className="loading-easy">
-                <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
               </div>
             )}
 
