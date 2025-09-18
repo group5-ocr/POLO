@@ -949,50 +949,41 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                     print(f"❌ [SERVER] Math 모델 연결 테스트 실패: {e}")
                     return
                 
-                # Math 모델로 실제 처리 실행
+                # Math 모델로 실제 처리 실행 (/html 엔드포인트 사용)
                 async with httpx.AsyncClient(timeout=1800) as client:  # 30분 허용
                     print(f"📤 [SERVER] Math 모델로 처리 시작...")
-                    response = await client.post(f"{math_url}/math", json={
-                        "path": str(tex_path)
-                    })
+                    
+                    # /html 엔드포인트 사용 (파일 생성 + HTML 생성)
+                    response = await client.get(f"{math_url}/html/{str(tex_path)}")
                     print(f"📥 [SERVER] Math 모델 응답: {response.status_code}")
                     if response.status_code != 200:
                         print(f"❌ [SERVER] Math 모델 응답 실패: {response.status_code} - {response.text}")
                         return
                     
-                    result = response.json()
-                    print(f"✅ [SERVER] Math 모델 처리 완료")
-                    print(f"📊 [SERVER] Math 결과: {result}")
+                    # HTML 내용 저장
+                    html_content = response.text
+                    html_file = output_dir / f"math_results_{paper_id}.html"
+                    html_file.write_text(html_content, encoding="utf-8")
+                    print(f"✅ [SERVER] Math HTML 결과 생성 완료: {html_file}")
                     
-                    # 결과 파일을 지정된 output_dir로 복사
+                    # Math 모델이 생성한 파일들을 math_outputs로 복사
                     try:
-                        outputs = result.get("outputs", {})
-                        json_path = outputs.get("json")
-                        report_tex = outputs.get("report_tex")
-                        math_out_dir = outputs.get("out_dir")
-
-                        if json_path and Path(json_path).exists():
+                        # Math 모델의 기본 출력 디렉토리에서 파일들 찾기
+                        math_build_dir = Path(__file__).resolve().parent.parent.parent / "models" / "math" / "_build"
+                        
+                        # JSON 파일 복사
+                        json_file = math_build_dir / "equations_explained.json"
+                        if json_file.exists():
                             import shutil
-                            shutil.copy2(json_path, output_dir / "equations_explained.json")
+                            shutil.copy2(json_file, output_dir / "equations_explained.json")
                             print(f"✅ [SERVER] Math JSON 결과 복사 완료")
 
-                        if report_tex and Path(report_tex).exists():
+                        # TeX 파일 복사
+                        tex_file = math_build_dir / "yolo_math_report.tex"
+                        if tex_file.exists():
                             import shutil
-                            shutil.copy2(report_tex, output_dir / "yolo_math_report.tex")
+                            shutil.copy2(tex_file, output_dir / "yolo_math_report.tex")
                             print(f"✅ [SERVER] Math TeX 결과 복사 완료")
-
-                        # HTML 파일 생성 (MathJax 렌더링된 수식 해설)
-                        try:
-                            html_response = await client.get(f"{math_url}/html-live/{str(tex_path)}")
-                            if html_response.status_code == 200:
-                                html_content = html_response.text
-                                html_file = output_dir / f"math_results_{paper_id}.html"
-                                html_file.write_text(html_content, encoding="utf-8")
-                                print(f"✅ [SERVER] Math HTML 결과 생성 완료: {html_file}")
-                            else:
-                                print(f"⚠️ [SERVER] Math HTML 생성 실패: {html_response.status_code}")
-                        except Exception as html_error:
-                            print(f"❌ [SERVER] Math HTML 생성 실패: {html_error}")
                         
                         # 처리 후 결과 파일을 DB에 기록(가능한 경우)
                         try:
