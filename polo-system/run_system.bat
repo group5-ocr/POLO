@@ -243,14 +243,15 @@ if exist "%EASY_DIR%" (
   goto :end
 )
 
-REM echo [4/6] Start Math Model (SKIPPED)
-REM if exist "%MATH_DIR%" (
-REM   echo [MATH] Skipped starting Math model (managed by teammate)
-REM ) else (
-REM   echo [ERROR] Math directory not found: %MATH_DIR%
-REM )
+echo [4/6] Start Math Model (Port %MATH_PORT%)
+if exist "%MATH_DIR%" (
+  call :LAUNCH_PY_APP "Math" "%MATH_DIR%" "%REQ_MATH%" "app:app" "%MATH_PORT%" "yes" "%FALLBACK_MATH%"
+) else (
+  echo [ERROR] Math directory not found: %MATH_DIR%
+  goto :end
+)
 
-echo [5/6] Start Backend Server (Port %SERVER_PORT%)
+echo [5/7] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
   REM 서버 의존성에 email-validator 추가
   set "FALLBACK_SERVER_WITH_EMAIL=fastapi uvicorn httpx pydantic[email] asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
@@ -260,7 +261,7 @@ if exist "%SERVER_DIR%" (
   goto :end
 )
 
-echo [6/6] Start Frontend (Vite)
+echo [6/7] Start Frontend (Vite)
 if exist "%FRONTEND_DIR%" (
   pushd "%FRONTEND_DIR%"
   
@@ -285,7 +286,7 @@ echo ========================================
 echo Preprocess: http://localhost:%PREPROCESS_PORT%
 echo Viz:        http://localhost:%VIZ_PORT%
 echo Easy:       http://localhost:%EASY_PORT%
-REM echo Math:       http://localhost:%MATH_PORT%
+echo Math:       http://localhost:%MATH_PORT%
 echo Backend:    http://localhost:%SERVER_PORT%
 echo Frontend:   http://localhost:5173
 echo.

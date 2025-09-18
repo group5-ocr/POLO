@@ -325,7 +325,7 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
 # ======================================================================
 
 # 1) 로컬 키 파일로 직접 초기화(환경변수 불필요)
-SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+SERVICE_ACCOUNT_PATH = Path(__file__).parent / "stone-booking-466716-n6-f6fff7380e05.json"
 GCP_LOCATION = "global"   # 필요 시 "asia-northeast3" 등으로 변경
 
 gcp_translate_client = None
@@ -336,22 +336,24 @@ def init_gcp_local():
     """로컬 서비스 계정 JSON만으로 Translation 클라이언트 초기화"""
     global gcp_translate_client, GCP_PARENT, GCP_PROJECT_ID
     if translate is None or service_account is None:
-        print("[Warn] google-cloud-translate 또는 oauth2 패키지가 없습니다. pip install google-cloud-translate", flush=True)
+        print("[Warn] google-cloud-translate 또는 oauth2 패키지가 없습니다. 번역 기능을 사용할 수 없습니다.", flush=True)
         return
     if not SERVICE_ACCOUNT_PATH.exists():
         print(f"[Warn] 서비스 계정 키 파일이 없습니다: {SERVICE_ACCOUNT_PATH}", flush=True)
+        print("[Warn] 번역 기능을 사용할 수 없습니다. Math 모델은 계속 실행됩니다.", flush=True)
         return
     try:
         creds = service_account.Credentials.from_service_account_file(str(SERVICE_ACCOUNT_PATH))
         GCP_PROJECT_ID = getattr(creds, "project_id", None)
         if not GCP_PROJECT_ID:
-            print("[Warn] 키 파일에서 project_id를 찾지 못했습니다. 키 파일에 project_id가 포함되어야 합니다.", flush=True)
+            print("[Warn] 키 파일에서 project_id를 찾지 못했습니다. 번역 기능을 사용할 수 없습니다.", flush=True)
             return
         gcp_translate_client = translate.TranslationServiceClient(credentials=creds)
         GCP_PARENT = f"projects/{GCP_PROJECT_ID}/locations/{GCP_LOCATION}"
         print(f"GCP Translation ready (local creds): parent={GCP_PARENT}", flush=True)
     except Exception as e:
         print("[Warn] GCP Translation init failed (local creds):", e, flush=True)
+        print("[Warn] 번역 기능을 사용할 수 없습니다. Math 모델은 계속 실행됩니다.", flush=True)
 
 # 2) (선택) 환경변수 방식도 병행 지원: 이미 설정되어 있으면 우선 사용
 def init_gcp_from_env():
