@@ -855,6 +855,124 @@ export default function Upload() {
           <p>PDF 파일을 업로드하면 AI가 쉽게 이해할 수 있도록 변환해드려요!</p>
         </div>
 
+        {/* 상단 버튼 영역 */}
+        {selectedFile && !uploading && (
+          <div className="upload-actions-container">
+            <div className="upload-actions-wrapper">
+              <button
+                onClick={handleConvertAndGenerate}
+                className="btn-primary"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 20px rgba(102, 126, 234, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 15px rgba(102, 126, 234, 0.3)";
+                }}
+              >
+                쉬운 논문 생성
+              </button>
+              <button
+                onClick={async () => {
+                  if (!result?.doc_id) {
+                    // 전처리부터 시작해서 수학 모델까지 실행
+                    try {
+                      if (!selectedFile) {
+                        alert("먼저 PDF를 선택해주세요.");
+                        return;
+                      }
+                      let docId = result?.doc_id;
+                      if (!docId && selectedFile) {
+                        const r = await uploadFile(selectedFile);
+                        docId = r?.doc_id || undefined;
+                      }
+                      if (!docId) {
+                        alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
+                        return;
+                      }
+                      await handleGenerateMathPaper(docId);
+                    } catch (e) {
+                      console.error("수학 모델 통합 실행 실패", e);
+                    }
+                  } else {
+                    handleGenerateMathPaper();
+                  }
+                }}
+                style={{
+                  background:
+                    "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 20px rgba(25, 118, 210, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 15px rgba(25, 118, 210, 0.3)";
+                }}
+                title="수학 모델로 수식 해설 생성 (전처리 포함)"
+              >
+                수학 모델
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedFile(null);
+                  setError(null);
+                  setResult(null);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "2px solid #e0e0e0",
+                  borderRadius: "8px",
+                  padding: "10px 22px",
+                  fontSize: "16px",
+                  fontWeight: "500",
+                  color: "#666",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = "#999";
+                  e.currentTarget.style.color = "#333";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = "#e0e0e0";
+                  e.currentTarget.style.color = "#666";
+                }}
+              >
+                파일 다시 선택
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="upload-layout">
           {/* 왼쪽: PDF 업로드 영역 */}
           <div className="upload-left">
@@ -951,123 +1069,6 @@ export default function Upload() {
                 )}
               </div>
             </div>
-
-            {selectedFile && !uploading && (
-              <div className="conversion-actions">
-                <button
-                  onClick={handleConvertAndGenerate}
-                  className="btn-primary"
-                  style={{
-                    marginRight: 15,
-                    background:
-                      "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "12px 24px",
-                    fontSize: "16px",
-                    fontWeight: "600",
-                    color: "white",
-                    cursor: "pointer",
-                    transition: "all 0.3s ease",
-                    boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.transform = "translateY(-2px)";
-                    e.currentTarget.style.boxShadow =
-                      "0 6px 20px rgba(102, 126, 234, 0.4)";
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow =
-                      "0 4px 15px rgba(102, 126, 234, 0.3)";
-                  }}
-                >
-                  쉬운 논문 생성
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!result?.doc_id) {
-                      // 전처리부터 시작해서 수학 모델까지 실행
-                      try {
-                        if (!selectedFile) {
-                          alert("먼저 PDF를 선택해주세요.");
-                          return;
-                        }
-                        let docId = result?.doc_id;
-                        if (!docId && selectedFile) {
-                          const r = await uploadFile(selectedFile);
-                          docId = r?.doc_id || undefined;
-                        }
-                        if (!docId) {
-                          alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
-                          return;
-                        }
-                        await handleGenerateMathPaper(docId);
-                      } catch (e) {
-                        console.error("수학 모델 통합 실행 실패", e);
-                      }
-                    } else {
-                      handleGenerateMathPaper();
-                    }
-                  }}
-                  style={{
-                    marginRight: 15,
-                    background:
-                      "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "12px 24px",
-                    fontSize: "16px",
-                    fontWeight: "600",
-                    color: "white",
-                    cursor: "pointer",
-                    transition: "all 0.3s ease",
-                    boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.transform = "translateY(-2px)";
-                    e.currentTarget.style.boxShadow =
-                      "0 6px 20px rgba(25, 118, 210, 0.4)";
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow =
-                      "0 4px 15px rgba(25, 118, 210, 0.3)";
-                  }}
-                  title="수학 모델로 수식 해설 생성 (전처리 포함)"
-                >
-                  수학 모델
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedFile(null);
-                    setError(null);
-                    setResult(null);
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "2px solid #e0e0e0",
-                    borderRadius: "8px",
-                    padding: "10px 22px",
-                    fontSize: "16px",
-                    fontWeight: "500",
-                    color: "#666",
-                    cursor: "pointer",
-                    transition: "all 0.3s ease",
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.borderColor = "#999";
-                    e.currentTarget.style.color = "#333";
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.borderColor = "#e0e0e0";
-                    e.currentTarget.style.color = "#666";
-                  }}
-                >
-                  파일 다시 선택
-                </button>
-              </div>
-            )}
 
             {error && (
               <div className="error-message">
@@ -1545,7 +1546,7 @@ export default function Upload() {
             ) : (
               /* 오른쪽 안내 가이드 */
               <div className="upload-guide">
-                <h3>🚀 POLO 시작하기</h3>
+                <h3>POLO 시작하기</h3>
 
                 <div className="upload-guide-steps">
                   <div className="upload-guide-step">
@@ -1578,19 +1579,6 @@ export default function Upload() {
                     <div className="upload-guide-feature-desc">
                       수식 해설 및 상세 설명
                     </div>
-                  </div>
-                </div>
-
-                <div className="upload-guide-stats">
-                  <div className="upload-guide-stat">
-                    <div className="upload-guide-stat-value">3-5분</div>
-                    <div className="upload-guide-stat-label">
-                      평균 처리 시간
-                    </div>
-                  </div>
-                  <div className="upload-guide-stat">
-                    <div className="upload-guide-stat-value">PDF, arXiv</div>
-                    <div className="upload-guide-stat-label">지원 형식</div>
                   </div>
                 </div>
               </div>
