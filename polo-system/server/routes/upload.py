@@ -690,7 +690,10 @@ async def preprocess_callback(body: PreprocessCallback):
                 print(f"🔍 [DEBUG] easy_url: {easy_url}")
                 print(f"🔍 [DEBUG] jsonl_files: {jsonl_files}")
                 
-                out_dir = (transport_path if transport_path.is_dir() else transport_path.parent).parent / "outputs" / str(tex_id) / "easy_outputs"
+                # 고정 입력/출력 경로로 강제 설정
+                server_dir = Path(__file__).resolve().parent.parent
+                fixed_tex = server_dir / "data" / "out" / "transformer" / "source" / "merged_body.tex"
+                out_dir = server_dir / "data" / "outputs"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 
                 print(f"🔍 [DEBUG] out_dir: {out_dir}")
@@ -703,7 +706,7 @@ async def preprocess_callback(body: PreprocessCallback):
                     print(f"🔍 [DEBUG] HTTP 요청 시작: {easy_url}/from-transport")
                     r = await client.post(f"{easy_url}/from-transport", json={
                         "paper_id": str(tex_id),
-                        "transport_path": str(jsonl_files[0]),
+                        "transport_path": str(fixed_tex),
                         "output_dir": str(out_dir),
                     })
                     print(f"🔍 [DEBUG] Easy 배치 응답: {r.status_code}")
@@ -797,22 +800,16 @@ async def send_to_easy(request: ModelSendRequest, bg: BackgroundTasks):
         # 전처리 결과 파일 경로 찾기
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent  # polo-system/server
-        source_dir = server_dir / "data" / "out" / "source"
-        
-        if not source_dir.exists():
-            print(f"❌ [SERVER] 전처리 결과 디렉토리 없음: {source_dir}")
-            raise HTTPException(status_code=404, detail="전처리 결과를 찾을 수 없습니다")
-        
-        # merged_body.tex 파일 찾기 (Easy 모델이 섹션 기반으로 변경됨)
-        tex_path = source_dir / "merged_body.tex"
-        
+        # 고정 입력 경로: transformer/source/merged_body.tex
+        tex_path = server_dir / "data" / "out" / "transformer" / "source" / "merged_body.tex"
         if not tex_path.exists():
             print(f"❌ [SERVER] merged_body.tex 파일 없음: {tex_path}")
             raise HTTPException(status_code=404, detail="merged_body.tex 파일을 찾을 수 없습니다")
         
         # Easy 모델 URL (5003으로 통일)
         easy_url = os.getenv("EASY_MODEL_URL", "http://localhost:5003")
-        output_dir = server_dir / "data" / "outputs" / paper_id / "easy_outputs"
+        # 출력 루트는 상위 outputs로 고정 (Easy가 내부에서 paper_id 하위로 생성)
+        output_dir = server_dir / "data" / "outputs"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"📁 [SERVER] Easy 모델 전송 준비 완료:")

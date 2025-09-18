@@ -11,23 +11,23 @@ from pathlib import Path
 # 경로 설정
 POLO_ROOT = Path(__file__).parent
 EASY_DIR = POLO_ROOT / "models" / "easy"
-SOURCE_DIR = POLO_ROOT / "server" / "data" / "out" / "transformer" / "source"
-OUTPUT_DIR = POLO_ROOT / "server" / "data" / "outputs" / "transformer" / "easy_outputs_user"
+TRANSPORT_DIR = POLO_ROOT / "server" / "data" / "out" / "transformer" / "source"
+OUTPUT_ROOT = POLO_ROOT / "server" / "data" / "outputs"
 
 def main():
     print("🚀 Easy 모델 처리 시작...")
-    print(f"소스 디렉토리: {SOURCE_DIR}")
-    print(f"출력 디렉토리: {OUTPUT_DIR}")
+    print(f"소스 디렉토리(from-transport): {TRANSPORT_DIR}")
+    print(f"출력 루트: {OUTPUT_ROOT}")
     
-    # 출력 디렉토리 생성
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # 출력 루트 생성
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     
     # Easy 모델 디렉토리로 이동
     os.chdir(EASY_DIR)
     sys.path.insert(0, str(EASY_DIR))
     
     try:
-        from app import run_batch, BatchRequest, load_model, _translate_to_korean
+        from app import from_transport, TransportRequest, load_model
         import asyncio
         
         async def process_paper():
@@ -35,26 +35,25 @@ def main():
             load_model()
             print("✅ 모델 로딩 완료!")
             
-            print("🔄 논문 처리 시작...")
-            
-            # BatchRequest 생성
-            request = BatchRequest(
-                paper_id='user_processing',
-                chunks_jsonl=str(SOURCE_DIR),
-                output_dir=str(OUTPUT_DIR),
+            print("🔄 논문 처리 시작(from-transport)...")
+
+            request = TransportRequest(
+                paper_id='transformer_v2',
+                transport_path=str(TRANSPORT_DIR),
+                output_dir=str(OUTPUT_ROOT),
                 style='three_para_ko'
             )
-            
-            # Easy 모델 처리 실행
-            result = await run_batch(request)
+
+            result = await from_transport(request)
             
             print("✅ 처리 완료!")
             print(f"성공: {result.success}개, 실패: {result.failed}개")
             print(f"출력 디렉토리: {result.out_dir}")
             
             # 결과 파일 확인
-            json_file = OUTPUT_DIR / 'user_processing' / 'easy_results.json'
-            html_file = OUTPUT_DIR / 'user_processing' / 'easy_results.html'
+            out_dir = Path(result.out_dir)
+            json_file = out_dir / 'easy_results.json'
+            html_file = out_dir / 'easy_results.html'
             
             if json_file.exists():
                 print(f"📄 JSON 결과: {json_file}")

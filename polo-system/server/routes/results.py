@@ -80,10 +80,23 @@ async def get_html_result(paper_id: str):
     """
     Easy 모델 결과 HTML 파일 제공
     """
-    # HTML 파일 경로 찾기
+    # HTML 파일 경로 찾기 (신규/레거시 경로 모두 시도)
     current_file = Path(__file__).resolve()
     server_dir = current_file.parent.parent  # polo-system/server
-    html_path = server_dir / "data" / "outputs" / str(paper_id) / "easy_outputs" / "easy_results.html"
+    # 신규 기본: data/outputs/{paper_id}/easy_results.html
+    html_path = server_dir / "data" / "outputs" / str(paper_id) / "easy_results.html"
+    if not html_path.exists():
+        # 레거시: data/outputs/{paper_id}/easy_outputs/easy_results.html
+        legacy_path = server_dir / "data" / "outputs" / str(paper_id) / "easy_outputs" / "easy_results.html"
+        if legacy_path.exists():
+            html_path = legacy_path
+        else:
+            # 폴백: outputs 하위에서 재귀적으로 탐색
+            candidates = list((server_dir / "data" / "outputs").rglob(f"{paper_id}/easy_results.html"))
+            if not candidates:
+                candidates = list((server_dir / "data" / "outputs").rglob(f"{paper_id}*/easy_results.html"))
+            if candidates:
+                html_path = candidates[0]
     
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="HTML result not found")
@@ -103,9 +116,29 @@ async def is_result_ready(paper_id: str):
     """
     current_file = Path(__file__).resolve()
     server_dir = current_file.parent.parent  # polo-system/server
-    out_dir = server_dir / "data" / "outputs" / str(paper_id) / "easy_outputs"
-    html_path = out_dir / "easy_results.html"
-    json_path = out_dir / "easy_results.json"
+    outputs_root = server_dir / "data" / "outputs"
+    # 신규 기본 경로
+    out_dir_new = outputs_root / str(paper_id)
+    html_path = out_dir_new / "easy_results.html"
+    json_path = out_dir_new / "easy_results.json"
+    # 레거시 경로 보조
+    if not html_path.exists() and not json_path.exists():
+        out_dir_legacy = outputs_root / str(paper_id) / "easy_outputs"
+        if (out_dir_legacy / "easy_results.html").exists() or (out_dir_legacy / "easy_results.json").exists():
+            html_path = out_dir_legacy / "easy_results.html"
+            json_path = out_dir_legacy / "easy_results.json"
+            out_dir = out_dir_legacy
+        else:
+            # 재귀 탐색 (폴백)
+            found_html = list(outputs_root.rglob(f"{paper_id}/easy_results.html"))
+            found_json = list(outputs_root.rglob(f"{paper_id}/easy_results.json"))
+            out_dir = outputs_root
+            if found_html:
+                html_path = found_html[0]
+            if found_json:
+                json_path = found_json[0]
+    else:
+        out_dir = out_dir_new
 
     # 결과 파일 존재 여부 확인
     if not out_dir.exists():

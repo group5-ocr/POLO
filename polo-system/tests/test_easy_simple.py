@@ -26,8 +26,14 @@ def main():
         load_model()
         print("✅ 모델 로딩 완료!")
         
-        # 테스트 텍스트
-        test_text = "This is a test paper about machine learning. LRB lrb RRB rrb are bracket tokens."
+        # 테스트 텍스트 (더 상세한 내용)
+        test_text = """
+        This paper presents a novel approach to object detection using deep learning. 
+        The proposed method achieves state-of-the-art performance on COCO dataset with 45.2% mAP. 
+        Our model uses a new architecture called YOLO that can detect objects in real-time. 
+        The key innovation is the unified detection framework that treats object detection as a regression problem. 
+        LRB lrb RRB rrb are bracket tokens that need to be normalized.
+        """
         
         print(f"\n📝 원본 텍스트: {test_text}")
         
