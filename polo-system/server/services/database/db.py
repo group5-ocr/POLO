@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, List, Any, Dict
 
 from sqlalchemy import (
-    String, Integer, Boolean, ForeignKey, DateTime, Text, select, update, text
+    String, Integer, Boolean, ForeignKey, DateTime, Text, select, update, text, TIMESTAMP
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import (
@@ -31,7 +31,7 @@ class User(Base):
     password: Mapped[str] = mapped_column(String)
     nickname: Mapped[str] = mapped_column(String)
     job: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    create_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    create_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=False), default=datetime.utcnow)
 
     origin_files = relationship("OriginFile", back_populates="user")
 
@@ -41,7 +41,7 @@ class OriginFile(Base):
     origin_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"))
     filename: Mapped[str] = mapped_column(String)
-    create_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    create_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=False), default=datetime.utcnow)
     id: Mapped[int] = mapped_column(Integer, nullable=True)
 
     user = relationship("User", back_populates="origin_files")
@@ -125,12 +125,6 @@ class DBRouter:
         print(f"  POSTGRES_PORT: {postgres_port}")
         print(f"  POSTGRES_DB: {postgres_db}")
         
-        pg_url = (
-            f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
-            f"@{postgres_host}:{postgres_port}/{postgres_db}"
-        )
-        print(f"[DEBUG] PostgreSQL URL: {pg_url}")
-
         # 절대 경로로 DB 경로 설정
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent.parent  # polo-system/server
@@ -139,25 +133,42 @@ class DBRouter:
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         sqlite_url = f"sqlite+aiosqlite:///{local_path}"
 
-        try:
-            print(f"[DEBUG] PostgreSQL 연결 시도 중...")
-            pg_engine = create_async_engine(pg_url, pool_pre_ping=True)
-            await asyncio.wait_for(self._ping(pg_engine), timeout=2.0)
-            self.engine = pg_engine
-            self.mode = "pg"
-            print("✅ PostgreSQL 연결 성공")
-        except Exception as e:
-            print(f"❌ PostgreSQL 연결 실패: {str(e)}")
-            print(f"❌ 오류 타입: {type(e).__name__}")
+        # PostgreSQL 연결 시도
+        if all([postgres_user, postgres_password, postgres_host, postgres_db]):
+            pg_url = (
+                f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
+                f"@{postgres_host}:{postgres_port}/{postgres_db}"
+            )
+            print(f"[DEBUG] PostgreSQL URL: {pg_url}")
+
+            try:
+                print(f"[DEBUG] PostgreSQL 연결 시도 중...")
+                pg_engine = create_async_engine(pg_url, pool_pre_ping=True)
+                await asyncio.wait_for(self._ping(pg_engine), timeout=5.0)
+                self.engine = pg_engine
+                self.mode = "pg"
+                print("✅ PostgreSQL 연결 성공")
+            except Exception as e:
+                print(f"❌ PostgreSQL 연결 실패: {str(e)}")
+                print(f"❌ 오류 타입: {type(e).__name__}")
+                self.engine = create_async_engine(sqlite_url)
+                self.mode = "local"
+                print("⚠️ PostgreSQL 연결 실패 → SQLite 사용")
+        else:
+            print("⚠️ PostgreSQL 환경변수가 설정되지 않음 → SQLite 사용")
             self.engine = create_async_engine(sqlite_url)
             self.mode = "local"
-            print("⚠️ PostgreSQL 연결 실패 → SQLite 사용")
 
         self._session = async_sessionmaker(self.engine, expire_on_commit=False)
 
-        # 테이블 생성
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        # 테이블 생성 (PostgreSQL과 SQLite 모두에서 작동)
+        try:
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            print(f"✅ 테이블 생성 완료 ({self.mode} 모드)")
+        except Exception as e:
+            print(f"❌ 테이블 생성 실패: {e}")
+            raise
 
     async def _ping(self, engine: AsyncEngine) -> None:
         async with engine.connect() as conn:
