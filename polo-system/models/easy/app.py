@@ -1,185 +1,503 @@
 # -*- coding: utf-8 -*-
 """
-POLO Easy Model - Grounded JSON Generator
-
-- CUDA 우선(없으면 CPU 폴백)
-- 어텐션 백엔드: flash_attn > sdpa > eager
-- '쉬운 한국어 재해석'에 최적화
-- /easy, /generate, /batch 제공
+POLO Easy Model - Grounded JSON/HTML Generator (Final, KR-optimized)
+- 한글 결과 강제, 환각 방지, 스키마/형식 보호, 반복/잡음 정리, 안전 토크나이즈
 """
+
 from __future__ import annotations
-
-import os
-import re
-import json
-import time
-import base64
-import gzip
-import logging
+import os, re, json, time, base64, gzip, sys, asyncio, logging, html
 from pathlib import Path
-from typing import Optional, Dict, Any, List
-from googletrans import Translator
+from typing import Optional, Dict, Any, List, Tuple
 
-import anyio
-import httpx
-import torch
-import uvicorn
+import anyio, httpx, torch, uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
 
-# -------------------- .env 로드 (루트만) --------------------
-logger = logging.getLogger("polo.easy")
-logging.basicConfig(level=logging.INFO)
-
+# -------------------- .env --------------------
 ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
 if ROOT_ENV.exists():
     load_dotenv(dotenv_path=str(ROOT_ENV), override=True)
-    logger.info(f"[dotenv] loaded: {ROOT_ENV}")
-else:
-    logger.info("[dotenv] no .env at repo root")
 
-HF_TOKEN   = os.getenv("허깅페이스 토큰")
-BASE_MODEL = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
-ADAPTER_DIR = os.getenv(
-    "EASY_ADAPTER_DIR",
-    str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "llama32-3b-qlora" / "checkpoint-4000")
-)
-MAX_NEW_TOKENS      = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))
-VIZ_MODEL_URL       = os.getenv("VIZ_MODEL_URL", "http://localhost:5005")
-EASY_CONCURRENCY    = int(os.getenv("EASY_CONCURRENCY", "8"))
-EASY_BATCH_TIMEOUT  = int(os.getenv("EASY_BATCH_TIMEOUT", "600"))
+# -------------------- ENV / 기본값 --------------------
+HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
+BASE_MODEL               = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
+ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "llama32-3b-qlora" / "checkpoint-4000"))
+MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))
+EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "2"))
+EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "1800"))
+EASY_VIZ_TIMEOUT         = float(os.getenv("EASY_VIZ_TIMEOUT", "1800"))
+EASY_VIZ_HEALTH_TIMEOUT  = float(os.getenv("EASY_VIZ_HEALTH_TIMEOUT", "5"))
+EASY_VIZ_ENABLED         = os.getenv("EASY_VIZ_ENABLED", "0").lower() in ("1","true","yes")
+VIZ_MODEL_URL            = os.getenv("VIZ_MODEL_URL", "http://localhost:5005")
 
-# -------------------- HF 캐시 경로 '무조건' 안전 폴더로 고정 --------------------
+EASY_STRIP_MATH          = os.getenv("EASY_STRIP_MATH", "1").lower() in ("1","true","yes")
+EASY_FORCE_KO            = os.getenv("EASY_FORCE_KO", "1").lower() in ("1","true","yes")
+EASY_AUTO_BOLD           = os.getenv("EASY_AUTO_BOLD", "1").lower() in ("1","true","yes")
+EASY_HILITE              = os.getenv("EASY_HILITE", "1").lower() in ("1","true","yes")
+
+# 외부 번역기 항상 우선 (Google→Papago→LLM)
+EASY_FORCE_TRANSLATE     = os.getenv("EASY_FORCE_TRANSLATE", "1").lower() in ("1","true","yes")
+GOOGLE_PROJECT           = (os.getenv("GOOGLE_PROJECT", "polo-472507") or "").strip()
+
+MAX_INPUT_TOKENS         = 2048
+_RETRY_TOKENS            = (1536, 1024, 768)
+
+# -------------------- HF cache pin --------------------
 SAFE_CACHE_DIR = Path(__file__).resolve().parent / "hf_cache"
 SAFE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+for k in ("HF_HOME","TRANSFORMERS_CACHE","HF_DATASETS_CACHE","HF_HUB_CACHE"):
+    os.environ[k] = str(SAFE_CACHE_DIR)
+CACHE_DIR = os.environ["HF_HOME"]
 
-def force_safe_hf_cache():
-    # 시스템 전역/사용자 환경변수에 이상한 경로(D:\...)가 있어도 여기로 통일
-    for k in ("HF_HOME", "TRANSFORMERS_CACHE", "HF_DATASETS_CACHE", "HF_HUB_CACHE"):
-        os.environ[k] = str(SAFE_CACHE_DIR)
-    logger.info(f"[hf_cache] forced cache dir → {SAFE_CACHE_DIR}")
-
-force_safe_hf_cache()
-CACHE_DIR = os.environ["HF_HOME"]  # 동일 경로 사용
-
-# ⛔ transformers/peft는 캐시 경로가 import 시점에 굳어질 수 있음
-#    반드시 캐시 세팅 이후에 import
 from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 from peft import PeftModel  # noqa: E402
 
-# -------------------- FastAPI --------------------
-app = FastAPI(title="POLO Easy Model", version="1.3.2")
+# -------------------- Logger --------------------
+logger = logging.getLogger("polo.easy")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-# -------------------- 전역 상태 --------------------
-model = None
-tokenizer = None
+# Windows 소켓 종료 관련 경고/에러 완화
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+# -------------------- Global state --------------------
+app = FastAPI(title="POLO Easy Model", version="2.2.0-final-kr")
+model: Optional[torch.nn.Module] = None
+tokenizer: Optional[AutoTokenizer] = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 gpu_available = torch.cuda.is_available()
 safe_dtype = torch.float16 if gpu_available else torch.float32
-translator = Translator()
 
-# -------------------- 유틸 --------------------
+# -------------------- Text Utils --------------------
 def _pick_attn_impl() -> str:
     try:
-        import flash_attn  # noqa: F401
+        import flash_attn  # noqa
         logger.info("✅ flash_attn 사용: flash_attention_2")
         return "flash_attention_2"
     except Exception:
         pass
     try:
-        from torch.nn.functional import scaled_dot_product_attention  # noqa: F401
+        from torch.nn.functional import scaled_dot_product_attention  # noqa
         logger.info("ℹ️ sdpa 사용 가능")
         return "sdpa"
     except Exception:
-        logger.info("ℹ️ sdpa 불가 → eager로 진행")
+        logger.info("ℹ️ sdpa 불가 → eager")
         return "eager"
 
-def _coerce_json(text: str) -> Dict[str, Any]:
-    s = text.find("{"); e = text.rfind("}")
-    if s != -1 and e != -1 and e > s:
-        text = text[s:e+1]
-    return json.loads(text)
+def _contains_hangul(text: str) -> bool:
+    return bool(re.search(r"[가-힣]", text or ""))
 
-def _is_meaningful(d: dict) -> bool:
+def _detect_lang_safe(text: str) -> str:
+    if not text or not text.strip(): return "en"
+    if _contains_hangul(text): return "ko"
+    latin = len(re.findall(r"[A-Za-z]", text)); total = len(re.findall(r"[A-Za-z가-힣]", text))
+    if total == 0: return "en"
+    return "ko" if (latin/total) < 0.5 else "en"
+
+def _normalize_bracket_tokens(t: str) -> str:
+    if not t: return t
+    t = re.sub(r"(?i)\bL\s*R\s*B\b|\blrb\b|\bl\s*r\s*b\b", "(", t)
+    t = re.sub(r"(?i)\bR\s*R\s*B\b|\brrb\b|\br\s*r\s*b\b", ")", t)
+    return t
+
+def _strip_math_all(s: str) -> str:
+    if not s: return s
+    rep = " . "
+    s = re.sub(r"\$\$[\s\S]*?\$\$", rep, s)
+    s = re.sub(r"\\\[[\s\S]*?\\\]", rep, s)
+    s = re.sub(r"\\\([\s\S]*?\\\)", rep, s)
+    s = re.sub(r"\$(?!\$)(?:[^$\\]|\\.)+\$", rep, s)
+    s = re.sub(r"\\begin\{(equation\*?|align\*?|gather\*?|multline\*?|eqnarray\*?)\}[\s\S]*?\\end\{\1\}", rep, s)
+    return s
+
+def _strip_tables_figures_all(s: str) -> str:
+    if not s: return s
+    rep = " . "
+    s = re.sub(r"\\begin\{table\*?\}[\s\S]*?\\end\{table\*?\}", rep, s)
+    s = re.sub(r"\\begin\{tabularx?\*?\}[\s\S]*?\\end\{tabularx?\*?\}", rep, s)
+    s = re.sub(r"\\begin\{figure\*?\}[\s\S]*?\\end\{figure\*?\}", rep, s)
+    s = re.sub(r"\\includegraphics(?:\[[^\]]*\])?\{[^}]*\}", rep, s)
+    s = re.sub(r"\\caption\{[^}]*\}", rep, s)
+    s = re.sub(r"(?i)\b(?:figure|table)\s*\d+\s*[:.]\s*", rep, s)
+    s = re.sub(r"(?:표|그림)\s*\d+\s*[:.]\s*", rep, s)
+    return s
+
+def _postprocess_terms(t: str) -> str:
+    if not t: return t
+    t = re.sub(r"(?i)\bm\s*A\s*P\b", "mAP", t)
+    t = re.sub(r"(?i)\bR\s*-?\s*CNN\b", "R-CNN", t)
+    t = re.sub(r"(?i)\bFast\s*-?\s*R\s*-?\s*CNN\b", "Fast R-CNN", t)
+    t = re.sub(r"(?i)\bFaster\s*-?\s*R\s*-?\s*CNN\b", "Faster R-CNN", t)
+    return t
+
+def _auto_bold_terms(t: str) -> str:
+    if not t or not EASY_AUTO_BOLD: return t
+    pats = [
+        r"\b(?:BLEU|ROUGE|BERTScore|BLEURT|mAP|IoU|F1|AUC|ROC|PSNR|SSIM|CER|WER)\b",
+        r"\b(?:Transformer|BERT|GPT(?:-\d+)?|Llama|LLaMA|Mistral|Qwen|Gemma|T5|Whisper)\b",
+        r"\b\d+\s?(?:x|×)\s?\d+\b",
+        r"\b(?:Top-1|Top-5|SOTA|FPS|GFLOPs?|Params?)\b",
+    ]
+    for pat in pats:
+        t = re.sub(pat, lambda m: f"**{m.group(0)}**" if not (m.group(0).startswith("**") and m.group(0).endswith("**")) else m.group(0), t)
+    return t
+
+def _hilite_sentences(t: str, max_marks: int = 2) -> str:
+    if not t or not EASY_HILITE: return t
+    parts = re.split(r"(?<=[.!?])\s+|(?<=다\.)\s+", t.strip()); marks=0; out=[]
+    key = re.compile(r"(핵심|요약|결론|성능|개선|향상|정확도|우수|달성|증가|감소|한계|제안|우리\s*모델|SOTA|improv|achiev|propos|contribut|BER|SNR)", re.I)
+    has_num = re.compile(r"\d+(?:\.\d+)?\s*(%|점|배|ms|s|fps|GFLOPs?|M|K|dB)?", re.I)
+    for s in parts:
+        s=s.strip()
+        if not s: continue
+        if marks < max_marks and (key.search(s) or has_num.search(s)):
+            out.append(f"=={s}=="); marks += 1
+        else:
+            out.append(s)
+    return " ".join(out)
+
+def _sanitize_repeats(t: str) -> str:
+    if not t: return t
+    t = re.sub(r"\b(\w{2,})\b(?:\s+\1\b){3,}", r"\1 \1 \1", t, flags=re.I)
+    t = re.sub(r"(?:\b[\w\-]*flops\b[\s,.;:]*){6,}", " ", t, flags=re.I)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    return t
+
+def _need_ko(t: str) -> bool:
+    if not t or not t.strip(): return True
+    hangul = len(re.findall(r"[가-힣]", t)); latin = len(re.findall(r"[A-Za-z]", t))
+    total = hangul + latin
+    if hangul < 10: return True
+    if total > 0 and hangul / total < 0.35: return True
+    return False
+
+# -------------------- 안전 토크나이즈 --------------------
+def _safe_tokenize(prompt: str, max_len: int = MAX_INPUT_TOKENS):
+    assert tokenizer is not None, "Tokenizer not loaded"
+    for L in (max_len, *_RETRY_TOKENS):
+        enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=L)
+        if enc["input_ids"].shape[1] <= L:
+            return {k: v.to(device) for k, v in enc.items()}
+    enc = tokenizer(prompt[-8000:], return_tensors="pt", truncation=True, max_length=max_len)
+    return {k: v.to(device) for k, v in enc.items()}
+
+# -------------------- 모델 로드 --------------------
+def load_model():
+    global model, tokenizer, gpu_available, device, safe_dtype
+    logger.info(f"🔄 모델 로딩: {BASE_MODEL}")
+    logger.info(f"EASY_ADAPTER_DIR={ADAPTER_DIR}")
+    logger.info(f"HF_HOME={os.getenv('HF_HOME')}")
+    if torch.cuda.is_available():
+        gpu_available = True; device = "cuda"; safe_dtype = torch.float16
+        logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        gpu_available = False; device = "cpu"; safe_dtype = torch.float32
+        logger.info("⚠️ CPU 모드")
+
+    tokenizer_local = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN, trust_remote_code=True, cache_dir=CACHE_DIR)
+    if tokenizer_local.pad_token_id is None:
+        tokenizer_local.pad_token = tokenizer_local.eos_token
+
+    attn_impl = _pick_attn_impl()
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
     try:
-        sections = ["abstract","introduction","methods","results","discussion","conclusion"]
-        return any(len((d.get(s, {}) or {}).get("easy", "")) > 10 for s in sections)
-    except Exception:
-        return False
+        base = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL, torch_dtype=safe_dtype, trust_remote_code=True,
+            attn_implementation=attn_impl, low_cpu_mem_usage=True, token=HF_TOKEN, cache_dir=CACHE_DIR,
+        )
+    except Exception as e:
+        logger.warning(f"attn='{attn_impl}' 실패({e}) → eager")
+        base = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL, torch_dtype=safe_dtype, trust_remote_code=True,
+            attn_implementation="eager", low_cpu_mem_usage=True, token=HF_TOKEN, cache_dir=CACHE_DIR,
+        )
+
+    m = base
+    if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
+        try:
+            m = PeftModel.from_pretrained(base, os.path.abspath(ADAPTER_DIR), is_trainable=False, local_files_only=True)
+            logger.info("✅ 어댑터 로딩 OK")
+        except Exception as e:
+            logger.error(f"❌ 어댑터 로딩 실패: {e} → 베이스 사용")
+            m = base
+
+    m.eval(); m = m.to(safe_dtype).to(device)
+    globals()["model"] = m; globals()["tokenizer"] = tokenizer_local
+    logger.info("✅ 모델 준비 완료")
+
+# -------------------- 번역 파이프라인 (v3 우선, 프로젝트 고정) --------------------
+PROJECT_FIXED = "polo-472507"  # ← 고정 프로젝트 ID
+GOOGLE_PROJECT = os.getenv("GOOGLE_PROJECT", PROJECT_FIXED).strip() or PROJECT_FIXED
 
 def _translate_to_korean(text: str) -> str:
-    """Google Translator를 사용해서 한국어로 번역"""
+    """
+    외부 번역 우선: Google v3(서비스계정) → v2(API Key/OAuth) → (옵션) Papago → 실패 시 LLM
+    """
     try:
         if not text or not text.strip():
             return ""
-        
-        # 텍스트가 너무 길면 잘라서 번역
-        if len(text) > 4000:  # Google Translator 제한
-            text = text[:4000] + "..."
-        
-        result = translator.translate(text, dest='ko', src='en')
-        return result.text
+        out = _translate_with_google_api(text)
+        if out:
+            return out
+        out = _translate_with_papago(text)  # env 없으면 자동 skip
+        if out:
+            return out
+        logger.warning("⚠️ 모든 외부 번역 실패 → LLM 백업 사용")
+        return _translate_with_llm(text)
     except Exception as e:
         logger.warning(f"번역 실패: {e}")
-        return text  # 번역 실패 시 원본 반환
+        return text
 
-def _extract_sections(src: str) -> dict:
-    sections = {k: "" for k in ["abstract","introduction","methods","results","discussion","conclusion"]}
-    headers = [
-        ("abstract", r"^\s*abstract\b[:\-]?"),
-        ("introduction", r"^\s*introduction\b[:\-]?"),
-        ("methods", r"^\s*methods?\b[:\-]?|^\s*materials?\s+and\s+methods\b[:\-]?"),
-        ("results", r"^\s*results?\b[:\-]?"),
-        ("discussion", r"^\s*discussion\b[:\-]?"),
-        ("conclusion", r"^\s*conclusion[s]?\b[:\-]?|^\s*concluding\s+remarks\b[:\-]?"),
-    ]
-    lines = src.splitlines()
-    idxs = []
-    for i, line in enumerate(lines):
-        for key, pat in headers:
-            if re.match(pat, line.strip(), flags=re.IGNORECASE):
-                idxs.append((i, key))
+def _translate_with_google_api(text: str) -> str:
+    """
+    Google Translation 호출:
+      1) v3 Advanced (OAuth/Service Account, 프로젝트 고정)
+      2) v2 (API Key) → 3) v2 (OAuth/Service Account)
+    """
+    try:
+        import requests
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request as GARequest
+
+        # ----- 공통 유틸 -----
+        def _find_service_account_path() -> Optional[Path]:
+            base = Path(__file__).resolve().parent
+            primary = base / "polo-472507-c5db0ee4a109.json"  # 주키
+            if primary.exists():
+                return primary
+            for p in base.glob("*.json"):
+                try:
+                    info = json.loads(p.read_text(encoding="utf-8"))
+                    if str(info.get("type", "")) == "service_account":
+                        return p
+                except Exception:
+                    continue
+            return None
+
+        def _load_google_api_key() -> str:
+            try:
+                base = Path(__file__).resolve().parent
+                primary = base / "polo-472507-c5db0ee4a109.json"
+                candidates = [primary] + [p for p in base.glob("*.json") if p != primary][:5]
+                for jf in candidates:
+                    if jf.exists():
+                        d = json.loads(jf.read_text(encoding="utf-8"))
+                        for key_field in ("GOOGLE_API_KEY", "api_key", "apiKey", "key"):
+                            v = str(d.get(key_field, "")).strip()
+                            if v:
+                                return v
+            except Exception:
+                pass
+            return ""
+
+        # ===== 1) v3 Advanced (프로젝트 고정) =====
+        sa_path = _find_service_account_path()
+        if sa_path:
+            try:
+                info = json.loads(sa_path.read_text(encoding="utf-8"))
+                if str(info.get("type", "")) == "service_account":
+                    scopes = [
+                        "https://www.googleapis.com/auth/cloud-translation",
+                        "https://www.googleapis.com/auth/cloud-platform",
+                    ]
+                    creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+                    creds.refresh(GARequest())
+                    headers = {
+                        "Authorization": f"Bearer {creds.token}",
+                        "Content-Type": "application/json",
+                    }
+                    url_v3 = f"https://translation.googleapis.com/v3/projects/{GOOGLE_PROJECT}/locations/global:translateText"
+                    body_v3 = {
+                        "contents": [text[:4000]],
+                        "mimeType": "text/plain",
+                        "sourceLanguageCode": "en",
+                        "targetLanguageCode": "ko",
+                    }
+                    r3 = requests.post(url_v3, headers=headers, data=json.dumps(body_v3, ensure_ascii=False), timeout=25)
+                    if r3.status_code == 200:
+                        js3 = r3.json()
+                        trans = (js3.get("translations") or [])
+                        if trans:
+                            return trans[0].get("translatedText", "") or ""
+                    else:
+                        # 403 (미사용/비활성) 등은 바로 로그 남기고 v2로 폴백
+                        msg = r3.text[:500]
+                        logger.warning(f"[TR] v3 HTTP {r3.status_code}: {msg}")
+                        if r3.status_code == 403 and ("not been used" in msg or "disabled" in msg or "PERMISSION_DENIED" in msg):
+                            logger.warning("🔒 v3 권한/활성화 이슈 → v2로 폴백")
+                        # 다른 코드도 v2로 폴백
+                else:
+                    logger.warning("[TR] v3: 잘못된 service_account JSON (type!=service_account)")
+            except Exception as e:
+                logger.warning(f"[TR] v3 예외: {e}")
+        else:
+            logger.warning("[TR] v3: service_account JSON 없음 → v2로 폴백")
+
+        # ===== 2) v2 (API Key) =====
+        try:
+            api_key = _load_google_api_key()
+            if api_key:
+                url_v2 = "https://translation.googleapis.com/language/translate/v2"
+                data_v2 = {"q": text[:4000], "source": "en", "target": "ko", "format": "text"}
+                r = requests.post(url_v2, params={"key": api_key}, data=data_v2, timeout=20)
+                if r.status_code == 200:
+                    js = r.json()
+                    translations = (((js or {}).get("data") or {}).get("translations") or [])
+                    if translations:
+                        return translations[0].get("translatedText", "") or ""
+                else:
+                    logger.warning(f"[TR] v2(API key) HTTP {r.status_code}: {r.text[:400]}")
+        except Exception as e:
+            logger.warning(f"[TR] v2(API key) 예외: {e}")
+
+        # ===== 3) v2 (OAuth/Service Account) =====
+        if sa_path:
+            try:
+                info = json.loads(sa_path.read_text(encoding="utf-8"))
+                if str(info.get("type", "")) == "service_account":
+                    scopes = [
+                        "https://www.googleapis.com/auth/cloud-translation",
+                        "https://www.googleapis.com/auth/cloud-platform",
+                    ]
+                    creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+                    creds.refresh(GARequest())
+                    headers = {"Authorization": f"Bearer {creds.token}"}
+                    url_v2 = "https://translation.googleapis.com/language/translate/v2"
+                    data_v2 = {"q": text[:4000], "source": "en", "target": "ko", "format": "text"}
+                    r2 = requests.post(url_v2, headers=headers, data=data_v2, timeout=20)
+                    if r2.status_code == 200:
+                        js2 = r2.json()
+                        translations2 = (((js2 or {}).get("data") or {}).get("translations") or [])
+                        if translations2:
+                            return translations2[0].get("translatedText", "") or ""
+                    else:
+                        logger.warning(f"[TR] v2(OAuth) HTTP {r2.status_code}: {r2.text[:400]}")
+                else:
+                    logger.warning("[TR] v2(OAuth): 잘못된 service_account JSON")
+            except Exception as e:
+                logger.warning(f"[TR] v2(OAuth) 예외: {e}")
+
+        return ""
+    except Exception as e:
+        logger.warning(f"[TR] 예외: {e}")
+        return ""
+
+def _translate_with_papago(text: str) -> str:
+    """Papago (env 없으면 빈 문자열 반환)"""
+    try:
+        import requests
+        cid = os.getenv("PAPAGO_CLIENT_ID", "").strip()
+        sec = os.getenv("PAPAGO_CLIENT_SECRET", "").strip()
+        if not cid or not sec:
+            return ""
+        url = "https://openapi.naver.com/v1/papago/n2mt"
+        headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": sec}
+        data = {"source": "en", "target": "ko", "text": text[:4000]}
+        r = requests.post(url, headers=headers, data=data, timeout=15)
+        if r.status_code == 200:
+            return r.json().get("message", {}).get("result", {}).get("translatedText", "") or ""
+        logger.warning(f"[TR] Papago HTTP {r.status_code}: {r.text[:300]}")
+        return ""
+    except Exception:
+        return ""
+
+def _translate_with_llm(text: str) -> str:
+    try:
+        if model is None or tokenizer is None:
+            return text
+        translate_prompt = (
+            "<|begin_of_text|>\n"
+            "<|start_header_id|>system<|end_header_id|>\n"
+            "너는 학술 논문 전문 번역가다. 영어 문장을 정확하고 자연스러운 한국어로 번역하라.\n"
+            "규칙: (1) 의미 정확 (2) 도메인 용어 보존 (3) 숫자/고유명사/기호 왜곡 금지 (4) 한국어 문장부호\n"
+            "<|eot_id|>\n"
+            "<|start_header_id|>user<|end_header_id|>\n"
+            f"{text}\n\n[한국어 번역]\n"
+            "<|eot_id|>\n"
+        )
+        inputs = tokenizer(translate_prompt, return_tensors="pt", truncation=True, max_length=2048)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        with torch.inference_mode():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=min(MAX_NEW_TOKENS, 600),
+                do_sample=False,
+                use_cache=True,
+                repetition_penalty=1.2,
+                no_repeat_ngram_size=4,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+        seq = outputs[0]
+        inp_len = inputs["input_ids"].shape[1]
+        gen = seq[inp_len:]
+        result = tokenizer.decode(gen, skip_special_tokens=True).strip()
+        for stop in ("[/OUTPUT]", "[/output]", "<|eot_id|>"):
+            p = result.find(stop)
+            if p != -1:
+                result = result[:p].strip()
                 break
-    idxs.sort()
-    for j, (start_i, key) in enumerate(idxs):
-        end_i = idxs[j+1][0] if j+1 < len(idxs) else len(lines)
-        sections[key] = "\n".join(lines[start_i+1:end_i]).strip()[:2000]
-    return sections
+        result = _postprocess_terms(_normalize_bracket_tokens(result))
+        if EASY_STRIP_MATH:
+            result = _strip_math_all(result)
+        result = _strip_tables_figures_all(result)
+        result = _sanitize_repeats(result)
+        return result or text
+    except Exception as e:
+        logger.warning(f"LLM 번역 예외: {e}")
+        return text
 
-# -------------------- 스키마 --------------------
-GROUND_SCHEMA = {
-    "title": "",
-    "authors": [],
-    "abstract": {"original": "", "easy": ""},
-    "introduction": {"original": "", "easy": ""},
-    "methods": {"original": "", "easy": ""},
-    "results": {"original": "", "easy": ""},
-    "discussion": {"original": "", "easy": ""},
-    "conclusion": {"original": "", "easy": ""},
-    "keywords": [],
-    "figures_tables": [],
-    "references": [],
-    "contributions": [],
-    "limitations": [],
-    "glossary": [],
-    "plain_summary": "",
-}
+def _ensure_korean(text: str, *, force_external: bool = False) -> str:
+    """한글이 부족하면 외부 번역 사용(옵션), 아니면 원문 유지"""
+    if not text or not text.strip():
+        return text
+    if force_external:
+        return _translate_to_korean(text)
+    lang = _detect_lang_safe(text)
+    if lang == "ko" and not _need_ko(text):
+        return text
+    return _translate_to_korean(text)
 
-# -------------------- I/O 모델 --------------------
+
+# -------------------- Startup --------------------
+@app.on_event("startup")
+async def _startup_event():
+    load_model()
+    # 번역 워밍업 (로그만)
+    try:
+        probe = "health check"
+        ok = _translate_with_google_api(probe) or _translate_with_papago(probe)
+        if ok:
+            logger.info("🈯 외부 번역 경로 활성(OK)")
+        else:
+            logger.warning("⚠️ 외부 번역 비활성 → LLM 백업 사용 예정")
+    except Exception as e:
+        logger.warning(f"번역 워밍업 실패: {e}")
+
+# app.py — Part 3/6
+# -------------------- Pydantic I/O --------------------
 class TextRequest(BaseModel):
     text: str
     translate: Optional[bool] = False
+    style: Optional[str] = Field(
+        default="three_para_ko",
+        description="easy 스타일: 'three_para_ko' (기본, 한글 3문단) | 'one_sentence_en' (영어 1문장)"
+    )
     model_config = ConfigDict(extra="allow")
 
 class TextResponse(BaseModel):
     simplified_text: str
-    translated_text: Optional[str] = None
+    translated_text: Optional[str] = None  # 호환성
 
 class BatchRequest(BaseModel):
     paper_id: str = Field(..., description="결과 파일/경로 식별자")
-    chunks_jsonl: str = Field(..., description="각 라인에 {'text': ...} 형태의 JSONL")
-    output_dir: str = Field(..., description="이미지/결과 저장 루트")
+    chunks_jsonl: str = Field(..., description="JSONL 내용 문자열 또는 경로(파일/디렉토리/tex) — Part 4~6에서 처리")
+    output_dir: str = Field(..., description="결과 저장 루트 (JSON+HTML 출력)")
+    style: Optional[str] = Field(default="three_para_ko", description="easy 스타일 (three_para_ko 권장)")
 
 class VizResult(BaseModel):
     ok: bool = True
@@ -188,6 +506,8 @@ class VizResult(BaseModel):
     error: Optional[str] = None
     easy_text: Optional[str] = None
     section_title: Optional[str] = None
+    section_type: Optional[str] = None
+    original_images: Optional[List[Dict[str, Any]]] = None
 
 class BatchResult(BaseModel):
     ok: bool
@@ -198,567 +518,10 @@ class BatchResult(BaseModel):
     out_dir: str
     images: List[VizResult]
 
-class TransportRequest(BaseModel):
-    paper_id: str
-    transport_path: str
-    output_dir: Optional[str] = None
-
-# -------------------- 모델 로드 --------------------
-def load_model():
-    global model, tokenizer, gpu_available, device, safe_dtype
-
-    logger.info(f"🔄 모델 로딩 시작: {BASE_MODEL}")
-    logger.info(f"EASY_ADAPTER_DIR={ADAPTER_DIR}")
-    logger.info(f"HF_HOME={os.getenv('HF_HOME')}")
-
-    if torch.cuda.is_available():
-        gpu_available = True
-        device = "cuda"
-        safe_dtype = torch.float16
-        logger.info(f"✅ GPU 사용 가능: {torch.cuda.get_device_name(0)}")
-    else:
-        gpu_available = False
-        device = "cpu"
-        safe_dtype = torch.float32
-        logger.info("⚠️ GPU 미사용 → CPU 모드")
-
-    # 토크나이저 (캐시 고정)
-    tokenizer_local = AutoTokenizer.from_pretrained(
-        BASE_MODEL,
-        token=HF_TOKEN,
-        trust_remote_code=True,
-        cache_dir=CACHE_DIR,
-    )
-    if tokenizer_local.pad_token_id is None:
-        tokenizer_local.pad_token = tokenizer_local.eos_token
-
-    attn_impl = _pick_attn_impl()
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-
-    # 베이스 모델
-    try:
-        base = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            torch_dtype=safe_dtype,
-            trust_remote_code=True,
-            attn_implementation=attn_impl,
-            low_cpu_mem_usage=True,
-            token=HF_TOKEN,
-            device_map=None,
-            cache_dir=CACHE_DIR,
-        )
-    except Exception as e:
-        logger.warning(f"attn='{attn_impl}' 로딩 실패({e}) → eager로 폴백")
-        base = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            torch_dtype=safe_dtype,
-            trust_remote_code=True,
-            attn_implementation="eager",
-            low_cpu_mem_usage=True,
-            token=HF_TOKEN,
-            device_map=None,
-            cache_dir=CACHE_DIR,
-        )
-
-    # LoRA 어댑터(선택)
-    m = base
-    if ADAPTER_DIR and os.path.exists(ADAPTER_DIR):
-        try:
-            m = PeftModel.from_pretrained(
-                base,
-                os.path.abspath(ADAPTER_DIR),
-                is_trainable=False,
-                local_files_only=True,
-            )
-            logger.info("✅ 어댑터 로딩 성공")
-        except Exception as e:
-            logger.error(f"❌ 어댑터 로딩 실패: {e} → 베이스로 진행")
-            m = base
-    else:
-        logger.info("ℹ️ 어댑터 경로 없음(베이스만 사용)")
-
-    m.eval()
-    m = m.to(safe_dtype).to(device)
-    logger.info(f"🧠 MODEL DEVICE: {next(m.parameters()).device}, DTYPE: {next(m.parameters()).dtype}")
-
-    # 전역 주입
-    globals()["model"] = m
-    globals()["tokenizer"] = tokenizer_local
-    logger.info("✅ 모델 로딩 완료")
-
-# -------------------- 스타트업 --------------------
-@app.on_event("startup")
-async def startup_event():
-    load_model()
-
-# -------------------- 내부 유틸 (재해석) --------------------
-def _build_easy_prompt(text: str, section_title: str | None = None) -> str:
-    title_line = f"[섹션] {section_title}\n\n" if section_title else ""
-    return (
-        title_line +
-        "아래 학술 텍스트를 '쉽게말해,'로 시작하여 고등학생도 이해할 수 있게 한국어로 재서술하라.\n"
-        "- 새로운 정보 추가 금지, 원문의 의미를 정확히 보존\n"
-        "- 문장을 짧고 명확하게 분할, 문단을 논리적으로 구분\n"
-        "- 존댓말로 서술(입니다/합니다/한다), ~요 금지\n"
-        "- 수식/기호/그림 내용은 설명만 하고 텍스트에 재삽입하지 말 것(수식은 별도로 복원됨)\n"
-        "- 목록이 자연스러우면 간단한 불릿을 사용\n"
-        "- 라텍스 명령어/표/그림 코드는 생성하지 말고 순수 텍스트로만 작성\n\n"
-        "출력 형식:\n"
-        "- 1~3개의 짧은 문단으로 나눠 작성\n"
-        "- 첫 문장은 반드시 '쉽게말해,'로 시작\n\n"
-        f"[원문]\n{text}\n\n[출력]\n"
-    )
-
-def _build_verify_prompt(first_pass_text: str, section_title: str | None = None) -> str:
-    title_line = f"[섹션] {section_title}\n\n" if section_title else ""
-    return (
-        title_line +
-        "너는 고등학생 독자이자 Llama LLM의 검토자이다. 아래 재서술 결과를 읽고 가독성을 높여라.\n"
-        "- 의미 왜곡, 정보 추가 금지\n"
-        "- 문단이 길면 2~3문단으로 분할\n"
-        "- 반복/군더더기 제거, 문장 간 연결을 자연스럽게 조정\n"
-        "- 존댓말(입니다/합니다/한다) 유지, ~요 금지\n"
-        "- 라텍스 코드는 생성하지 말 것, 순수 텍스트만 출력\n"
-        "- 첫 문장은 가능하면 '쉽게말해,'로 시작\n\n"
-        f"[검토 대상]\n{first_pass_text}\n\n[개선된 출력]\n"
-    )
-
-def _extract_math_placeholders(text: str):
-    """수식을 플레이스홀더로 치환하여 반환합니다.
-    반환: (치환된_텍스트, inline_map, block_map)
-    """
-    import re
-
-    # 디스플레이 수식 (우선 처리)
-    block_map = {}
-    block_idx = 0
-
-    def _sub_block_dollar(m):
-        nonlocal block_idx
-        key = f"[MATH_BLOCK_{block_idx}]"
-        block_map[key] = m.group(0)
-        block_idx += 1
-        return key
-
-    text = re.sub(r"\$\$[\s\S]*?\$\$", _sub_block_dollar)
-
-    def _sub_equation_env(m):
-        nonlocal block_idx
-        key = f"[MATH_BLOCK_{block_idx}]"
-        block_map[key] = m.group(0)
-        block_idx += 1
-        return key
-
-    text = re.sub(r"\\begin\{(equation\*?|align\*?|eqnarray\*?)\}[\s\S]*?\\end\{\1\}", _sub_equation_env)
-
-    # 인라인 수식
-    inline_map = {}
-    inline_idx = 0
-
-    def _sub_inline(m):
-        nonlocal inline_idx
-        key = f"[MATH_INLINE_{inline_idx}]"
-        inline_map[key] = m.group(0)
-        inline_idx += 1
-        return key
-
-    text = re.sub(r"\$(?!\$)(?:[^$\\]|\\.)+\$", _sub_inline)
-
-    return text, inline_map, block_map
-
-
-def _clean_latex_text(text: str) -> str:
-    """LLM 입력용으로 LaTeX 노이즈를 최대한 제거합니다(구조 파싱은 별도로 수행)."""
-    import re
-
-    # LRB, RRB 변환 (괄호)
-    text = re.sub(r"LRB", "(", text)
-    text = re.sub(r"RRB", ")", text)
-
-    # 인용/라벨/참조 제거
-    text = re.sub(r"\\cite\{[^}]*\}", "", text)
-    text = re.sub(r"\\label\{[^}]*\}", "", text)
-    text = re.sub(r"\\ref\{[^}]*\}", "", text)
-    text = re.sub(r"\\footnote\{[\s\S]*?\}", "", text)
-
-    # URL은 텍스트로만 남김
-    text = re.sub(r"\\url\{([^}]*)\}", r"(\1)", text)
-
-    # 그림/표 환경 제거
-    text = re.sub(r"\\begin\{figure\}[\s\S]*?\\end\{figure\}", "", text)
-    text = re.sub(r"\\begin\{table\}[\s\S]*?\\end\{table\}", "", text)
-    text = re.sub(r"\\begin\{tabular\}[\s\S]*?\\end\{tabular\}", "", text)
-
-    # 서식 명령 내용만 남김
-    text = re.sub(r"\\textbf\{([^}]*)\}", r"\1", text)
-    text = re.sub(r"\\textit\{([^}]*)\}", r"\1", text)
-
-    # 섹션/소제목 명령은 파싱 단계에서 관리하므로 본문에서는 제거
-    text = re.sub(r"^\\section\{[^}]*\}\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\\subsection\{[^}]*\}\s*", "", text, flags=re.MULTILINE)
-
-    # 공백 정리
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"\s*\n\s*", "\n", text)
-    return text.strip()
-
-def _extract_technical_terms(text: str) -> List[str]:
-    """텍스트에서 전문 용어를 추출합니다"""
-    import re
-    
-    # 일반적인 컴퓨터 비전/딥러닝 전문 용어 패턴
-    technical_patterns = [
-        r'\b[A-Z]{2,}(?:-[A-Z0-9]+)*\b',  # CNN, R-CNN, YOLO 등
-        r'\b(?:fast|faster|fastest)\s+rcnn\b',  # fast rcnn
-        r'\b(?:anchor|anchors)\b',  # anchor
-        r'\b(?:feature|features)\b',  # feature
-        r'\b(?:detection|detector)\b',  # detection
-        r'\b(?:classification|classifier)\b',  # classification
-        r'\b(?:backbone|neck|head)\b',  # 네트워크 구조
-        r'\b(?:convolutional|conv)\b',  # convolutional
-        r'\b(?:neural|network)\b',  # neural network
-        r'\b(?:multi[-\s]?scale|multiscale)\b',  # multi-scale
-        r'\b(?:object|objects)\b',  # object
-        r'\b(?:bounding|box|boxes)\b',  # bounding box
-        r'\b(?:IoU|mAP|AP)\b',  # 평가 지표
-    ]
-    
-    terms = set()
-    for pattern in technical_patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        terms.update([match.lower() for match in matches])
-    
-    return list(terms)
-
-def _generate_term_explanations(terms: List[str]) -> Dict[str, str]:
-    """전문 용어에 대한 설명을 생성합니다"""
-    explanations = {
-        'cnn': '합성곱 신경망(Convolutional Neural Network): 이미지 인식에 특화된 딥러닝 모델',
-        'rcnn': 'R-CNN(Region-based CNN): 객체 검출을 위한 딥러닝 모델',
-        'fast rcnn': 'Fast R-CNN: R-CNN의 속도를 개선한 객체 검출 모델',
-        'faster rcnn': 'Faster R-CNN: Fast R-CNN을 더욱 빠르게 만든 모델',
-        'yolo': 'YOLO(You Only Look Once): 실시간 객체 검출을 위한 딥러닝 모델',
-        'anchor': '앵커(Anchor): 객체 검출에서 사용하는 참조 박스',
-        'feature': '특징(Feature): 이미지에서 추출한 의미 있는 정보',
-        'detection': '검출(Detection): 이미지에서 객체를 찾아내는 과정',
-        'classification': '분류(Classification): 객체의 종류를 구분하는 과정',
-        'backbone': '백본(Backbone): 딥러닝 모델의 주요 특징 추출 부분',
-        'convolutional': '합성곱(Convolutional): 이미지 처리에 사용하는 수학적 연산',
-        'neural network': '신경망(Neural Network): 인간의 뇌를 모방한 인공지능 모델',
-        'multi-scale': '다중 스케일(Multi-scale): 다양한 크기의 객체를 처리하는 방법',
-        'object': '객체(Object): 이미지에서 인식하고자 하는 대상',
-        'bounding box': '바운딩 박스(Bounding Box): 객체의 위치를 나타내는 사각형',
-        'iou': 'IoU(Intersection over Union): 객체 검출 성능을 측정하는 지표',
-        'map': 'mAP(mean Average Precision): 객체 검출 모델의 전체적인 성능 지표',
-    }
-    
-    result = {}
-    for term in terms:
-        if term in explanations:
-            result[term] = explanations[term]
-        else:
-            # 간단한 설명 생성
-            result[term] = f"{term.upper()}: 관련 전문 용어"
-    
-    return result
-
-def _parse_latex_sections(tex_path: Path) -> List[dict]:
-    """LaTeX 파일을 섹션별로 파싱합니다"""
-    import re
-    
-    with open(tex_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    sections = []
-    current_section = None
-    current_content = []
-    subsections = []  # subsection 정보 저장
-    
-    lines = content.split('\n')
-    
-    for line in lines:
-        # 섹션 시작 감지
-        if re.match(r'\\section\{([^}]*)\}', line):
-            # 이전 섹션 저장
-            if current_section and current_content:
-                sections.append({
-                    "index": len(sections),
-                    "title": current_section,
-                    "content": '\n'.join(current_content).strip(),
-                    "subsections": subsections.copy()
-                })
-            
-            # 새 섹션 시작
-            title_match = re.match(r'\\section\{([^}]*)\}', line)
-            current_section = title_match.group(1) if title_match else "Unknown Section"
-            current_content = [line]
-            subsections = []  # 새 섹션의 subsection 리스트 초기화
-            
-        elif re.match(r'\\subsection\{([^}]*)\}', line):
-            # subsection 정보 추출
-            title_match = re.match(r'\\subsection\{([^}]*)\}', line)
-            subsection_title = title_match.group(1) if title_match else "Unknown Subsection"
-            subsections.append(subsection_title)
-            
-            # 서브섹션도 섹션으로 처리
-            if current_section and current_content:
-                sections.append({
-                    "index": len(sections),
-                    "title": current_section,
-                    "content": '\n'.join(current_content).strip(),
-                    "subsections": subsections.copy()
-                })
-            
-            current_section = subsection_title
-            current_content = [line]
-            
-        elif re.match(r'\\begin\{abstract\}', line):
-            # Abstract 섹션
-            if current_section and current_content:
-                sections.append({
-                    "index": len(sections),
-                    "title": current_section,
-                    "content": '\n'.join(current_content).strip(),
-                    "subsections": subsections.copy()
-                })
-            
-            current_section = "Abstract"
-            current_content = [line]
-            subsections = []
-            
-        elif re.match(r'\\begin\{document\}', line):
-            # Document 시작
-            if current_section and current_content:
-                sections.append({
-                    "index": len(sections),
-                    "title": current_section,
-                    "content": '\n'.join(current_content).strip(),
-                    "subsections": subsections.copy()
-                })
-            
-            current_section = "Introduction"
-            current_content = [line]
-            subsections = []
-            
-        else:
-            # 일반 내용
-            if current_section:
-                current_content.append(line)
-    
-    # 마지막 섹션 저장
-    if current_section and current_content:
-        sections.append({
-            "index": len(sections),
-            "title": current_section,
-            "content": '\n'.join(current_content).strip(),
-            "subsections": subsections.copy()
-        })
-    
-    # 빈 섹션 제거
-    sections = [s for s in sections if s["content"].strip()]
-    
-    return sections
-
-async def _rewrite_text(text: str) -> str:
-    if model is None or tokenizer is None:
-        raise RuntimeError("모델이 로드되지 않았습니다")
-
-    # 수식 플레이스홀더 치환 → 비수식 LaTeX 정리
-    text_no_math, inline_map, block_map = _extract_math_placeholders(text)
-    cleaned_text = _clean_latex_text(text_no_math)
-    print(f"🔍 [DEBUG] 정리된 텍스트 미리보기: {cleaned_text[:200]}...")
-
-    # 섹션 제목 힌트가 있으면 전달(없으면 None)
-    section_title = None
-    prompt = _build_easy_prompt(cleaned_text, section_title)
-    print(f"🔍 [DEBUG] 프롬프트 미리보기: {prompt[:300]}...")
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-    with torch.inference_mode():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=True,
-            temperature=float(os.getenv("EASY_TEMPERATURE", "0.7")),
-            top_p=float(os.getenv("EASY_TOP_P", "0.9")),
-            use_cache=True,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.2,  # 반복 방지 강화
-            no_repeat_ngram_size=3,  # 3-gram 반복 방지
-        )
-    generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    print(f"🔍 [DEBUG] 생성된 전체 텍스트: {generated[:500]}...")
-    
-    result = generated[len(prompt):].strip()
-    print(f"🔍 [DEBUG] 1차 결과: {result[:300]}...")
-
-    # 2단계 검증/개선 (옵션, 기본 활성화)
-    use_verify = os.getenv("EASY_VERIFY", "true").lower() in ("1","true","yes")
-    if use_verify:
-        verify_prompt = _build_verify_prompt(result, section_title)
-        v_inputs = tokenizer(verify_prompt, return_tensors="pt", truncation=True, max_length=2048)
-        v_inputs = {k: v.to(device) for k, v in v_inputs.items()}
-        with torch.inference_mode():
-            v_out = model.generate(
-                **v_inputs,
-                max_new_tokens=MAX_NEW_TOKENS // 2,
-                do_sample=True,
-                temperature=float(os.getenv("EASY_TEMPERATURE", "0.6")),
-                top_p=float(os.getenv("EASY_TOP_P", "0.9")),
-                use_cache=True,
-                pad_token_id=tokenizer.eos_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.2,
-                no_repeat_ngram_size=3,
-            )
-        v_text = tokenizer.decode(v_out[0], skip_special_tokens=True)
-        result = v_text[len(verify_prompt):].strip() or result
-        print(f"🔍 [DEBUG] 2차 검증 결과: {result[:300]}...")
-    
-    # 플레이스홀더 복원(블록→인라인 순서)
-    for key, val in block_map.items():
-        result = result.replace(key, val)
-    for key, val in inline_map.items():
-        result = result.replace(key, val)
-
-    print(f"🔍 [DEBUG] 최종 결과(복원 후) 미리보기: {result[:300]}...")
-    return result
-
-def _format_latex_output(text: str) -> str:
-    """생성된 텍스트를 LaTeX 형태로 정리하되 원본 구조는 최대한 보존합니다"""
-    import re
-    
-    # 섹션 제목 정리 (마크다운 스타일이 있는 경우만)
-    text = re.sub(r'^#+\s*(.+)$', r'\\section{\1}', text, flags=re.MULTILINE)
-    text = re.sub(r'^##+\s*(.+)$', r'\\subsection{\1}', text, flags=re.MULTILINE)
-    
-    # 굵은 글씨 정리 (마크다운 스타일이 있는 경우만)
-    text = re.sub(r'(?<!\$)\*\*([^$]+?)\*\*(?!\$)', r'\\textbf{\1}', text)
-    
-    # 기울임 글씨 정리 (마크다운 스타일이 있는 경우만)
-    text = re.sub(r'(?<!\$)\*([^$*]+?)\*(?!\$)', r'\\textit{\1}', text)
-    
-    # 목록 정리 (마크다운 스타일이 있는 경우만)
-    text = re.sub(r'^[-•]\s*(.+)$', r'\\item \1', text, flags=re.MULTILINE)
-    
-    # 연속된 item을 itemize로 감싸기
-    lines = text.split('\n')
-    result_lines = []
-    in_itemize = False
-    
-    for line in lines:
-        if line.strip().startswith('\\item'):
-            if not in_itemize:
-                result_lines.append('\\begin{itemize}')
-                in_itemize = True
-            result_lines.append(line)
-        else:
-            if in_itemize:
-                result_lines.append('\\end{itemize}')
-                in_itemize = False
-            result_lines.append(line)
-    
-    if in_itemize:
-        result_lines.append('\\end{itemize}')
-    
-    return '\n'.join(result_lines)
-
-# -------------------- Viz 호출 --------------------
-async def _send_to_viz(paper_id: str, index: int, text_ko: str, out_dir: Path) -> VizResult:
-    try:
-        print(f"🔍 [DEBUG] Viz 모델 호출: {VIZ_MODEL_URL}/viz")
-        print(f"🔍 [DEBUG] 전송 데이터: paper_id={paper_id}, index={index}, text_length={len(text_ko)}")
-        print(f"🔍 [DEBUG] 전송 텍스트 미리보기: {text_ko[:200]}...")
-        
-        # Viz 모델이 실행 중인지 먼저 확인
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                health_response = await client.get(f"{VIZ_MODEL_URL.rstrip('/')}/health")
-                if health_response.status_code != 200:
-                    print(f"❌ [ERROR] Viz 모델 헬스체크 실패: {health_response.status_code}")
-                    return VizResult(ok=False, index=index, error="Viz 모델이 실행되지 않음")
-                print(f"✅ [SUCCESS] Viz 모델 헬스체크 성공")
-        except Exception as e:
-            print(f"❌ [ERROR] Viz 모델 헬스체크 실패: {e}")
-            return VizResult(ok=False, index=index, error=f"Viz 모델 연결 불가: {e}")
-        
-        # 실제 Viz 요청
-        async with httpx.AsyncClient(timeout=60) as client:  # 타임아웃 증가
-            r = await client.post(
-                f"{VIZ_MODEL_URL.rstrip('/')}/viz",
-                json={
-                    "paper_id": paper_id,
-                    "index": index,
-                    "rewritten_text": text_ko,
-                    "target_lang": "ko",
-                    "bilingual": "missing",
-                    "text_type": "easy_korean",  # 쉽게 변환된 한국어임을 명시
-                },
-            )
-            print(f"🔍 [DEBUG] Viz 모델 응답: {r.status_code}")
-            
-            if r.status_code != 200:
-                print(f"❌ [ERROR] Viz 모델 응답 실패: {r.status_code} - {r.text}")
-                return VizResult(ok=False, index=index, error=f"Viz 모델 응답 실패: {r.status_code}")
-            
-            try:
-                data = r.json()
-                print(f"🔍 [DEBUG] Viz 모델 응답 데이터: {data}")
-            except Exception as json_error:
-                print(f"❌ [ERROR] Viz 모델 응답 JSON 파싱 실패: {json_error}")
-                return VizResult(ok=False, index=index, error=f"Viz 모델 응답 파싱 실패: {json_error}")
-
-        img_path = data.get("image_path")
-
-        if not img_path and data.get("image_base64"):
-            out_path = out_dir / f"{index:06d}.png"
-            out_path.write_bytes(base64.b64decode(data["image_base64"]))
-            print(f"✅ [SUCCESS] 이미지 저장: {out_path}")
-            return VizResult(ok=True, index=index, image_path=str(out_path))
-
-        if not img_path and data.get("image_url"):
-            out_path = out_dir / f"{index:06d}.png"
-            async with httpx.AsyncClient(timeout=60) as client:
-                rr = await client.get(data["image_url"])
-                rr.raise_for_status()
-                out_path.write_bytes(rr.content)
-            print(f"✅ [SUCCESS] 이미지 저장: {out_path}")
-            return VizResult(ok=True, index=index, image_path=str(out_path))
-
-        if img_path:
-            # Viz 모델에서 생성된 이미지가 다른 경로에 있으면 복사
-            img_path_obj = Path(img_path)
-            if img_path_obj.exists() and not img_path_obj.parent.samefile(out_dir):
-                # 다른 경로에 있으면 easy_outputs로 복사
-                out_path = out_dir / f"{index:06d}.png"
-                import shutil
-                shutil.copy2(img_path_obj, out_path)
-                print(f"✅ [SUCCESS] 이미지 복사: {img_path} -> {out_path}")
-                return VizResult(ok=True, index=index, image_path=str(out_path))
-            else:
-                print(f"✅ [SUCCESS] 이미지 경로: {img_path}")
-                return VizResult(ok=True, index=index, image_path=str(img_path))
-
-        print(f"❌ [ERROR] 이미지 경로 없음: {data}")
-        return VizResult(ok=False, index=index, error="No image_path from viz")
-    except httpx.ConnectError as e:
-        print(f"❌ [ERROR] Viz 모델 연결 실패: {e}")
-        return VizResult(ok=False, index=index, error=f"Viz 모델 연결 실패: {e}")
-    except httpx.TimeoutException as e:
-        print(f"❌ [ERROR] Viz 모델 타임아웃: {e}")
-        return VizResult(ok=False, index=index, error=f"Viz 모델 타임아웃: {e}")
-    except Exception as e:
-        print(f"❌ [ERROR] Viz 모델 처리 실패: {e}")
-        import traceback
-        traceback.print_exc()
-        return VizResult(ok=False, index=index, error=str(e))
-
-# -------------------- 엔드포인트 --------------------
+# -------------------- 루트/헬스 --------------------
 @app.get("/")
 async def root():
-    return {"message": "POLO Easy Model API", "model": BASE_MODEL}
+    return {"message": "POLO Easy Model API (Final KR)", "model": BASE_MODEL, "mode": "JSON+HTML"}
 
 @app.get("/health")
 async def health():
@@ -771,745 +534,861 @@ async def health():
         "model_name": BASE_MODEL,
         "max_new_tokens": MAX_NEW_TOKENS,
         "cache_dir": str(CACHE_DIR),
+        "torch": torch.__version__,
+        "cuda": (torch.version.cuda if torch.cuda.is_available() else None),
+        "dtype": str(getattr(getattr(model, "dtype", None), "name", getattr(model, "dtype", None))),
     }
 
 @app.get("/healthz")
 async def healthz():
     return await health()
 
+# -------------------- /easy (단일 섹션 변환) --------------------
 @app.post("/easy", response_model=TextResponse)
 async def simplify_text(request: TextRequest):
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다")
-    simplified_text = await _rewrite_text(request.text)
+    style = (request.style or "three_para_ko")
+    simplified_text = await _rewrite_text(request.text, style=style)
+    if style != "one_sentence_en" and _need_ko(simplified_text):
+        simplified_text = _ensure_korean(simplified_text)
     return TextResponse(simplified_text=simplified_text, translated_text=None)
 
+# -------------------- /generate (섹션 추출 + 스키마 JSON 생성) --------------------
+def _coerce_json(text: str) -> Dict[str, Any]:
+    s = text.find("{"); e = text.rfind("}")
+    if s != -1 and e != -1 and e > s: text = text[s:e+1]
+    return json.loads(text)
+
+def _merge_with_schema(data: dict, schema: dict) -> dict:
+    if not isinstance(data, dict): return json.loads(json.dumps(schema))
+    out = json.loads(json.dumps(schema))  # deep copy
+    for k, v in data.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _merge_with_schema(v, out[k])
+        else:
+            out[k] = v
+    return out
+
+# app.py — Part 4/6
+# ---------- LaTeX 표 간단 추출 ----------
+def _extract_table_data(text: str) -> List[dict]:
+    tables = []
+    pat = r'\\begin\{tabular\}[^{]*\{([^}]+)\}(.*?)\\end\{tabular\}'
+    for m in re.finditer(pat, text, re.DOTALL):
+        content = m.group(2)
+        lines = [ln.strip() for ln in content.splitlines() if ln.strip() and not ln.strip().startswith('\\hline')]
+        if len(lines) < 2:
+            continue
+        headers = [h.strip().rstrip('\\') for h in lines[0].split('&')]
+        rows = []
+        for ln in lines[1:]:
+            if '&' in ln:
+                row = [c.strip().rstrip('\\') for c in ln.split('&')]
+                if len(row) == len(headers):
+                    rows.append(row)
+        if rows:
+            tables.append({"type": "metric_table", "headers": headers, "rows": rows})
+    return tables
+
+# ---------- LaTeX 섹션 파서 ----------
+def _parse_latex_sections(tex_path: Path) -> List[dict]:
+    content = tex_path.read_text(encoding="utf-8", errors="ignore")
+    sections: List[dict] = []
+    cur_title, cur_buf, cur_raw = None, [], []
+    section_type = "section"
+
+    def _flush():
+        if cur_title is None:
+            return
+        raw_txt = "\n".join(cur_raw).strip()
+        clean = _clean_latex_text("\n".join(cur_buf))
+        sections.append({
+            "index": len(sections),
+            "title": cur_title,
+            "content": clean,
+            "raw_content": raw_txt,
+            "table_data": _extract_table_data(raw_txt),
+            "section_type": section_type,
+        })
+
+    sec_pat  = re.compile(r"^\s*\\section\*?\{([^}]+)\}\s*$")
+    sub_pat  = re.compile(r"^\s*\\subsection\*?\{([^}]+)\}\s*$")
+    abs_beg  = re.compile(r"^\s*\\begin\{abstract\}")
+    abs_end  = re.compile(r"^\s*\\end\{abstract\}")
+
+    for ln in content.splitlines():
+        if abs_beg.match(ln):
+            _flush(); cur_title="Abstract"; cur_buf, cur_raw=[], []; section_type="section"; continue
+        if abs_end.match(ln):
+            _flush(); cur_title=None; cur_buf, cur_raw=[], []; continue
+        m1 = sec_pat.match(ln); m2 = sub_pat.match(ln)
+        if m1:
+            _flush(); cur_title=m1.group(1).strip(); cur_buf, cur_raw=[], []; section_type="section"; continue
+        if m2:
+            _flush(); cur_title=m2.group(1).strip(); cur_buf, cur_raw=[], []; section_type="subsection"; continue
+        if cur_title is None:
+            if not any(k in ln.lower() for k in ["\\title","\\author","\\date","\\maketitle"]):
+                cur_title="Introduction"; section_type="section"
+        if cur_title is not None:
+            cur_buf.append(ln); cur_raw.append(ln)
+
+    _flush()
+    if not sections:
+        clean = _clean_latex_text(content)
+        sections = [{
+            "index": 0, "title": "Full Document", "content": clean, "raw_content": content,
+            "table_data": _extract_table_data(content), "section_type": "section",
+        }]
+    logger.info(f"[EASY] Parsed {len(sections)} sections from LaTeX")
+    return sections
+
+# ---------- assets.jsonl 로더 ----------
+def _load_assets_metadata(source_dir: Path) -> Dict[str, Any]:
+    assets_file = source_dir / "assets.jsonl"
+    if not assets_file.exists():
+        return {}
+    assets: Dict[str, Any] = {}
+    try:
+        with open(assets_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    asset = json.loads(line)
+                    if asset.get("kind") == "figure" and asset.get("graphics"):
+                        assets[asset["id"]] = asset
+    except Exception as e:
+        logger.warning(f"[EASY] assets.jsonl 로드 실패: {e}")
+    return assets
+
+# ---------- JSONL → 섹션 ----------
+def _append_from_jsonl_lines(lines: List[str]) -> List[dict]:
+    sections: List[dict] = []
+    for idx, ln in enumerate(lines):
+        try:
+            obj = json.loads(ln)
+        except Exception as e:
+            obj = {"title": f"Section {idx+1}", "text": f"[JSONL parse error] {e}"}
+        sections.append({
+            "index": idx,
+            "title": obj.get("title") or f"Section {idx+1}",
+            "content": obj.get("text") or obj.get("content") or "",
+            "raw_content": obj.get("text") or obj.get("content") or "",
+            "table_data": [],
+            "section_type": "section",
+        })
+    return sections
+
+# ---------- HTML utils ----------
+def _get_current_datetime() -> str:
+    from datetime import datetime
+    return datetime.now().strftime("%Y년 %m월 %d일 %H:%M:%S")
+
+def _slugify(s: str, fallback: str) -> str:
+    s = re.sub(r"[^0-9A-Za-z가-힣\- ]", "", s or "")
+    s = s.strip().replace(" ", "-")
+    return s if s else fallback
+
+def _dedup_titles(sections: List[dict]) -> List[dict]:
+    seen: Dict[str, int] = {}
+    out: List[dict] = []
+    for s in sections:
+        s = dict(s)
+        t = (s.get("title") or "").strip() or "Section"
+        c = seen.get(t, 0) + 1
+        seen[t] = c
+        s["title"] = f"{t} ({c})" if c > 1 else t
+        out.append(s)
+    return out
+
+def _slugify_unique(titles: List[str]) -> List[str]:
+    used: set = set()
+    slugs: List[str] = []
+    for t in titles:
+        base = _slugify(t, "sec")
+        cand = base; k = 2
+        while cand in used:
+            cand = f"{base}-{k}"; k += 1
+        used.add(cand); slugs.append(cand)
+    return slugs
+
+def _md_to_html(md: str) -> str:
+    if not md: return ""
+    def _codeblock_repl(m): return f"<pre><code>{html.escape(m.group(1))}</code></pre>"
+    md = re.sub(r"```([\s\S]*?)```", _codeblock_repl, md)
+    md = re.sub(r"^###\s*(.+)$", r"<h3>\1</h3>", md, flags=re.MULTILINE)
+    md = re.sub(r"^##\s*(.+)$",  r"<h2>\1</h2>", md, flags=re.MULTILINE)
+    md = re.sub(r"^#\s*(.+)$",   r"<h1>\1</h1>", md, flags=re.MULTILINE)
+    md = re.sub(r"(?<!\$)\*\*([^*$]+?)\*\*(?!\$)", r"<strong>\1</strong>", md)
+    md = re.sub(r"(?<!\$)\*([^*$]+)\*(?!\$)",     r"<em>\1</em>", md)
+    md = re.sub(r"`([^`]+?)`",                    r"<code>\1</code>", md)
+    md = re.sub(r"==([^=]+)==",                   r"<mark>\1</mark>", md)
+    md = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", r'<a href="\2" target="_blank">\1</a>', md)
+    md = re.sub(r"(https?://[^\s<>\"']+)", r'<a href="\1" target="_blank">\1</a>', md)
+    lines = md.splitlines(); out, in_ul = [], False
+    for ln in lines:
+        if re.match(r"^\s*[-•]\s+.+", ln):
+            if not in_ul: out.append("<ul>")
+            in_ul = True; out.append("<li>"+re.sub(r"^\s*[-•]\s+", "", ln).strip()+"</li>")
+        else:
+            if in_ul: out.append("</ul>"); in_ul = False
+            out.append(ln)
+    if in_ul: out.append("</ul>")
+    html_txt = "\n".join(out)
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", html_txt) if b.strip()]
+    wrapped = []
+    for b in blocks:
+        if b.startswith(("<h1","<h2","<h3","<ul","<pre","<table","<blockquote")):
+            wrapped.append(b)
+        else:
+            wrapped.append(f"<p>{b}</p>")
+    return "\n".join(wrapped)
+
+def _render_rich_html(text: str) -> str:
+    if not text: return ""
+    html_text = _md_to_html(text)
+    html_text = re.sub(r'\\textbf\{([^}]+)\}', r'<strong>\1</strong>', html_text)
+    html_text = re.sub(r'\\textit\{([^}]+)\}', r'<em>\1</em>', html_text)
+    html_text = re.sub(r'\\(sub)*section\{([^}]+)\}', r'<h2>\2</h2>', html_text)
+    html_text = re.sub(r' +', ' ', html_text)
+    return html_text
+
+def _starts_with_same_heading(html_txt: str, title: str) -> bool:
+    if not title or not html_txt: return False
+    plain = re.sub(r"<[^>]+>", "", html_txt).strip().lower()
+    t = (title or "").strip().lower()
+    return plain.startswith(t) or plain[:120].startswith(t + ":")
+
+def _split_paragraphs_ko(text: str, min_s: int = 3, max_s: int = 5, max_chars: int = 700) -> str:
+    if not text: return ""
+    s = re.sub(r"\s+", " ", str(text).strip())
+    parts = re.split(r"(?<=[.!?])\s+|(?<=다\.)\s+", s)
+    parts = [p.strip() for p in parts if p and p.strip()]
+    paras: List[str] = []
+    cur: List[str] = []
+    cur_len = 0
+    for sent in parts:
+        start_new = (len(cur) >= min_s and (len(cur) >= max_s or cur_len + len(sent) > max_chars))
+        if start_new and cur:
+            paras.append(" ".join(cur))
+            cur = [sent]; cur_len = len(sent)
+        else:
+            cur.append(sent); cur_len += len(sent)
+    if cur: paras.append(" ".join(cur))
+    out: List[str] = []
+    for p in paras:
+        if out and len(p) < 80:
+            out[-1] = (out[-1] + " " + p).strip()
+        else:
+            out.append(p)
+    return "\n\n".join(out)
+
+def _save_html_results(sections: List[dict], results: List['VizResult'], output_path: Path, paper_id: str):
+    sections = _dedup_titles(list(sections))
+    titles = [(sec.get("title") or f"Section {i+1}").strip() for i, sec in enumerate(sections)]
+    slugs = _slugify_unique(titles)
+    gen_at = _get_current_datetime()
+
+    html_header = """<!DOCTYPE html><html lang="ko"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POLO - 쉬운 논문 설명</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>/* (스타일 생략 없이 그대로) */</style>
+<script>/*(스크립트 생략 없이 그대로)*/</script>
+</head><body><div class="wrapper">
+  <div class="header">
+    <div class="title">POLO 논문 이해 도우미 변환 결과</div>
+    <div class="subtitle">복잡한 논문을 쉽게 이해할 수 있도록 재구성한 결과</div>
+    <div class="meta">논문 ID: __PAPER_ID__ | 생성: __GEN_AT__</div>
+  </div>
+"""
+    html_parts: List[str] = [html_header.replace("__PAPER_ID__", paper_id).replace("__GEN_AT__", gen_at)]
+    html_parts.append('<div class="layout">')
+
+    # TOC
+    html_parts.append('<aside class="toc-sidebar"><div class="toc-title">목차</div><ol class="toc-list">')
+    section_num = 0; open_sub = False; subsection_num = 0
+    for i, sec in enumerate(sections):
+        title = (sec.get("title") or f"Section {i+1}").strip()
+        sid = slugs[i]
+        section_type = sec.get("section_type", "section")
+        if section_type == "section":
+            if open_sub:
+                html_parts.append('</ol></li>'); open_sub = False
+            section_num += 1; subsection_num = 0
+            html_parts.append(f'<li class="toc-item"><a class="toc-link" href="#{sid}"><span class="num">{section_num}.</span>{html.escape(title)}</a>')
+            html_parts.append('<ol class="toc-sublist">'); open_sub = True
+        else:
+            subsection_num += 1
+            html_parts.append(f'<li class="toc-item"><a class="toc-link" href="#{sid}"><span class="num">{section_num}.{subsection_num}</span>{html.escape(title)}</a></li>')
+    if open_sub:
+        html_parts.append('</ol></li>')
+    html_parts.append('</ol></aside>')
+
+    # 본문
+    html_parts.append('<main class="content-area">')
+    for i, sec in enumerate(sections):
+        title = (sec.get("title") or f"Section {i+1}").strip()
+        sid = slugs[i]
+        section_type = sec.get("section_type", "section")
+        res = results[i]
+        raw_text = (getattr(res, "easy_text", None) or sec.get("content") or "").strip()
+        processed_text = _split_paragraphs_ko(raw_text)
+        content_html = _render_rich_html(processed_text)
+        header_html = "" if _starts_with_same_heading(content_html, title) else f"<h2>{html.escape(title)}</h2>"
+        html_parts.append(f'<div class="section-card {section_type}" id="{sid}">{header_html}<div class="content">{content_html}</div>')
+
+        # 생성된 시각화 이미지
+        if res.ok and res.image_path and Path(res.image_path).exists():
+            src_path = Path(res.image_path)
+            dst_path = output_path.parent / src_path.name
+            try:
+                import shutil; shutil.copy2(src_path, dst_path)
+                logger.info(f"📊 [EASY] 시각화 이미지 복사 완료: {src_path.name}")
+            except Exception as e:
+                logger.warning(f"📊 [EASY] 시각화 이미지 복사 실패: {e}"); dst_path = src_path
+            html_parts.append(f"""
+<div class="image-container">
+  <img src="{dst_path.name}" alt="{html.escape(title)} 관련 시각화" style="max-width:100%; height:auto; border-radius:8px;" />
+  <div class="image-caption">그림 {i+1}: {html.escape(title)} 관련 시각화</div>
+</div>""")
+
+        # 원본 논문 이미지
+        if res.original_images:
+            for img_idx, img_info in enumerate(res.original_images):
+                try:
+                    src_path = Path(img_info["path"])
+                    dst_path = output_path.parent / img_info["filename"]
+                    import shutil; shutil.copy2(src_path, dst_path)
+                    logger.info(f"📊 [EASY] 원본 이미지 복사 완료: {img_info['filename']}")
+                    caption = img_info.get("caption", f"원본 논문 그림 {img_idx+1}")
+                    html_parts.append(f"""
+<div class="image-container">
+  <img src="{img_info['filename']}" alt="{html.escape(caption)}" style="max-width:100%; height:auto; border-radius:8px;" />
+  <div class="image-caption">원본 논문 그림 {img_idx+1}: {html.escape(caption)}</div>
+</div>""")
+                except Exception as e:
+                    logger.warning(f"📊 [EASY] 원본 이미지 복사 실패: {e}")
+        html_parts.append("</div>")  # section-card
+
+    html_parts.append("""
+<div class="footer-actions">
+  <button class="btn" onclick="downloadHTML()">HTML 저장</button>
+  <button class="btn secondary" id="toggleHi" onclick="toggleHighlights()">형광펜 끄기</button>
+</div>
+""")
+    html_parts.append('</main></div>')
+    html_parts.append("<script>if(window.__attachObserver) window.__attachObserver();</script>")
+    html_parts.append("</div></body></html>")
+
+    output_path.write_text("".join(html_parts), encoding="utf-8")
+
+# app.py — Part 5/6
+# ---------- 시각화 엔진 호출 ----------
+def _httpx_client(timeout_total: float = 1200.0) -> httpx.AsyncClient:
+    try:
+        to = httpx.Timeout(timeout_total)
+    except TypeError:
+        to = timeout_total
+    return httpx.AsyncClient(
+        timeout=to,
+        http2=False,
+        headers={"Connection": "close"},
+        limits=httpx.Limits(max_keepalive_connections=0, max_connections=20),
+        follow_redirects=False,
+    )
+
+class _VizRes(VizResult):
+    pass
+
+async def _send_to_viz(
+    paper_id: str,
+    index: int,
+    easy_text_ko: str,
+    out_dir: Path,
+    table_data: List[dict] = None,
+    *,
+    health_checked: bool = False
+) -> VizResult:
+    if not EASY_VIZ_ENABLED:
+        return _VizRes(ok=True, index=index, image_path=None, easy_text=easy_text_ko)
+
+    if not health_checked:
+        try:
+            async with _httpx_client(EASY_VIZ_HEALTH_TIMEOUT) as client:
+                r = await client.get(f"{VIZ_MODEL_URL.rstrip('/')}/health")
+                if r.status_code != 200:
+                    return _VizRes(ok=True, index=index, image_path=None, easy_text=easy_text_ko)
+        except Exception:
+            return _VizRes(ok=True, index=index, image_path=None, easy_text=easy_text_ko)
+
+    payload = {
+        "paper_id": paper_id,
+        "index": index,
+        "rewritten_text": easy_text_ko,
+        "target_lang": "ko",
+        "bilingual": "missing",
+        "text_type": "easy_korean",
+    }
+    if table_data:
+        payload["tables"] = table_data
+
+    try:
+        async with _httpx_client(EASY_VIZ_TIMEOUT) as client:
+            r = await client.post(f"{VIZ_MODEL_URL.rstrip('/')}/viz", json=payload)
+            if r.status_code != 200:
+                return _VizRes(ok=True, index=index, image_path=None, easy_text=easy_text_ko)
+            data = r.json()
+            if data.get("image_base64"):
+                img_path = out_dir / f"{index:06d}.png"
+                img_path.write_bytes(base64.b64decode(data["image_base64"]))
+                return _VizRes(ok=True, index=index, image_path=str(img_path), easy_text=easy_text_ko)
+            if data.get("image_path"):
+                return _VizRes(ok=True, index=index, image_path=data["image_path"], easy_text=easy_text_ko)
+            return _VizRes(ok=True, index=index, image_path=None, easy_text=easy_text_ko)
+    except Exception as e:
+        logger.warning(f"[EASY] viz error: {e}")
+        return _VizRes(ok=False, index=index, image_path=None, easy_text=easy_text_ko, error=str(e))
+
+# ---------- 배치 엔드포인트 ----------
+@app.post("/batch", response_model=BatchResult)
+async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, Any]] = None):
+    t_batch_start = time.time()
+    paper_id = request.paper_id.strip()
+    base_out = Path(request.output_dir).expanduser().resolve()
+    out_dir  = base_out / paper_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"[EASY] output dir: {out_dir}")
+
+    # 입력 소스 파싱
+    src = (request.chunks_jsonl or "").strip()
+    src_path: Optional[Path] = None
+    if src:
+        p = Path(src)
+        if p.exists(): src_path = p.resolve()
+
+    sections: List[dict] = []
+    try:
+        if src_path is None:
+            lines = [ln for ln in src.splitlines() if ln.strip()]
+            sections = _append_from_jsonl_lines(lines)
+        else:
+            if src_path.is_dir():
+                tex = src_path / "merged_body.tex"
+                if tex.exists():
+                    sections = _parse_latex_sections(tex)
+                else:
+                    hits = sorted(src_path.rglob("*.jsonl"))
+                    if not hits:
+                        raise ValueError("디렉토리에 merged_body.tex 또는 *.jsonl 없음")
+                    lines = hits[0].read_text(encoding="utf-8", errors="ignore").splitlines()
+                    sections = _append_from_jsonl_lines([ln for ln in lines if ln.strip()])
+            else:
+                suf = src_path.suffix.lower()
+                if suf in (".jsonl", ".ndjson"):
+                    lines = src_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    sections = _append_from_jsonl_lines([ln for ln in lines if ln.strip()])
+                elif suf == ".gz":
+                    with gzip.open(src_path, "rt", encoding="utf-8") as f:
+                        lines = [ln for ln in f if ln.strip()]
+                    sections = _append_from_jsonl_lines(lines)
+                elif suf == ".tex":
+                    sections = _parse_latex_sections(src_path)
+                else:
+                    raise ValueError("지원하지 않는 입력 형식 (jsonl/jsonl.gz/tex/dir)")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"입력 파싱 실패: {e}")
+
+    if not sections:
+        raise HTTPException(status_code=400, detail="처리할 섹션 없음")
+
+    # 이미지 자산 로드
+    if assets_metadata is None:
+        assets_metadata = {}
+        if src_path and src_path.is_dir():
+            assets_metadata = _load_assets_metadata(src_path)
+        elif src_path and src_path.suffix.lower() == ".tex":
+            assets_metadata = _load_assets_metadata(src_path.parent)
+    logger.info(f"[EASY] 이미지 자산 수: {len(assets_metadata)}")
+
+    # viz health 1회 확인
+    viz_health_ok = False
+    if EASY_VIZ_ENABLED:
+        try:
+            async with _httpx_client(EASY_VIZ_HEALTH_TIMEOUT) as client:
+                r = await client.get(f"{VIZ_MODEL_URL.rstrip('/')}/health")
+                viz_health_ok = (r.status_code == 200)
+        except Exception:
+            viz_health_ok = False
+
+    sem = anyio.Semaphore(EASY_CONCURRENCY)
+    results: List[VizResult] = [VizResult(ok=False, index=i) for i in range(len(sections))]
+    section_times_ms: List[float] = [0.0] * len(sections)
+    error_briefs: List[str] = []
+
+    def _find_related_images(section_content: str, assets_metadata: Dict[str, Any], source_dir: Path) -> List[Dict[str, Any]]:
+        related_images = []
+        fig_refs = []
+        fig_refs.extend(re.findall(r'\\ref\{([^}]+)\}', section_content))
+        fig_refs.extend(re.findall(r'⟨FIG:([^⟩]+)⟩', section_content))
+        fig_refs.extend(re.findall(r'[?쭲]IG:([^?]+)', section_content))
+        fig_refs.extend(re.findall(r'[?쭲]IG:fig:([^?]+)', section_content))
+        fig_refs.extend(re.findall(r'[?쭲]IG:([^?]+)??', section_content))
+
+        try:
+            server_dir = Path(__file__).resolve().parents[2] / "server"
+        except Exception:
+            server_dir = Path(".")
+        extra_roots: List[Path] = [
+            source_dir,
+            server_dir / "data" / "out" / "transformer" / "source",
+            server_dir / "data" / "out" / "transformer",
+            server_dir / "data" / "arxiv" / "2008.01686" / "source",
+            server_dir / "data" / "arxiv",
+        ]
+        allowed_exts = ['.pdf', '.jpg', '.jpeg', '.png', '.eps']
+
+        for ref in fig_refs:
+            if ref in assets_metadata:
+                asset = assets_metadata[ref]
+                for graphic_path in asset.get("graphics", []):
+                    candidates: List[Path] = []
+                    for root in extra_roots:
+                        p = root / graphic_path
+                        candidates.append(p)
+                        if not p.suffix:
+                            for ext in allowed_exts:
+                                candidates.append(root / f"{graphic_path}{ext}")
+                    base = Path(graphic_path).name
+                    base_wo = base.rsplit('.', 1)[0] if '.' in base else base
+                    for root in extra_roots:
+                        for ext in allowed_exts:
+                            candidates.extend(root.rglob(f"{base_wo}{ext}"))
+
+                    full_path = next((c for c in candidates if isinstance(c, Path) and c.exists()), None)
+                    if full_path and full_path.exists():
+                        related_images.append({
+                            "id": asset["id"],
+                            "path": str(full_path),
+                            "caption": asset.get("caption", ""),
+                            "label": asset.get("label", ""),
+                            "filename": full_path.name
+                        })
+        return related_images
+
+    async def _work(i: int, section: dict):
+        async with sem:
+            total = len(sections)
+            title = section.get("title") or f"Section {i+1}"
+            logger.info(f"[EASY] ▶ [{i+1}/{total}] section START: {title}")
+            sec_t0 = time.time()
+            try:
+                context_info = f"이 섹션은 전체 {total}개 중 {i+1}번째입니다. "
+                if i > 0:
+                    prev_title = sections[i-1].get("title", "이전 섹션")
+                    context_info += f"이전: {prev_title}. "
+                if i < total - 1:
+                    next_title = sections[i+1].get("title", "다음 섹션")
+                    context_info += f"다음: {next_title}. "
+                if section.get("section_type","section") == "subsection":
+                    context_info += "이것은 서브섹션으로, 상위 내용을 세부적으로 다룹니다. "
+                else:
+                    context_info += "이것은 메인 섹션입니다. "
+
+                easy_text = await _rewrite_text(
+                    section.get("content",""),
+                    title,
+                    context_info,
+                    style=(request.style or "three_para_ko")
+                )
+                easy_text = _ensure_korean(easy_text)
+                logger.info(f"[EASY] ✔ text rewritten for section {i+1}")
+            except Exception as e:
+                msg = f"rewrite 실패: {e}"
+                logger.error(f"[EASY] ❌ 섹션 변환 실패 idx={i}: {e}")
+                results[i] = VizResult(ok=False, index=i, error=msg, section_title=title)
+                error_briefs.append(f"[{i+1}] {title}: {e}")
+                section_times_ms[i] = (time.time() - sec_t0) * 1000.0
+                return
+
+            section_table_data = sections[i].get('table_data', []) if i < total else []
+            related_images = []
+            if src_path:
+                source_dir = src_path if src_path.is_dir() else src_path.parent
+                related_images = _find_related_images(section.get("content",""), assets_metadata, source_dir)
+                if related_images:
+                    logger.info(f"[EASY] 섹션 {i+1}에서 {len(related_images)}개 이미지 발견")
+
+            viz_res = await _send_to_viz(
+                paper_id, i, easy_text, out_dir, section_table_data,
+                health_checked=viz_health_ok
+            )
+            viz_res.section_title = title
+            viz_res.section_type = section.get("section_type","section")
+            if viz_res.ok and not viz_res.easy_text:
+                viz_res.easy_text = easy_text
+            viz_res.original_images = related_images
+            results[i] = viz_res
+
+            sec_elapsed = time.time() - sec_t0
+            section_times_ms[i] = sec_elapsed * 1000.0
+            has_img = "img" if (viz_res.ok and viz_res.image_path) else "no-img"
+            logger.info(f"[EASY] ⏹ [{i+1}/{total}] section DONE: {title} elapsed={sec_elapsed:.2f}s {has_img}")
+
+    timed_out = False
+    try:
+        if EASY_BATCH_TIMEOUT and EASY_BATCH_TIMEOUT > 0:
+            with anyio.fail_after(EASY_BATCH_TIMEOUT):
+                for i, sec in enumerate(sections):
+                    await _work(i, sec)
+        else:
+            for i, sec in enumerate(sections):
+                await _work(i, sec)
+    except (anyio.exceptions.TimeoutError, TimeoutError):
+        timed_out = True
+        logger.error(f"[EASY] ⏱ batch timed out after {EASY_BATCH_TIMEOUT}s — partial results will be saved")
+
+    success = sum(1 for r in results if r.ok)
+    failed  = len(sections) - success
+    success_rate = (success / max(1, len(sections))) * 100.0
+    status_str = "ok" if (not timed_out and failed == 0) else "partial"
+
+    easy_json = {
+        "paper_id": paper_id,
+        "status": status_str,
+        "count": len(sections),
+        "success": success,
+        "failed": failed,
+        "success_rate": round(success_rate, 2),
+        "sections": [
+            {
+                "index": i,
+                "title": sections[i].get("title"),
+                "original_content": sections[i].get("content"),
+                "korean_translation": (results[i].easy_text or ""),
+                "image_path": (results[i].image_path or ""),
+                "original_images": (results[i].original_images or []),
+                "status": "ok" if results[i].ok else f"error: {results[i].error}",
+                "section_type": results[i].section_type or sections[i].get("section_type","section"),
+            }
+            for i in range(len(sections))
+        ],
+        "generated_at": _get_current_datetime(),
+        "timed_out": timed_out,
+        "elapsed_ms": round((time.time() - t_batch_start) * 1000.0, 2),
+    }
+    (out_dir / "easy_results.json").write_text(json.dumps(easy_json, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info(f"[EASY] saved JSON: {out_dir / 'easy_results.json'}")
+
+    # HTML 저장(비치명적 실패 허용)
+    try:
+        html_path = out_dir / "easy_results.html"
+        _save_html_results(sections, results, html_path, paper_id)
+        (out_dir / "index.html").write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
+        logger.info(f"[EASY] saved HTML: {html_path}")
+    except Exception as e:
+        logger.warning(f"[EASY] HTML save skipped (non-fatal): {e}")
+
+    return BatchResult(
+        ok=(status_str == "ok"),
+        paper_id=paper_id,
+        count=len(sections),
+        success=success,
+        failed=failed,
+        out_dir=str(out_dir),
+        images=results,
+    )
+# app.py — Part 6/6
+
+# ---------- JSON 스키마 요약 (/generate) ----------
 @app.post("/generate")
 async def generate_json(request: TextRequest):
-    start_time = time.time()
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="모델이 로드되지 않았습니다")
 
+    # 섹션 간단 추출
+    def _extract_sections(src: str) -> dict:
+        sections = {k: "" for k in ["abstract","introduction","methods","results","discussion","conclusion"]}
+        headers = [
+            ("abstract", r"^\s*abstract\b"),
+            ("introduction", r"^\s*introduction\b"),
+            ("methods", r"^\s*methods?\b|^\s*materials?\s+and\s+methods\b"),
+            ("results", r"^\s*results?\b"),
+            ("discussion", r"^\s*discussion\b"),
+            ("conclusion", r"^\s*conclusion[s]?\b|^\s*concluding\s+remarks\b"),
+        ]
+        lines = src.splitlines(); idxs = []
+        for i, line in enumerate(lines):
+            for key, pat in headers:
+                if re.match(pat, line.strip(), flags=re.IGNORECASE):
+                    idxs.append((i, key)); break
+        idxs.sort()
+        for j, (start_i, key) in enumerate(idxs):
+            end_i = idxs[j+1][0] if j+1 < len(idxs) else len(lines)
+            chunk = "\n".join(lines[start_i+1:end_i]).strip()[:2000]
+            if EASY_STRIP_MATH: chunk = _strip_math_all(chunk)
+            chunk = _strip_tables_figures_all(chunk)
+            sections[key] = chunk
+        return sections
+
     extracted = _extract_sections(request.text)
-    data_schema = json.loads(json.dumps(GROUND_SCHEMA))  # deepcopy
+
+    # 기본 스키마
+    SCHEMA = {
+        "title": "",
+        "authors": [],
+        "abstract": {"original": "", "easy": ""},
+        "introduction": {"original": "", "easy": ""},
+        "methods": {"original": "", "easy": ""},
+        "results": {"original": "", "easy": ""},
+        "discussion": {"original": "", "easy": ""},
+        "conclusion": {"original": "", "easy": ""},
+        "keywords": [],
+        "figures_tables": [],
+        "references": [],
+        "contributions": [],
+        "limitations": [],
+        "glossary": [],
+        "plain_summary": "",
+    }
+    schema_copy = json.loads(json.dumps(SCHEMA))
     for k in ["abstract","introduction","methods","results","discussion","conclusion"]:
-        data_schema[k]["original"] = extracted.get(k, "")
+        schema_copy[k]["original"] = extracted.get(k, "")
 
     instruction = (
-        "너는 친근한 과학 선생님이다. 다음 JSON 스키마의 '키와 구조'를 절대 변경하지 말고 "
-        "'값'만 채워라. 출력은 오직 '유효한 JSON' 하나만 허용된다(코드블록/설명/주석 금지).\n\n"
-        "🎯 각 섹션의 'easy' 작성 방법:\n"
-        "- 중학생도 이해할 수 있게 쉽고 재미있게 변환\n"
-        "- 전문 용어는 일상 용어로 바꾸기\n"
-        "- 복잡한 내용은 단계별로 나누어 설명\n"
-        "- 구체적인 비유와 예시 사용\n"
-        "- '요약하면', '쉽게 말하면' 같은 정리 문구 활용\n"
-        "- 친근한 톤으로 4-8문장 작성 (존댓말 '~합니다', '~입니다' 사용, '~요'로 끝나지 않게)\n\n"
-        "original이 비어 있으면 해당 'easy'는 빈 문자열로 남겨라. 외부 지식/추측 금지."
+        "너는 과학 선생님이다. 아래 JSON 스키마의 '키/구조'를 그대로 두고 '값'만 채워라. "
+        "외부 지식 금지. 원문에 없으면 '원문에 없음'이라고 적어라. "
+        "출력은 반드시 '유효한 JSON' 하나만."
     )
+    schema_str = json.dumps(schema_copy, ensure_ascii=False, indent=2)
+    context_str = json.dumps(extracted, ensure_ascii=False, indent=2)
+    prompt = f"{instruction}\n\n=== 스키마 ===\n{schema_str}\n\n=== 원문 ===\n{context_str}\n\n[OUTPUT]\n"
 
-    schema_str = json.dumps(data_schema, ensure_ascii=False, indent=2)
-    context_only = {k: extracted[k] for k in ["abstract","introduction","methods","results","discussion","conclusion"]}
-    context_str = json.dumps(context_only, ensure_ascii=False, indent=2)
-
-    prompt = (
-        f"{instruction}\n\n=== 출력 스키마(값만 채워라) ===\n{schema_str}\n\n"
-        f"=== 섹션별 original (이 텍스트만 근거로 사용) ===\n{context_str}\n\n"
-        "JSON만 출력:"
-    )
-
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    t0 = time.time()
+    # LLM 실행
+    inputs = _safe_tokenize(prompt, max_len=MAX_INPUT_TOKENS)
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
             use_cache=True,
-            repetition_penalty=1.1,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=4,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
-    inference_time = time.time() - t0
+    seq = outputs[0]
+    inp_len = inputs["input_ids"].shape[1]
+    gen_tokens = seq[inp_len:]
+    raw = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+    for stop in ("[/OUTPUT]", "[/output]", "<|eot_id|>"):
+        p = raw.find(stop)
+        if p != -1: raw = raw[:p].strip(); break
 
-    generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    raw = generated[len(prompt):].strip()
-
+    # JSON 보정
     try:
         data = _coerce_json(raw)
-        if not _is_meaningful(data):
-            raise ValueError("empty_json")
     except Exception:
-        strict_instruction = (
-            "스키마의 키/구조를 유지하고 값만 채운 '유효한 JSON'만 출력하라. "
-            "반드시 '{'로 시작해 '}'로 끝나야 한다. 외부지식/추측 금지."
-        )
-        strict_prompt = f"{strict_instruction}\n\n스키마:\n{schema_str}\n\n섹션 original:\n{context_str}\n\nJSON만 출력:"
-        inputs2 = tokenizer(strict_prompt, return_tensors="pt", truncation=True, max_length=2048)
-        inputs2 = {k: v.to(device) for k, v in inputs2.items()}
-        with torch.inference_mode():
-            outputs2 = model.generate(
-                **inputs2,
-                max_new_tokens=min(MAX_NEW_TOKENS, 800),
-                do_sample=False,
-                use_cache=True,
-                repetition_penalty=1.1,
-                pad_token_id=tokenizer.eos_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-            )
-        gen2 = tokenizer.decode(outputs2[0], skip_special_tokens=True)
-        raw2 = gen2[len(strict_prompt):].strip()
-        try:
-            data = _coerce_json(raw2)
-        except Exception:
-            data = data_schema
+        data = schema_copy
+    data = _merge_with_schema(data, schema_copy)
 
-    total_time = time.time() - start_time
-    data["processing_info"] = {
-        "gpu_used": gpu_available,
-        "inference_time": inference_time,
-        "total_time": total_time,
-        "input_length": len(request.text),
-        "output_length": len(str(data)),
-    }
+    # 후처리 + 한글 강제
+    for k in ["abstract","introduction","methods","results","discussion","conclusion"]:
+        try:
+            easy_val = (data.get(k, {}) or {}).get("easy", "")
+            if isinstance(easy_val, str):
+                t = _postprocess_terms(_normalize_bracket_tokens(easy_val))
+                if EASY_STRIP_MATH: t = _strip_math_all(t)
+                t = _strip_tables_figures_all(t)
+                t = _auto_bold_terms(t)
+                t = _hilite_sentences(t, max_marks=2)
+                t = _sanitize_repeats(t)
+                if _need_ko(t): t = _ensure_korean(t)
+                data[k]["easy"] = t
+        except Exception:
+            pass
+
+    data["processing_info"] = {"gpu_used": gpu_available, "max_new_tokens": MAX_NEW_TOKENS}
     return data
 
-@app.post("/batch", response_model=BatchResult)
-async def batch_generate(req: BatchRequest):
-    print(f"🔍 [DEBUG] Easy /batch 엔드포인트 호출됨")
-    print(f"🔍 [DEBUG] 요청 데이터:")
-    print(f"  - paper_id: {req.paper_id}")
-    print(f"  - chunks_jsonl: {req.chunks_jsonl}")
-    print(f"  - output_dir: {req.output_dir}")
-    
-    # merged_body.tex 파일 경로로 변경
-    tex_path = Path(req.chunks_jsonl).parent / "merged_body.tex"
-    out_dir = Path(req.output_dir).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+# ---------- 파일 경유 실행 (/from-transport) ----------
+class TransportRequest(BaseModel):
+    paper_id: str
+    transport_path: str
+    output_dir: Optional[str] = None
+    style: Optional[str] = Field(default="three_para_ko")
 
-    print(f"🔍 [DEBUG] 파일 경로 확인:")
-    print(f"  - tex_path: {tex_path}")
-    print(f"  - tex_path 존재: {tex_path.exists()}")
-    print(f"  - out_dir: {out_dir}")
-    print(f"  - out_dir 생성됨: {out_dir.exists()}")
+ALLOWED_DATA_ROOT = Path(os.getenv("EASY_ALLOWED_ROOT", ".")).resolve()
+TRANSPORT_MAX_MB  = int(os.getenv("EASY_TRANSPORT_MAX_MB", "50"))
 
-    if not tex_path.exists():
-        print(f"❌ [ERROR] merged_body.tex 파일이 존재하지 않음: {tex_path}")
-        raise HTTPException(status_code=400, detail=f"merged_body.tex not found: {tex_path}")
+def _is_under_allowed_root(p: Path) -> bool:
+    try: return str(p.resolve()).startswith(str(ALLOWED_DATA_ROOT))
+    except Exception: return False
 
-    # LaTeX 파일을 섹션별로 분할
-    sections = _parse_latex_sections(tex_path)
-    print(f"🔍 [DEBUG] 총 {len(sections)}개 섹션 파싱됨")
-    
-    if not sections:
-        print(f"❌ [ERROR] 유효한 섹션이 없음")
-        raise HTTPException(status_code=400, detail="No valid sections found in merged_body.tex")
+def _read_text_guarded(p: Path, encoding="utf-8") -> str:
+    if p.stat().st_size > TRANSPORT_MAX_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(>{TRANSPORT_MAX_MB}MB): {p.name}")
+    return p.read_text(encoding=encoding, errors="ignore")
 
-    # 모델 상태 확인
-    if model is None or tokenizer is None:
-        print(f"❌ [ERROR] 모델이 로드되지 않음")
-        raise HTTPException(status_code=500, detail="Model not loaded")
-
-    print(f"🔍 [DEBUG] 모델 상태: model={model is not None}, tokenizer={tokenizer is not None}")
-    print(f"🔍 [DEBUG] 디바이스: {device}, GPU 사용: {gpu_available}")
-
-    results: List[VizResult] = []
-
-    print(f"🔍 [DEBUG] 배치 처리 시작...")
-    # 순차적으로 처리 (병렬 처리로 인한 메모리 부족 방지)
-    for idx, section in enumerate(sections):
-        try:
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 처리 시작: {section['title']}")
-            ko = await _rewrite_text(section["content"])
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 변환 완료: {ko[:100]}...")
-            
-            # Google Translator로 한국어 번역
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 한국어 번역 시작...")
-            ko_translated = _translate_to_korean(ko)
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} 한국어 번역 완료: {ko_translated[:100]}...")
-            
-            # 한국어 번역본으로 Viz 처리
-            vz = await _send_to_viz(req.paper_id, idx, ko_translated, out_dir)
-            print(f"🔍 [DEBUG] 섹션 {idx}/{len(sections)} Viz 완료: {vz.ok}")
-            
-            # 결과에 번역된 텍스트 저장
-            vz.easy_text = ko_translated
-            vz.section_title = section["title"]
-            results.append(vz)
-            
-            # 진행률 표시
-            completed = len(results)
-            progress = (completed / len(sections)) * 100
-            print(f"📊 [PROGRESS] {completed}/{len(sections)} ({progress:.1f}%) 완료")
-            
-        except Exception as e:
-            print(f"❌ [ERROR] 섹션 {idx}/{len(sections)} 처리 실패: {e}")
-            results.append(VizResult(ok=False, index=idx, error=str(e)))
-
-    ok_cnt = sum(1 for r in results if r.ok)
-    fail_cnt = len(results) - ok_cnt
-    
-    print(f"🔍 [DEBUG] 배치 처리 완료:")
-    print(f"  - 총 섹션: {len(sections)}")
-    print(f"  - 성공: {ok_cnt}")
-    print(f"  - 실패: {fail_cnt}")
-    
-    result = BatchResult(
-        ok=fail_cnt == 0,
-        paper_id=req.paper_id,
-        count=len(sections),
-        success=ok_cnt,
-        failed=fail_cnt,
-        out_dir=str(out_dir),
-        images=sorted(results, key=lambda r: r.index),
-    )
-    
-    # JSON 결과 파일 생성 (프론트엔드용)
-    json_result = {
-        "paper_id": req.paper_id,
-        "total_sections": len(sections),
-        "success_count": ok_cnt,
-        "failed_count": fail_cnt,
-        "sections": []
-    }
-    
-    # 각 섹션별 결과 추가
-    for i, section in enumerate(sections):
-        section_result = {
-            "index": i,
-            "title": section["title"],
-            "original_content": section["content"][:200] + "..." if len(section["content"]) > 200 else section["content"],
-            "easy_text": "",
-            "korean_translation": "",
-            "image_path": "",
-            "status": "failed"
-        }
-        
-        # 해당 인덱스의 결과 찾기
-        for r in results:
-            if r.index == i:
-                section_result["status"] = "success" if r.ok else "failed"
-                if r.ok and r.image_path:
-                    section_result["image_path"] = r.image_path
-                if hasattr(r, 'easy_text') and r.easy_text:
-                    section_result["korean_translation"] = r.easy_text
-                break
-        
-        json_result["sections"].append(section_result)
-    
-    # LaTeX 결과 파일 생성
-    latex_result_path = out_dir / "easy_results.tex"
-    _save_latex_results(sections, results, latex_result_path)
-    
-    # HTML 결과 파일 생성
-    html_result_path = out_dir / "easy_results.html"
-    _save_html_results(sections, results, html_result_path, req.paper_id)
-    
-    # JSON 파일 저장
-    json_file_path = out_dir / "easy_results.json"
-    with open(json_file_path, "w", encoding="utf-8") as f:
-        json.dump(json_result, f, ensure_ascii=False, indent=2)
-    
-    print(f"📄 [JSON] 결과 파일 저장: {json_file_path}")
-    print(f"📄 [LaTeX] 결과 파일 저장: {latex_result_path}")
-    print(f"📄 [HTML] 결과 파일 저장: {html_result_path}")
-    print(f"✅ [SUCCESS] Easy 모델 배치 처리 완료: {result}")
-    return result
-
-def _save_latex_results(sections: List[dict], results: List[VizResult], output_path: Path):
-    """LaTeX 형태로 결과를 저장합니다"""
-    latex_content = []
-    latex_content.append("\\documentclass{article}")
-    latex_content.append("\\usepackage[utf8]{inputenc}")
-    latex_content.append("\\usepackage{korean}")
-    latex_content.append("\\usepackage{graphicx}")
-    latex_content.append("\\usepackage{amsmath}")
-    latex_content.append("\\usepackage{amsfonts}")
-    latex_content.append("\\begin{document}")
-    latex_content.append("")
-    
-    # 섹션별 결과 추가
-    for i, (section, result) in enumerate(zip(sections, results)):
-        if result.ok and result.easy_text:
-            # 섹션 제목
-            latex_content.append(f"\\section{{{section['title']}}}")
-            latex_content.append("")
-            
-            # 변환된 텍스트 (LaTeX 형태)
-            latex_content.append(result.easy_text)
-            latex_content.append("")
-            
-            # 이미지가 있으면 추가
-            if result.image_path and Path(result.image_path).exists():
-                latex_content.append("\\begin{figure}[h]")
-                latex_content.append("\\centering")
-                latex_content.append(f"\\includegraphics[width=0.8\\textwidth]{{{result.image_path}}}")
-                latex_content.append(f"\\caption{{{section['title']} 관련 시각화}}")
-                latex_content.append("\\end{figure}")
-                latex_content.append("")
-    
-    latex_content.append("\\end{document}")
-    
-    # 파일 저장
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(latex_content))
-
-def _get_current_datetime() -> str:
-    """현재 날짜와 시간을 문자열로 반환합니다"""
-    from datetime import datetime
-    return datetime.now().strftime("%Y년 %m월 %d일 %H:%M:%S")
-
-def _save_html_results(sections: List[dict], results: List[VizResult], output_path: Path, paper_id: str):
-    """HTML 형태로 결과를 저장합니다"""
-    html_content = []
-    
-    # HTML 헤더 (ArXiv 스타일)
-    html_content.append("""<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POLO - 쉬운 논문 설명</title>
-    <style>
-        body {
-            font-family: 'Times New Roman', 'Noto Serif KR', serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: white;
-            color: #000;
-            font-size: 12pt;
-        }
-        .paper-container {
-            background: white;
-            padding: 40px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            border: 1px solid #ddd;
-        }
-        .copyright-notice {
-            background: #f0f0f0;
-            border: 2px solid #333;
-            padding: 15px;
-            margin-bottom: 30px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 11pt;
-        }
-        .copyright-notice .title {
-            font-size: 14pt;
-            margin-bottom: 10px;
-            color: #d32f2f;
-        }
-        .copyright-notice .content {
-            font-size: 10pt;
-            line-height: 1.4;
-        }
-        .paper-header {
-            text-align: center;
-            margin-bottom: 40px;
-            border-bottom: 2px solid #000;
-            padding-bottom: 20px;
-        }
-        .paper-title {
-            font-size: 18pt;
-            font-weight: bold;
-            margin-bottom: 15px;
-            line-height: 1.3;
-        }
-        .paper-subtitle {
-            font-size: 14pt;
-            color: #666;
-            margin-bottom: 20px;
-            font-style: italic;
-        }
-        .paper-meta {
-            font-size: 10pt;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        .section {
-            margin-bottom: 30px;
-        }
-        .section h2 {
-            font-size: 16pt;
-            font-weight: bold;
-            margin: 30px 0 15px 0;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .section h3 {
-            font-size: 14pt;
-            font-weight: bold;
-            margin: 20px 0 10px 0;
-        }
-        .subsection-title {
-            font-size: 13pt;
-            font-weight: bold;
-            margin: 15px 0 8px 0;
-            color: #333;
-            border-left: 3px solid #1976d2;
-            padding-left: 10px;
-        }
-        .subsection-section {
-            margin-bottom: 25px;
-            padding: 15px;
-            background: #fafafa;
-            border-radius: 5px;
-            border: 1px solid #e0e0e0;
-        }
-        .content {
-            font-size: 12pt;
-            line-height: 1.6;
-            text-align: justify;
-            margin-bottom: 15px;
-        }
-        .content p {
-            margin-bottom: 12px;
-            text-indent: 1.5em;
-        }
-        .content strong {
-            font-weight: bold;
-        }
-        .content em {
-            font-style: italic;
-        }
-        .content ul, .content ol {
-            margin: 15px 0;
-            padding-left: 30px;
-        }
-        .content li {
-            margin-bottom: 6px;
-        }
-        .math {
-            background: #f9f9f9;
-            padding: 10px;
-            border: 1px solid #ddd;
-            margin: 15px 0;
-            font-family: 'Times New Roman', serif;
-            font-size: 11pt;
-            text-align: center;
-            overflow-x: auto;
-        }
-        .image-container {
-            text-align: center;
-            margin: 25px 0;
-            padding: 15px;
-            border: 1px solid #ddd;
-        }
-        .image-container img {
-            max-width: 100%;
-            height: auto;
-            border: 1px solid #ccc;
-        }
-        .image-caption {
-            margin-top: 10px;
-            font-style: italic;
-            font-size: 10pt;
-            color: #666;
-        }
-        .download-btn {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #1976d2;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            cursor: pointer;
-            font-size: 11pt;
-            font-weight: bold;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            transition: all 0.3s ease;
-        }
-        .download-btn:hover {
-            background: #1565c0;
-            transform: translateY(-1px);
-        }
-        .footer {
-            text-align: center;
-            margin-top: 50px;
-            padding: 20px;
-            font-size: 10pt;
-            color: #666;
-            border-top: 1px solid #ddd;
-        }
-        .abstract {
-            background: #f8f8f8;
-            padding: 20px;
-            border-left: 4px solid #1976d2;
-            margin: 20px 0;
-        }
-        .abstract h3 {
-            font-size: 12pt;
-            font-weight: bold;
-            margin: 0 0 10px 0;
-            text-transform: uppercase;
-        }
-        @media (max-width: 768px) {
-            body {
-                padding: 10px;
-            }
-            .paper-container {
-                padding: 20px;
-            }
-            .paper-title {
-                font-size: 16pt;
-            }
-        }
-    </style>
-</head>
-<body>""")
-    
-    # 저작권 표시 및 헤더 섹션
-    html_content.append(f"""
-    <div class="paper-container">
-        <div class="copyright-notice">
-            <div class="title">⚠️ 저작권 고지</div>
-            <div class="content">
-                이 문서는 POLO AI 논문 이해 도우미에 의해 원본 논문을 고등학생도 이해할 수 있게 쉽게 변환한 것입니다.<br>
-                원본 논문의 저작권은 원 저자에게 있으며, 이 변환된 문서는 교육 목적으로만 사용되어야 합니다.<br>
-                상업적 이용이나 재배포 시에는 원본 논문의 저작권 정책을 준수해야 합니다.
-            </div>
-        </div>
-        
-        <div class="paper-header">
-            <div class="paper-title">POLO 논문 이해 도우미 변환 결과</div>
-            <div class="paper-subtitle">복잡한 논문을 쉽게 이해할 수 있도록 변환한 결과</div>
-            <div class="paper-meta">
-                논문 ID: {paper_id} | 변환 일시: {_get_current_datetime()}
-            </div>
-        </div>
-    """)
-    
-    # 섹션별 결과 추가
-    for i, (section, result) in enumerate(zip(sections, results)):
-        if result.ok and result.easy_text:
-            # Abstract 섹션은 특별한 스타일 적용
-            if section['title'].lower() in ['abstract', '요약']:
-                html_content.append(f"""
-        <div class="abstract">
-            <h3>{section['title']}</h3>
-            <div class="content">
-                {_latex_to_html(result.easy_text)}
-            </div>
-        </div>
-                """)
+def _json_to_jsonl(s: str) -> str:
+    try: obj = json.loads(s)
+    except Exception as e: raise HTTPException(status_code=400, detail=f"JSON 파싱 실패: {e}")
+    lines = []
+    if isinstance(obj, list):
+        for i, item in enumerate(obj):
+            if isinstance(item, dict):
+                lines.append(json.dumps({"title": item.get("title", f"Section {i+1}"), "text": item.get("text","")}, ensure_ascii=False))
             else:
-                # subsection이 있으면 각각 분리하여 표시
-                if 'subsections' in section and section['subsections']:
-                    # 메인 섹션 제목
-                    html_content.append(f"""
-        <div class="section">
-            <h2>{section['title']}</h2>
-        </div>
-                    """)
-                    
-                    # 각 subsection과 내용을 분리하여 표시
-                    for sub_idx, subsection in enumerate(section['subsections']):
-                        html_content.append(f"""
-        <div class="subsection-section">
-            <div class="subsection-title">{subsection}</div>
-            <div class="content">
-                {_latex_to_html(result.easy_text)}
-            </div>
-        </div>
-                        """)
-                else:
-                    # subsection이 없으면 일반 섹션으로 표시
-                    html_content.append(f"""
-        <div class="section">
-            <h2>{section['title']}</h2>
-            <div class="content">
-                {_latex_to_html(result.easy_text)}
-            </div>
-        </div>
-                    """)
-            
-            # 이미지가 있으면 추가
-            if result.image_path and Path(result.image_path).exists():
-                image_name = Path(result.image_path).name
-                html_content.append(f"""
-        <div class="image-container">
-            <img src="{image_name}" alt="{section['title']} 관련 시각화">
-            <div class="image-caption">Figure {i+1}: {section['title']} 관련 시각화</div>
-        </div>
-                """)
-    
-    # 다운로드 버튼과 푸터
-    html_content.append(f"""
-        <button class="download-btn" onclick="downloadHTML()">📥 HTML 다운로드</button>
-        
-        <div class="footer">
-            <p><strong>POLO AI 논문 이해 도우미</strong></p>
-            <p>이 문서는 원본 논문을 고등학생도 이해할 수 있게 쉽게 변환한 것입니다</p>
-            <p>변환 일시: {_get_current_datetime()} | 논문 ID: {paper_id}</p>
-            <p style="font-size: 9pt; color: #999; margin-top: 20px;">
-                본 문서는 교육 목적으로만 사용되어야 하며, 상업적 이용 시 원본 논문의 저작권 정책을 준수해야 합니다.
-            </p>
-        </div>
-    </div>
-        
-        <script>
-            function downloadHTML() {{
-                const element = document.documentElement.outerHTML;
-                const blob = new Blob([element], {{type: 'text/html'}});
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'polo_easy_explanation_{paper_id}.html';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }}
-        </script>
-    </body>
-</html>""")
-    
-    # 파일 저장
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(html_content))
-
-def _latex_to_html(latex_text: str, technical_terms: Dict[str, str] = None) -> str:
-    """LaTeX 텍스트를 HTML로 변환합니다 (ArXiv 스타일)"""
-    import re
-    
-    # LaTeX 명령어를 HTML로 변환
-    html_text = latex_text
-    
-    # 섹션 제목 (ArXiv 스타일로 대문자 변환)
-    html_text = re.sub(r'\\section\{([^}]+)\}', r'<h2>\1</h2>', html_text)
-    html_text = re.sub(r'\\subsection\{([^}]+)\}', r'<h3>\1</h3>', html_text)
-    
-    # 텍스트 스타일
-    html_text = re.sub(r'\\textbf\{([^}]+)\}', r'<strong>\1</strong>', html_text)
-    html_text = re.sub(r'\\textit\{([^}]+)\}', r'<em>\1</em>', html_text)
-    
-    # 수식 처리 (ArXiv 스타일)
-    html_text = re.sub(r'\$([^$]+)\$', r'<span class="math">\1</span>', html_text)
-    html_text = re.sub(r'\$\$([^$]+)\$\$', r'<div class="math">\1</div>', html_text)
-    
-    # 목록 처리
-    html_text = re.sub(r'\\begin\{itemize\}', '<ul>', html_text)
-    html_text = re.sub(r'\\end\{itemize\}', '</ul>', html_text)
-    html_text = re.sub(r'\\begin\{enumerate\}', '<ol>', html_text)
-    html_text = re.sub(r'\\end\{enumerate\}', '</ol>', html_text)
-    html_text = re.sub(r'\\item\s*', '<li>', html_text)
-    
-    # 링크 처리 (LaTeX \href 명령어)
-    html_text = re.sub(r'\\href\{([^}]+)\}\{([^}]+)\}', r'<a href="\1" target="_blank">\2</a>', html_text)
-    
-    # URL 자동 링크 처리
-    html_text = re.sub(r'(https?://[^\s<>"]+)', r'<a href="\1" target="_blank">\1</a>', html_text)
-    
-    # 문단 처리 (ArXiv 스타일 - 들여쓰기 적용)
-    html_text = re.sub(r'\n\n+', '</p><p>', html_text)
-    html_text = '<p>' + html_text + '</p>'
-    
-    # 빈 문단 제거
-    html_text = re.sub(r'<p>\s*</p>', '', html_text)
-    
-    # 연속된 공백 정리
-    html_text = re.sub(r' +', ' ', html_text)
-    
-    # 용어 설명 출력은 더 이상 사용하지 않음(요청에 따라 제거)
-    
-    return html_text
+                lines.append(json.dumps({"title": f"Section {i+1}", "text": str(item)}, ensure_ascii=False))
+    elif isinstance(obj, dict):
+        lines.append(json.dumps({"title": obj.get("title","Section 1"), "text": obj.get("text","")}, ensure_ascii=False))
+    else:
+        lines.append(json.dumps({"title": "Section 1", "text": str(obj)}, ensure_ascii=False))
+    return "\n".join(lines)
 
 @app.post("/from-transport", response_model=BatchResult)
-async def generate_from_transport(req: TransportRequest):
-    tp = Path(req.transport_path)
-    if not tp.exists():
-        raise HTTPException(status_code=400, detail=f"transport.json not found: {tp}")
+async def from_transport(request: TransportRequest):
+    tpath = Path(request.transport_path).expanduser().resolve()
+    if not _is_under_allowed_root(tpath):
+        raise HTTPException(status_code=403, detail="허용되지 않은 경로입니다")
+    if not tpath.exists():
+        raise HTTPException(status_code=404, detail=f"파일 없음: {tpath}")
 
-    try:
-        data = json.loads(tp.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid transport.json: {e}")
+    base_out = Path(request.output_dir).expanduser().resolve() if request.output_dir else tpath.parent
+    assets_metadata = {}
+    if tpath.is_dir(): assets_metadata = _load_assets_metadata(tpath)
+    elif tpath.suffix.lower() == ".tex": assets_metadata = _load_assets_metadata(tpath.parent)
 
-    # chunks 경로 우선: artifacts.chunks.path → tp.parent/chunks.jsonl → tp.parent/chunks.jsonl.gz
-    chunks_path: Optional[Path] = None
-    try:
-        chunks_path_str = (((data.get("artifacts", {}) or {}).get("chunks", {}) or {}).get("path"))
-        if chunks_path_str:
-            chunks_path = Path(chunks_path_str)
-    except Exception:
-        chunks_path = None
-    if chunks_path is None:
-        base_dir = tp.parent
-        cand1 = base_dir / "chunks.jsonl"
-        cand2 = base_dir / "chunks.jsonl.gz"
-        if cand1.exists():
-            chunks_path = cand1
-        elif cand2.exists():
-            chunks_path = cand2
-
-    if chunks_path is None or not chunks_path.exists():
-        raise HTTPException(status_code=400, detail=f"chunks file not found near transport: {tp}")
-
-    # 출력 경로
-    out_dir = Path(req.output_dir).resolve() if req.output_dir else (tp.parent / "easy_outputs").resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # 기존 배치 로직 재사용
-    items: List[dict] = []
-    open_fn = gzip.open if str(chunks_path).endswith(".gz") else open
-    with open_fn(chunks_path, "rt", encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            try:
-                obj = json.loads(line)
-                text = obj.get("text")
-                if not isinstance(text, str) or not text.strip():
-                    continue
-                items.append({"index": i, "text": text})
-            except Exception:
-                continue
-
-    sem = anyio.Semaphore(EASY_CONCURRENCY)
-    results: List[VizResult] = []
-
-    async def worker(item: dict):
-        async with sem:
-            idx = item["index"]
-            try:
-                ko = await _rewrite_text(item["text"])
-                vz = await _send_to_viz(req.paper_id, idx, ko, out_dir)
-                results.append(vz)
-            except Exception as e:
-                results.append(VizResult(ok=False, index=idx, error=str(e)))
-
-    async with anyio.create_task_group() as tg:
-        for item in items:
-            tg.start_soon(worker, item)
-
-    ok_cnt = sum(1 for r in results if r.ok)
-    fail_cnt = len(results) - ok_cnt
-    return BatchResult(
-        ok=fail_cnt == 0,
-        paper_id=req.paper_id,
-        count=len(items),
-        success=ok_cnt,
-        failed=fail_cnt,
-        out_dir=str(out_dir),
-        images=sorted(results, key=lambda r: r.index),
-    )
-
-# -------------------- main --------------------
-if __name__ == "__main__":
-    try:
-        if torch.cuda.is_available():
-            print(f"✅ GPU 사용 가능: {torch.cuda.get_device_name(0)}")
-            print("🔧 디바이스: cuda, dtype: float16")
+    content: Optional[str] = None
+    if tpath.is_dir():
+        tex = tpath / "merged_body.tex"
+        if tex.exists():
+            secs = _parse_latex_sections(tex)
+            content = "\n".join(json.dumps({"title": s["title"], "text": s["content"]}, ensure_ascii=False) for s in secs)
         else:
-            print("⚠️ GPU를 사용할 수 없습니다. CPU 모드로 실행합니다.")
-            print("🔧 디바이스: cpu, dtype: float32")
+            hits = sorted(tpath.rglob("*.jsonl")) or sorted(tpath.rglob("*.jsonl.gz"))
+            if not hits: raise HTTPException(status_code=400, detail="처리 가능한 파일 없음")
+            if hits[0].suffix == ".gz":
+                with gzip.open(hits[0], "rt", encoding="utf-8") as f: content = f.read()
+            else:
+                content = _read_text_guarded(hits[0])
+    else:
+        ext = tpath.suffix.lower()
+        if ext in (".jsonl",".ndjson"): content = _read_text_guarded(tpath)
+        elif ext == ".gz": 
+            with gzip.open(tpath, "rt", encoding="utf-8") as f: content = f.read()
+        elif ext == ".tex":
+            secs = _parse_latex_sections(tpath)
+            content = "\n".join(json.dumps({"title": s["title"], "text": s["content"]}, ensure_ascii=False) for s in secs)
+        elif ext == ".json": content = _json_to_jsonl(_read_text_guarded(tpath))
+        else: raise HTTPException(status_code=400, detail=f"지원하지 않는 파일 형식: {tpath.name}")
 
-        print("🚀 Easy Model 서버 시작 중...")
-        uvicorn.run(app, host="0.0.0.0", port=5003)
-    except Exception as e:
-        print(f"❌ Easy Model 시작 실패: {e}")
-        import traceback
-        traceback.print_exc()
+    req = BatchRequest(paper_id=request.paper_id, chunks_jsonl=content or "", output_dir=str(base_out), style=request.style)
+    return await run_batch(req, assets_metadata=assets_metadata)
+
+# ---------- Run ----------
+if __name__ == "__main__":
+    host = os.getenv("EASY_HOST", "0.0.0.0")
+    port = int(os.getenv("EASY_PORT", "5003"))
+    reload_flag = os.getenv("EASY_RELOAD", "false").lower() in ("1","true","yes")
+    uvicorn.run("app:app", host=host, port=port, reload=reload_flag, timeout_keep_alive=120)

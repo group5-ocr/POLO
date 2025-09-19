@@ -50,22 +50,83 @@ export default function Upload() {
   const [error, setError] = useState<string | null>(null);
   const [easyResults, setEasyResults] = useState<any>(null);
   const [isLoadingEasy, setIsLoadingEasy] = useState(false);
+  const [easyReady, setEasyReady] = useState(false);
+  const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+
+  // Math 모델 관련 상태 추가
+  const [isLoadingMath, setIsLoadingMath] = useState(false);
+  const [mathReady, setMathReady] = useState(false);
+  const [mathProgress, setMathProgress] = useState(0);
+  const [mathResults, setMathResults] = useState<any>(null);
 
   // 진행률 업데이트 함수
   const updateProgress = (value: number) => {
     setProgress(Math.min(100, Math.max(0, value)));
   };
 
+  // 동적 로딩 게이지 애니메이션
+  const [progressAnimation, setProgressAnimation] = useState<number | null>(
+    null
+  );
+  const [progressPhase, setProgressPhase] = useState<string>("");
+
+  const startProgressAnimation = () => {
+    if (progressAnimation) {
+      clearInterval(progressAnimation);
+    }
+
+    let currentProgress = 0;
+    const phases = [
+      "파일 분석 중...",
+      "AI 모델 로딩 중...",
+      "텍스트 변환 중...",
+      "시각화 생성 중...",
+      "결과 저장 중...",
+    ];
+
+    const interval = setInterval(() => {
+      currentProgress += Math.random() * 2 + 1; // 1-3% 랜덤 증가
+      if (currentProgress >= 90) {
+        currentProgress = 90; // 90%에서 멈춤
+      }
+
+      // 단계별 메시지 업데이트
+      const newPhase = Math.floor((currentProgress / 90) * phases.length);
+      if (newPhase < phases.length) {
+        setProgressPhase(phases[newPhase]);
+      }
+
+      setProgress(currentProgress);
+    }, 300); // 300ms마다 업데이트
+
+    setProgressAnimation(interval);
+  };
+
+  const stopProgressAnimation = () => {
+    if (progressAnimation) {
+      clearInterval(progressAnimation);
+      setProgressAnimation(null);
+    }
+    setProgressPhase("완료!");
+  };
+
   // Easy 결과 로드 함수
   const loadEasyResults = async (paperId: string) => {
     setIsLoadingEasy(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/upload/download/easy-json/${paperId}`);
+      const response = await fetch(
+        `${
+          import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+        }/api/upload/download/easy-json/${paperId}`
+      );
       if (response.ok) {
         const data = await response.json();
         setEasyResults(data);
-        console.log(`[Easy 결과] 로드 완료: ${data.total_chunks}개 청크`);
+        console.log(`[Easy 결과] 로드 완료:`, data);
+        console.log(
+          `[Easy 결과] 섹션 수: ${data.count || data.sections?.length || 0}개`
+        );
       } else {
         console.log(`[Easy 결과] 로드 실패: ${response.status}`);
       }
@@ -77,58 +138,112 @@ export default function Upload() {
   };
 
   // 쉬운 논문 생성 함수 (통합된 기능)
-  const handleGenerateEasyPaper = async () => {
-    if (!result?.doc_id) {
+  const handleGenerateEasyPaper = async (paperIdOverride?: string) => {
+    const finalPaperId = paperIdOverride ?? result?.doc_id;
+    if (!finalPaperId) {
       alert("먼저 논문을 업로드해주세요.");
       return;
     }
 
     setIsLoadingEasy(true);
     setProgress(0);
-    
+    setEasyReady(false);
+    startProgressAnimation(); // 동적 애니메이션 시작
+
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      
+
       // 1단계: Easy 모델로 전송
-      updateProgress(20);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000); // 25분 타임아웃
-      
+
       const response = await fetch(`${apiBase}/api/upload/send-to-easy`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          paper_id: result.doc_id
+          paper_id: finalPaperId,
         }),
-        signal: controller.signal
+        signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
         console.log("Easy 모델 전송 성공:", data);
-        
-        // 2단계: 진행률 업데이트
-        updateProgress(60);
-        
-        // 3단계: Easy 결과 로드
-        updateProgress(80);
-        await loadEasyResults(result.doc_id!);
-        
-        // 4단계: 완료
-        updateProgress(100);
+
+        // 2단계: 결과 파일 생성 폴링 (로컬 파일 존재 여부만 확인)
+        const maxWaitMs = 60 * 60 * 1000; // 60분 (충분한 처리 시간 확보)
+        const intervalMs = 3000; // 3초 폴링 (더 자주 확인)
+        const start = Date.now();
+        let ready = false;
+        let pollCount = 0;
+
+        console.log(`[Easy 폴링] 시작: paper_id=${finalPaperId}`);
+
+        while (Date.now() - start < maxWaitMs) {
+          try {
+            const r = await fetch(
+              `${apiBase}/api/results/${finalPaperId}/ready`
+            );
+            if (r.ok) {
+              const j = await r.json();
+              pollCount++;
+
+              console.log(
+                `[Easy 폴링] ${pollCount}회차: status=${j.status}, ok=${j.ok}`
+              );
+
+              if (j.status === "processing") {
+                // 처리 중일 때 진행률 업데이트
+                updateProgress(Math.min(90, Math.max(progress, 20)));
+              } else if (j.status === "ready" && j.ok) {
+                console.log(`[Easy 폴링] 완료: 결과 파일 생성됨`);
+                ready = true;
+                break;
+              } else if (j.status === "not_found") {
+                console.log(`[Easy 폴링] 대기 중: 결과 디렉토리 없음`);
+                updateProgress(Math.min(80, Math.max(progress, 30)));
+              }
+            } else {
+              console.log(`[Easy 폴링] 서버 응답 실패: ${r.status}`);
+            }
+          } catch (error) {
+            console.log(`[Easy 폴링] 요청 실패: ${error}`);
+          }
+
+          // 10회마다 로그 출력
+          if (pollCount % 10 === 0) {
+            console.log(`[Easy 폴링] ${pollCount}회차 완료, 계속 대기 중...`);
+          }
+
+          await new Promise((res) => setTimeout(res, intervalMs));
+        }
+
+        if (ready) {
+          setEasyReady(true);
+          setCurrentPaperId(finalPaperId);
+          stopProgressAnimation(); // 애니메이션 중지
+          updateProgress(100);
+        } else {
+          console.warn("결과 파일 폴링 타임아웃");
+          stopProgressAnimation();
+        }
       } else {
         const errorData = await response.json();
         console.error("Easy 모델 전송 실패:", errorData);
-        alert(`쉬운 논문 생성 실패: ${errorData.detail || response.statusText}`);
+        alert(
+          `쉬운 논문 생성 실패: ${errorData.detail || response.statusText}`
+        );
+        stopProgressAnimation();
         setProgress(0);
       }
     } catch (error) {
       console.error("쉬운 논문 생성 에러:", error);
-      alert('쉬운 논문 생성 중 오류가 발생했습니다.');
+      alert("쉬운 논문 생성 중 오류가 발생했습니다.");
+      stopProgressAnimation();
       setProgress(0);
     } finally {
       setIsLoadingEasy(false);
@@ -137,15 +252,16 @@ export default function Upload() {
 
   // Easy 결과를 HTML로 다운로드하는 함수
   const downloadEasyResultsAsHTML = () => {
-    if (!easyResults || !result?.doc_id) return;
-    
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
     // 서버에서 생성된 HTML 파일 다운로드
     const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-    const downloadUrl = `${apiBase}/api/results/${result.doc_id}/html`;
-    
-    const a = document.createElement('a');
+    const downloadUrl = `${apiBase}/api/results/${pid}/html`;
+
+    const a = document.createElement("a");
     a.href = downloadUrl;
-    a.download = `polo_easy_explanation_${result.doc_id}.html`;
+    a.download = `polo_easy_explanation_${pid}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -153,19 +269,174 @@ export default function Upload() {
 
   // Easy 결과를 브라우저에서 보는 함수
   const viewEasyResultsInBrowser = () => {
-    if (!easyResults || !result?.doc_id) return;
-    
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
     // 새 탭에서 HTML 결과 열기
     const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-    const viewUrl = `${apiBase}/api/results/${result.doc_id}/html`;
-    window.open(viewUrl, '_blank');
+    const viewUrl = `${apiBase}/api/results/${pid}/html`;
+    window.open(viewUrl, "_blank");
+  };
+
+  // Math 모델 처리 함수
+  const handleGenerateMathPaper = async (paperIdOverride?: string) => {
+    const finalPaperId = paperIdOverride ?? result?.doc_id;
+    if (!finalPaperId) {
+      alert("먼저 논문을 업로드해주세요.");
+      return;
+    }
+
+    setIsLoadingMath(true);
+    setMathProgress(0);
+    setMathReady(false);
+
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+
+      // Math 모델로 전송
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30 * 60 * 1000); // 30분 타임아웃
+
+      const response = await fetch(`${apiBase}/api/upload/send-to-math`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          paper_id: finalPaperId,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Math 모델 전송 성공:", data);
+
+        // Math 결과 파일 생성 폴링
+        const maxWaitMs = 30 * 60 * 1000; // 30분
+        const intervalMs = 5000; // 5초 폴링
+        const start = Date.now();
+        let ready = false;
+        let pollCount = 0;
+
+        console.log(`[Math 폴링] 시작: paper_id=${finalPaperId}`);
+
+        while (Date.now() - start < maxWaitMs) {
+          try {
+            // Math 상태 확인
+            const statusUrl = `${apiBase}/api/upload/math-status/${finalPaperId}`;
+            const r = await fetch(statusUrl);
+            if (r.ok) {
+              const statusData = await r.json();
+              pollCount++;
+
+              console.log(
+                `[Math 폴링] ${pollCount}회차: status=${statusData.status}`
+              );
+
+              if (statusData.status === "processing") {
+                setMathProgress(Math.min(90, Math.max(mathProgress, 20)));
+              } else if (statusData.status === "completed") {
+                console.log(`[Math 폴링] 완료: Math 결과 파일 생성됨`);
+                setMathResults(statusData);
+                ready = true;
+                break;
+              } else if (statusData.status === "not_started") {
+                console.log(`[Math 폴링] 대기 중: Math 처리 시작 안됨`);
+                setMathProgress(Math.min(80, Math.max(mathProgress, 30)));
+              }
+            } else {
+              console.log(`[Math 폴링] 상태 확인 실패: ${r.status}`);
+              setMathProgress(Math.min(80, Math.max(mathProgress, 30)));
+            }
+          } catch (error) {
+            console.log(`[Math 폴링] 요청 실패: ${error}`);
+          }
+
+          // 10회마다 로그 출력
+          if (pollCount % 10 === 0) {
+            console.log(`[Math 폴링] ${pollCount}회차 완료, 계속 대기 중...`);
+          }
+
+          await new Promise((res) => setTimeout(res, intervalMs));
+        }
+
+        if (ready) {
+          setMathReady(true);
+          setMathProgress(100);
+        } else {
+          console.warn("Math 결과 파일 폴링 타임아웃");
+        }
+      } else {
+        const errorData = await response.json();
+        console.error("Math 모델 전송 실패:", errorData);
+        alert(
+          `수학 모델 처리 실패: ${errorData.detail || response.statusText}`
+        );
+        setMathProgress(0);
+      }
+    } catch (error) {
+      console.error("수학 모델 처리 에러:", error);
+      alert("수학 모델 처리 중 오류가 발생했습니다.");
+      setMathProgress(0);
+    } finally {
+      setIsLoadingMath(false);
+    }
+  };
+
+  // VIZ 이미지들을 다운로드하는 함수
+  const downloadVizImages = () => {
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
+    // 서버에서 VIZ 이미지들 다운로드
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const downloadUrl = `${apiBase}/api/upload/download/easy/${pid}`;
+
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `polo_viz_images_${pid}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  // Math 결과를 브라우저에서 보는 함수
+  const viewMathResultsInBrowser = () => {
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const viewUrl = `${apiBase}/api/upload/download/math-html/${pid}`;
+
+    // 새 탭에서 HTML 파일 열기
+    window.open(viewUrl, "_blank");
+  };
+
+  // Math 결과 HTML 파일을 다운로드하는 함수
+  const downloadMathResultsAsHTML = () => {
+    const pid = result?.doc_id || currentPaperId;
+    if (!pid) return;
+
+    const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+    const downloadUrl = `${apiBase}/api/upload/download/math-html/${pid}`;
+
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `math_results_${pid}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // Easy 결과 HTML 생성 함수
   const generateEasyResultsHTML = (easyResults: any) => {
     const sections = easyResults.sections || easyResults.chunks || [];
-    const totalSections = easyResults.total_sections || easyResults.total_chunks || 0;
-    
+    const totalSections =
+      easyResults.total_sections || easyResults.total_chunks || 0;
+
     return `
 <!DOCTYPE html>
 <html lang="ko">
@@ -216,32 +487,60 @@ export default function Upload() {
             </div>
         </div>
         <div class="content">
-            ${sections.map((section: any, index: number) => `
+            ${sections
+              .map(
+                (section: any, index: number) => `
                 <div class="section">
                     <div class="section-header">
-                        <span class="section-title">${section.title || `섹션 ${section.index + 1}`}</span>
-                        <span class="section-status ${section.status === 'success' ? 'status-success' : 'status-failed'}">
-                            ${section.status === 'success' ? '✅ 성공' : '❌ 실패'}
+                        <span class="section-title">${
+                          section.title || `섹션 ${section.index + 1}`
+                        }</span>
+                        <span class="section-status ${
+                          section.status === "success"
+                            ? "status-success"
+                            : "status-failed"
+                        }">
+                            ${
+                              section.status === "success"
+                                ? "✅ 성공"
+                                : "❌ 실패"
+                            }
                         </span>
                     </div>
                     <div class="original-content">
                         <strong>원본 내용:</strong><br>
-                        ${(section.original_content || section.original_text || '').substring(0, 500)}${(section.original_content || section.original_text || '').length > 500 ? '...' : ''}
+                        ${(
+                          section.original_content ||
+                          section.original_text ||
+                          ""
+                        ).substring(0, 500)}${
+                  (section.original_content || section.original_text || "")
+                    .length > 500
+                    ? "..."
+                    : ""
+                }
                     </div>
-                    ${section.korean_translation ? `
+                    ${
+                      section.korean_translation
+                        ? `
                         <div class="korean-translation">
                             <strong>쉬운 설명:</strong><br>
                             ${section.korean_translation}
                         </div>
-                    ` : ''}
+                    `
+                        : ""
+                    }
                     <div class="image-container">
-                        ${section.image_path ? 
-                            `<img src="${section.image_path}" alt="시각화 이미지">` : 
-                            '<div class="no-image">이미지 없음</div>'
+                        ${
+                          section.image_path
+                            ? `<img src="${section.image_path}" alt="시각화 이미지">`
+                            : '<div class="no-image">이미지 없음</div>'
                         }
                     </div>
                 </div>
-            `).join('')}
+            `
+              )
+              .join("")}
         </div>
     </div>
 </body>
@@ -265,7 +564,7 @@ export default function Upload() {
     }
   }, [user, isLoading, navigate]);
 
-  const uploadFile = async (file: File) => {
+  const uploadFile = async (file: File): Promise<UploadResult | null> => {
     setUploading(true);
     setError(null);
     setResult(null);
@@ -285,7 +584,10 @@ export default function Upload() {
 
       if (!response.ok) {
         let detail = "업로드 실패";
-        try { const j = await response.json(); detail = j.detail || detail; } catch {}
+        try {
+          const j = await response.json();
+          detail = j.detail || detail;
+        } catch {}
         console.log(`[convert] 실패: ${response.status} ${detail}`);
         throw new Error(`[convert] ${detail}`);
       }
@@ -299,7 +601,9 @@ export default function Upload() {
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
         try {
-          console.log(`[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`);
+          console.log(
+            `[download/info] 호출 → ${apiBase}/api/upload/download/info/${data.doc_id}`
+          );
           const infoResponse = await fetch(
             `${
               import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
@@ -317,10 +621,36 @@ export default function Upload() {
           console.log(`[download/info] 예외: ${String(err)}`);
         }
       }
+      return data as UploadResult;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다.");
+      setError(
+        err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다."
+      );
+      return null;
     } finally {
       setUploading(false);
+    }
+  };
+
+  // 전처리 → Easy 모델까지 한 번에 실행
+  const handleConvertAndGenerate = async () => {
+    try {
+      if (!selectedFile && !result?.doc_id) {
+        alert("먼저 PDF를 선택해주세요.");
+        return;
+      }
+      let docId = result?.doc_id;
+      if (!docId && selectedFile) {
+        const r = await uploadFile(selectedFile);
+        docId = r?.doc_id || undefined;
+      }
+      if (!docId) {
+        alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
+        return;
+      }
+      await handleGenerateEasyPaper(docId);
+    } catch (e) {
+      console.error("통합 실행 실패", e);
     }
   };
 
@@ -397,7 +727,10 @@ export default function Upload() {
 
       if (!response.ok) {
         let detail = "arXiv 업로드 실패";
-        try { const j = await response.json(); detail = j.detail || detail; } catch {}
+        try {
+          const j = await response.json();
+          detail = j.detail || detail;
+        } catch {}
         console.log(`[from-arxiv] 실패: ${response.status} ${detail}`);
         throw new Error(`[from-arxiv] ${detail}`);
       }
@@ -448,7 +781,11 @@ export default function Upload() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "arXiv 업로드 중 오류가 발생했습니다.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "arXiv 업로드 중 오류가 발생했습니다."
+      );
     } finally {
       setUploading(false);
     }
@@ -514,334 +851,740 @@ export default function Upload() {
     <div className="upload-page">
       <div className="upload-container">
         <div className="upload-header">
-          <h1>논문 변환하기</h1>
+          <h1>쉬운 논문 생성</h1>
           <p>PDF 파일을 업로드하면 AI가 쉽게 이해할 수 있도록 변환해드려요!</p>
         </div>
 
-        <div className="upload-actions">
-          <button
-            onClick={() => setShowArxivForm(!showArxivForm)}
-            className="btn-secondary"
-          >
-            {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
-          </button>
-        </div>
-
-        {showArxivForm && (
-          <div className="arxiv-form">
-            <h3>arXiv 논문 업로드</h3>
-            <div className="form-group">
-              <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
-              <input
-                type="text"
-                id="arxivId"
-                value={arxivId}
-                onChange={(e) => setArxivId(e.target.value)}
-                placeholder="2408.12345"
-                disabled={uploading}
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="arxivTitle">논문 제목</label>
-              <input
-                type="text"
-                id="arxivTitle"
-                value={arxivTitle}
-                onChange={(e) => setArxivTitle(e.target.value)}
-                placeholder="논문 제목을 입력하세요"
-                disabled={uploading}
-              />
-            </div>
-            <button
-              onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
-              disabled={!arxivId || !arxivTitle || uploading}
-              className="btn-primary"
-            >
-              arXiv 논문 처리하기
-            </button>
-          </div>
-        )}
-
-        <div
-          className={`upload-area ${dragActive ? "drag-active" : ""} ${
-            uploading ? "uploading" : ""
-          }`}
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-        >
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={onChange}
-            disabled={uploading}
-            className="file-input"
-          />
-          <div className="upload-content">
-            {uploading ? (
-              <>
-                <div className="upload-spinner"></div>
-                <h3>AI가 논문을 분석하고 있습니다...</h3>
-                <p>잠시만 기다려주세요!</p>
-              </>
-            ) : selectedFile ? (
-              <>
-                <div className="upload-icon">📄</div>
-                <h3>선택된 파일</h3>
-                <p className="selected-file-name">{selectedFile.name}</p>
-                <p className="selected-file-size">
-                  {(selectedFile.size / 1024).toFixed(2)} KB
-                </p>
-                <div className="upload-info">
-                  <span>• PDF 파일만 지원</span>
-                  <span>• 최대 50MB</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="upload-icon">📁</div>
-                <h3>PDF 파일을 업로드하세요</h3>
-                <p>여기를 클릭하거나 파일을 드래그하여 업로드하세요</p>
-                <div className="upload-info">
-                  <span>• PDF 파일만 지원</span>
-                  <span>• 최대 50MB</span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
+        {/* 상단 버튼 영역 */}
         {selectedFile && !uploading && (
-          <div className="conversion-actions">
-            <button
-              onClick={startConversion}
-              className="btn-primary btn-convert"
-            >
-              논문 변환하기
-            </button>
-            <button
-              onClick={() => {
-                setSelectedFile(null);
-                setError(null);
-                setResult(null);
-              }}
-              className="btn-secondary"
-            >
-              파일 다시 선택
-            </button>
-          </div>
-        )}
-
-        {error && (
-          <div className="error-message">
-            <div className="error-icon">⚠️</div>
-            <div className="error-content">
-              <strong>오류가 발생했습니다</strong>
-              <p>{error}</p>
+          <div className="upload-actions-container">
+            <div className="upload-actions-wrapper">
+              <button
+                onClick={handleConvertAndGenerate}
+                className="btn-primary"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 20px rgba(102, 126, 234, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 15px rgba(102, 126, 234, 0.3)";
+                }}
+              >
+                쉬운 논문 생성
+              </button>
+              <button
+                onClick={async () => {
+                  if (!result?.doc_id) {
+                    // 전처리부터 시작해서 수학 모델까지 실행
+                    try {
+                      if (!selectedFile) {
+                        alert("먼저 PDF를 선택해주세요.");
+                        return;
+                      }
+                      let docId = result?.doc_id;
+                      if (!docId && selectedFile) {
+                        const r = await uploadFile(selectedFile);
+                        docId = r?.doc_id || undefined;
+                      }
+                      if (!docId) {
+                        alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
+                        return;
+                      }
+                      await handleGenerateMathPaper(docId);
+                    } catch (e) {
+                      console.error("수학 모델 통합 실행 실패", e);
+                    }
+                  } else {
+                    handleGenerateMathPaper();
+                  }
+                }}
+                style={{
+                  background:
+                    "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 20px rgba(25, 118, 210, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 15px rgba(25, 118, 210, 0.3)";
+                }}
+                title="수학 모델로 수식 해설 생성 (전처리 포함)"
+              >
+                수학 모델
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedFile(null);
+                  setError(null);
+                  setResult(null);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "2px solid #e0e0e0",
+                  borderRadius: "8px",
+                  padding: "10px 22px",
+                  fontSize: "16px",
+                  fontWeight: "500",
+                  color: "#666",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = "#999";
+                  e.currentTarget.style.color = "#333";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = "#e0e0e0";
+                  e.currentTarget.style.color = "#666";
+                }}
+              >
+                파일 다시 선택
+              </button>
             </div>
           </div>
         )}
 
-        {result && (
-          <div className="result-container">
-            <div className="result-header">
-              <h3>
-                {result.status === "success" ? "변환 완료!" : "변환 실패"}
-              </h3>
-              <p>
-                {result.status === "success"
-                  ? "논문이 성공적으로 변환되었습니다"
-                  : "논문 변환 중 오류가 발생했습니다"}
-              </p>
-              {result.is_arxiv_paper && result.arxiv_id && (
-                <div className="arxiv-info">
-                  <span className="arxiv-badge">📄 arXiv 논문</span>
-                  <span className="arxiv-id">ID: {result.arxiv_id}</span>
-                </div>
-              )}
-              <div
-                className={`status-badge ${
-                  result.status === "success"
-                    ? "status-success"
-                    : "status-error"
-                }`}
+        <div className="upload-layout">
+          {/* 왼쪽: PDF 업로드 영역 */}
+          <div className="upload-left">
+            <div className="upload-actions">
+              <button
+                onClick={() => setShowArxivForm(!showArxivForm)}
+                className="btn-secondary"
               >
-                <span className="status-icon">
-                  {result.status === "success" ? "✅" : "❌"}
-                </span>
-                <span className="status-text">
-                  {result.status === "success" ? "변환 성공" : "변환 실패"}
-                </span>
+                {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
+              </button>
+            </div>
+
+            {showArxivForm && (
+              <div className="arxiv-form">
+                <h3>arXiv 논문 업로드</h3>
+                <div className="form-group">
+                  <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
+                  <input
+                    type="text"
+                    id="arxivId"
+                    value={arxivId}
+                    onChange={(e) => setArxivId(e.target.value)}
+                    placeholder="2408.12345"
+                    disabled={uploading}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="arxivTitle">논문 제목</label>
+                  <input
+                    type="text"
+                    id="arxivTitle"
+                    value={arxivTitle}
+                    onChange={(e) => setArxivTitle(e.target.value)}
+                    placeholder="논문 제목을 입력하세요"
+                    disabled={uploading}
+                  />
+                </div>
+                <button
+                  onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
+                  disabled={!arxivId || !arxivTitle || uploading}
+                  className="btn-primary"
+                >
+                  arXiv 논문 처리하기
+                </button>
+              </div>
+            )}
+
+            <div
+              className={`upload-area ${dragActive ? "drag-active" : ""} ${
+                uploading ? "uploading" : ""
+              }`}
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+            >
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={onChange}
+                disabled={uploading}
+                className="file-input"
+              />
+              <div className="upload-content">
+                {uploading ? (
+                  <>
+                    <div className="upload-spinner"></div>
+                    <h3>AI가 논문을 분석하고 있습니다...</h3>
+                    <p>잠시만 기다려주세요!</p>
+                  </>
+                ) : selectedFile ? (
+                  <>
+                    <div className="upload-icon">📄</div>
+                    <h3>선택된 파일</h3>
+                    <p className="selected-file-name">{selectedFile.name}</p>
+                    <p className="selected-file-size">
+                      {(selectedFile.size / 1024).toFixed(2)} KB
+                    </p>
+                    <div className="upload-info">
+                      <span>• PDF 파일만 지원</span>
+                      <span>• 최대 50MB</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="upload-icon">📁</div>
+                    <h3>PDF 파일을 업로드하세요</h3>
+                    <p>여기를 클릭하거나 파일을 드래그하여 업로드하세요</p>
+                    <div className="upload-info">
+                      <span>• PDF 파일만 지원</span>
+                      <span>• 최대 80MB</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
+            {error && (
+              <div className="error-message">
+                <div className="error-icon">⚠️</div>
+                <div className="error-content">
+                  <strong>오류가 발생했습니다</strong>
+                  <p>{error}</p>
+                </div>
+              </div>
+            )}
+          </div>
 
+          {/* 오른쪽: 안내 또는 결과 영역 */}
+          <div className="upload-right">
+            {result ? (
+              <div className="result-container">
+                <div className="result-header">
+                  <h3>전처리 완료</h3>
+                  <p>
+                    논문이 분석되었습니다. 아래 버튼으로 쉬운 논문 생성을
+                    시작하세요.
+                  </p>
+                  {result.is_arxiv_paper && result.arxiv_id && (
+                    <div className="arxiv-info">
+                      <span className="arxiv-badge">📄 arXiv 논문</span>
+                      <span className="arxiv-id">ID: {result.arxiv_id}</span>
+                    </div>
+                  )}
+                </div>
 
-            {downloadInfo && (
-              <div className="download-info">
-                <h4>다운로드 가능한 파일</h4>
-                <div className="file-list">
-                  {downloadInfo.files.easy.length > 0 && (
-                    <div className="file-category">
-                      <h5>
-                        🖼️ 쉬운 버전 이미지 ({downloadInfo.files.easy.length}개)
-                      </h5>
-                      <button
-                        className="btn-download"
-                        onClick={() =>
-                          result.doc_id && downloadFile(result.doc_id, "easy")
-                        }
+                {downloadInfo && (
+                  <div className="download-info">
+                    <h4>다운로드 가능한 파일</h4>
+                    <div className="file-list">
+                      {downloadInfo.files.easy.length > 0 && (
+                        <div className="file-category">
+                          <h5>
+                            🖼️ 쉬운 버전 이미지 (
+                            {downloadInfo.files.easy.length}개)
+                          </h5>
+                          <button
+                            className="btn-download"
+                            onClick={() =>
+                              result.doc_id &&
+                              downloadFile(result.doc_id, "easy")
+                            }
+                          >
+                            이미지 다운로드
+                          </button>
+                        </div>
+                      )}
+
+                      {downloadInfo.files.preprocess.length > 0 && (
+                        <div className="file-category">
+                          <h5>
+                            📄 전처리 파일 (
+                            {downloadInfo.files.preprocess.length}
+                            개)
+                          </h5>
+                          <div className="file-items">
+                            {downloadInfo.files.preprocess.map(
+                              (file: any, index: number) => (
+                                <button
+                                  key={index}
+                                  className="btn-download-small"
+                                  onClick={() =>
+                                    downloadFile(file.name, "json")
+                                  }
+                                >
+                                  {file.name} ({(file.size / 1024).toFixed(1)}
+                                  KB)
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {downloadInfo.files.raw.length > 0 && (
+                        <div className="file-category">
+                          <h5>
+                            📁 원본 파일 ({downloadInfo.files.raw.length}개)
+                          </h5>
+                          <div className="file-items">
+                            {downloadInfo.files.raw.map(
+                              (file: any, index: number) => (
+                                <button
+                                  key={index}
+                                  className="btn-download-small"
+                                  onClick={() => downloadFile(file.name, "raw")}
+                                >
+                                  {file.name} ({(file.size / 1024).toFixed(1)}
+                                  KB)
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 진행률 표시 */}
+                {isLoadingEasy && (
+                  <div className="progress-section">
+                    <h4>🔄 쉬운 논문 생성 중...</h4>
+                    <div className="progress-container">
+                      <div className="progress-bar">
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${progress}%`,
+                            background:
+                              "linear-gradient(90deg, #4caf50 0%, #8bc34a 50%, #cddc39 100%)",
+                            transition: "width 0.3s ease-in-out",
+                            borderRadius: "10px",
+                            boxShadow: "0 2px 10px rgba(76, 175, 80, 0.3)",
+                          }}
+                        ></div>
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          marginTop: "10px",
+                          color: "#4caf50",
+                          fontWeight: "600",
+                          fontSize: "14px",
+                        }}
                       >
-                        이미지 다운로드
+                        {progressPhase || "처리 중..."}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        marginTop: "15px",
+                        color: "#666",
+                        fontSize: "12px",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      AI가 논문을 쉬운 언어로 변환하고 있습니다...
+                    </div>
+                  </div>
+                )}
+
+                {/* Easy 모델 완료 시 결과 보기 버튼들 */}
+                {easyReady && (
+                  <div className="model-buttons">
+                    <h4
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#2c3e50",
+                        fontSize: "18px",
+                      }}
+                    >
+                      🎉 쉬운 논문 생성 완료!
+                    </h4>
+                    <p
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#666",
+                        fontSize: "14px",
+                      }}
+                    >
+                      AI가 논문을 중학생도 이해할 수 있는 쉬운 언어로
+                      변환했습니다.
+                      <br />
+                      전문 용어는 굵게 표시되고, 핵심 문장은 형광펜으로
+                      강조됩니다.
+                      <br />
+                      <span style={{ color: "#4caf50", fontWeight: "600" }}>
+                        ✨ 시각화 이미지도 함께 생성되었습니다!
+                      </span>
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: "15px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        onClick={viewEasyResultsInBrowser}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #4caf50 0%, #45a049 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(76, 175, 80, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(76, 175, 80, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(76, 175, 80, 0.3)";
+                        }}
+                      >
+                        결과 보러가기
+                      </button>
+                      <button
+                        onClick={downloadEasyResultsAsHTML}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(255, 152, 0, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(255, 152, 0, 0.3)";
+                        }}
+                      >
+                        다운로드
+                      </button>
+                      <button
+                        onClick={downloadVizImages}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(156, 39, 176, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(156, 39, 176, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(156, 39, 176, 0.3)";
+                        }}
+                      >
+                        🖼️ 이미지 다운로드
                       </button>
                     </div>
-                  )}
+                    <div
+                      style={{
+                        marginTop: "15px",
+                        padding: "10px",
+                        backgroundColor: "#f8f9fa",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        color: "#666",
+                        textAlign: "center",
+                      }}
+                    >
+                      ✨ 새로운 기능: 자동 굵게 처리, 핵심 문장 하이라이트, 수식
+                      제거, 한글 번역, 시각화 이미지 생성
+                    </div>
+                  </div>
+                )}
 
-                  {downloadInfo.files.math.length > 0 && (
-                    <div className="file-category">
-                      <h5>📐 수식 해설 ({downloadInfo.files.math.length}개)</h5>
-                      <div className="file-items">
-                        {downloadInfo.files.math.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() =>
-                                result.doc_id &&
-                                downloadFile(result.doc_id, "math")
-                              }
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
+                {/* Math 모델 처리 중 표시 */}
+                {isLoadingMath && (
+                  <div className="progress-section">
+                    <h4>🔢 수학 모델 처리 중...</h4>
+                    <div className="progress-container">
+                      <div className="progress-bar">
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${mathProgress}%`,
+                            background:
+                              "linear-gradient(90deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%)",
+                            transition: "width 0.3s ease-in-out",
+                            borderRadius: "10px",
+                            boxShadow: "0 2px 10px rgba(25, 118, 210, 0.3)",
+                          }}
+                        ></div>
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          marginTop: "10px",
+                          color: "#1976d2",
+                          fontWeight: "600",
+                          fontSize: "14px",
+                        }}
+                      >
+                        수식 분석 및 해설 생성 중...
                       </div>
                     </div>
-                  )}
-
-                  {downloadInfo.files.preprocess.length > 0 && (
-                    <div className="file-category">
-                      <h5>
-                        📄 전처리 파일 ({downloadInfo.files.preprocess.length}
-                        개)
-                      </h5>
-                      <div className="file-items">
-                        {downloadInfo.files.preprocess.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() => downloadFile(file.name, "json")}
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        marginTop: "15px",
+                        color: "#666",
+                        fontSize: "12px",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수
+                      있도록 해설을 생성하고 있습니다...
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  {downloadInfo.files.raw.length > 0 && (
-                    <div className="file-category">
-                      <h5>📁 원본 파일 ({downloadInfo.files.raw.length}개)</h5>
-                      <div className="file-items">
-                        {downloadInfo.files.raw.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() => downloadFile(file.name, "raw")}
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
+                {/* Math 모델 완료 시 결과 보기 버튼들 */}
+                {mathReady && (
+                  <div className="model-buttons">
+                    <h4
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#2c3e50",
+                        fontSize: "18px",
+                      }}
+                    >
+                      🎉 수학 모델 처리 완료!
+                    </h4>
+                    <p
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#666",
+                        fontSize: "14px",
+                      }}
+                    >
+                      AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수 있는
+                      해설을 생성했습니다.
+                      <br />
+                      <span style={{ color: "#1976d2", fontWeight: "600" }}>
+                        ✨ MathJax로 렌더링된 수식 해설 HTML이 생성되었습니다!
+                      </span>
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: "15px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        onClick={viewMathResultsInBrowser}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(25, 118, 210, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(25, 118, 210, 0.3)";
+                        }}
+                      >
+                        👁️ 결과 보러가기
+                      </button>
+                      <button
+                        onClick={downloadMathResultsAsHTML}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(255, 152, 0, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(255, 152, 0, 0.3)";
+                        }}
+                      >
+                        💾 HTML 다운로드
+                      </button>
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
+                    <div
+                      style={{
+                        marginTop: "15px",
+                        padding: "10px",
+                        backgroundColor: "#f8f9fa",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        color: "#666",
+                        textAlign: "center",
+                      }}
+                    >
+                      ✨ 수학 모델 기능: LaTeX 수식 추출, 중학생 수준 해설 생성,
+                      MathJax 렌더링, 영문/한글 탭 전환
+                    </div>
+                  </div>
+                )}
 
-            {/* 진행률 표시 */}
-            {isLoadingEasy && (
-              <div className="progress-section">
-                <h4>🔄 쉬운 논문 생성 중...</h4>
-                <div className="progress-container">
-                  <div className="progress-bar">
-                    <div 
-                      className="progress-fill" 
-                      style={{ width: `${progress}%` }}
-                    ></div>
+                {/* 로딩 상태 */}
+                {isLoadingEasy && (
+                  <div className="loading-easy">
+                    <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
                   </div>
-                  <span className="progress-text">{progress}%</span>
-                </div>
-              </div>
-            )}
+                )}
 
-            {/* 쉬운 논문 생성 버튼 */}
-            <div className="model-buttons">
-              <button
-                className="btn-primary"
-                onClick={handleGenerateEasyPaper}
-                disabled={!result.doc_id || isLoadingEasy}
-              >
-                {isLoadingEasy ? "생성 중..." : "📚 쉬운 논문 생성"}
-              </button>
-            </div>
-
-            {/* Easy 결과 표시 */}
-            {easyResults && (
-              <div className="easy-results">
-                <h4>✅ 쉬운 논문 생성 완료!</h4>
-                <div className="results-stats">
-                  <div className="stat-item">
-                    <span className="stat-number">{easyResults.total_sections || easyResults.total_chunks}</span>
-                    <span className="stat-label">총 섹션</span>
-                  </div>
-                  <div className="stat-item success">
-                    <span className="stat-number">{easyResults.success_count}</span>
-                    <span className="stat-label">성공</span>
-                  </div>
-                  <div className="stat-item failed">
-                    <span className="stat-number">{easyResults.failed_count}</span>
-                    <span className="stat-label">실패</span>
-                  </div>
-                </div>
-                
-                <div className="download-section">
-                  <button 
-                    onClick={downloadEasyResultsAsHTML}
-                    className="btn btn-primary download-main"
-                    style={{ marginRight: '10px' }}
+                <div className="action-buttons">
+                  <button
+                    className="btn-secondary"
+                    onClick={() => navigate("/")}
                   >
-                    📚 논문 다운로드
-                  </button>
-                  <button 
-                    onClick={viewEasyResultsInBrowser}
-                    className="btn btn-secondary"
-                  >
-                    🌐 브라우저에서 보기
+                    홈으로 돌아가기
                   </button>
                 </div>
               </div>
-            )}
+            ) : (
+              /* 오른쪽 안내 가이드 */
+              <div className="upload-guide">
+                <h3>POLO 시작하기</h3>
 
-            {/* 로딩 상태 */}
-            {isLoadingEasy && (
-              <div className="loading-easy">
-                <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
+                <div className="upload-guide-steps">
+                  <div className="upload-guide-step">
+                    <div className="upload-guide-step-number">1</div>
+                    <div className="upload-guide-step-text">
+                      PDF를 왼쪽에 드래그하거나 클릭하세요
+                    </div>
+                  </div>
+                  <div className="upload-guide-step">
+                    <div className="upload-guide-step-number">2</div>
+                    <div className="upload-guide-step-text">
+                      원하는 기능을 선택하세요
+                    </div>
+                  </div>
+                </div>
+
+                <div className="upload-guide-features">
+                  <div className="upload-guide-feature">
+                    <div className="upload-guide-feature-icon">🤖</div>
+                    <div className="upload-guide-feature-title">
+                      쉬운 논문 생성
+                    </div>
+                    <div className="upload-guide-feature-desc">
+                      중학생도 이해할 수 있는 쉬운 설명
+                    </div>
+                  </div>
+                  <div className="upload-guide-feature">
+                    <div className="upload-guide-feature-icon">🔢</div>
+                    <div className="upload-guide-feature-title">수학 모델</div>
+                    <div className="upload-guide-feature-desc">
+                      수식 해설 및 상세 설명
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-
-            <div className="action-buttons">
-              <button className="btn-secondary" onClick={() => navigate("/")}>
-                홈으로 돌아가기
-              </button>
-            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

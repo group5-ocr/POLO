@@ -1,0 +1,216 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%2345678901234567890123456789012345678901234567890123456789012345678901234567890
+%        1         2         3         4         5         6         7         8
+
+\documentclass[letterpaper, 10 pt, conference]{ieeeconf}  % Comment this line out
+                                                          % if you need a4paper
+%\documentclass[a4paper, 10pt, conference]{ieeeconf}      % Use this line for a4
+                                                          % paper
+
+\IEEEoverridecommandlockouts                              % This command is only
+                                                          % needed if you want to
+                                                          % use the \thanks command
+\overrideIEEEmargins
+% See the \addtolength command later in the file to balance the column lengths
+% on the last page of the document
+
+% This is needed to prevent the style file preventing citations from linking to
+% the bibliography
+\makeatletter
+\let\NAT@parse\undefined
+\makeatother
+
+\usepackage[dvipsnames]{xcolor}
+
+\newcommand*\linkcolours{ForestGreen}
+
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amssymb}
+\usepackage{gensymb}
+\usepackage{amsmath}
+\usepackage{breakurl}
+\def\UrlBreaks{\do\/\do-}
+\usepackage{url,hyperref}
+\hypersetup{
+colorlinks,
+linkcolor=\linkcolours,
+citecolor=\linkcolours,
+filecolor=\linkcolours,
+urlcolor=\linkcolours}
+
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\usepackage[labelfont={bf},font=small]{caption}
+\usepackage[none]{hyphenat}
+
+\usepackage{mathtools, cuted}
+
+\usepackage[noadjust, nobreak]{cite}
+\def\citepunct{,\,} % Style file defaults to listing references separately
+
+\usepackage{tabularx}
+\usepackage{amsmath}
+
+\usepackage{float}
+
+\usepackage{pifont}% http://ctan.org/pkg/pifont
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+
+\newcommand*\diff{\mathop{}\!\mathrm{d}}
+\newcommand*\Diff[1]{\mathop{}\!\mathrm{d^#1}}
+\newcommand*\imgres{600}
+
+\newcommand*\GitHubLoc{https://github.com/Jeffrey-Ede/ALRC}
+
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+
+%\usepackage{parskip}
+
+\usepackage[]{placeins}
+
+% \usepackage{epstopdf}
+% \epstopdfDeclareGraphicsRule{.tif}{png}{.png}{convert #1 \OutputFile}
+% \AppendGraphicsExtensions{.tif}
+
+\newcommand\extraspace{3pt}
+
+\usepackage{placeins}
+
+\usepackage{tikz}
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+            \node[shape=circle,draw,inner sep=0.8pt] (char) {#1};}}
+
+\usepackage[framemethod=tikz]{mdframed}
+
+\usepackage{afterpage}
+
+\usepackage{stfloats}
+
+\usepackage{atbegshi}
+\newcommand{\handlethispage}{}
+\newcommand{\discardpagesfromhere}{\let\handlethispage\AtBeginShipoutDiscard}
+\newcommand{\keeppagesfromhere}{\let\handlethispage\relax}
+\AtBeginShipout{\handlethispage}
+
+\usepackage{comment}
+
+%\usepackage[1,2,3,5,6,7]{pagesel} %Discard page 4 as it is blank
+
+% The following packages can be found on http:\\www.ctan.org
+%\usepackage{graphics} % for pdf, bitmapped graphics files
+%\usepackage{epsfig} % for postscript graphics files
+%\usepackage{mathptmx} % assumes new font selection scheme installed
+%\usepackage{times} % assumes new font selection scheme installed
+%\usepackage{amsmath} % assumes amsmath package installed
+%\usepackage{amssymb}  % assumes amsmath package installed
+
+\title{\LARGE \bf
+A remark on a paper of Krotov and Hopfield
+}
+
+%\author{ \parbox{3 in}{\centering Huibert Kwakernaak*
+%         \thanks{*Use the $\backslash$thanks command to put information here}\\
+%         Faculty of Electrical Engineering, Mathematics and Computer Science\\
+%         University of Twente\\
+%         7500 AE Enschede, The Netherlands\\
+%         {\tt\small h.kwakernaak@autsubmit.com}}
+%         \hspace*{ 0.5 in}
+%         \parbox{3 in}{ \centering Pradeep Misra**
+%         \thanks{**The footnote marks may be inserted manually}\\
+%        Department of Electrical Engineering \\
+%         Wright State University\\
+%         Dayton, OH 45435, USA\\
+%         {\tt\small pmisra@cs.wright.edu}}
+%}
+
+\author{Fei Tang$^{1}$ and Michael Kopp$^{2}$% <-this % stops a space
+\thanks{$^{1}$HERE Technologies, Z\"urich,
+Email: fei.tang@here.com}%
+\thanks{$^{2}$IARAI, Vienna,
+Email: michael.kopp@iarai.ac.at}%
+}
+
+% \author{Jeffrey M. Ede$^{1}$ and Richard Beanland$^{2}$% <-this % stops a space
+% \thanks{*This work was not supported by any organization}% <-this % stops a space
+% \thanks{$^{1}$H. Kwakernaak is with Faculty of Electrical Engineering, Mathematics and Computer Science,
+%         University of Twente, 7500 AE Enschede, The Netherlands
+%         {\tt\small h.kwakernaak at papercept.net}}%
+% \thanks{$^{2}$P. Misra is with the Department of Electrical Engineering, Wright State University,
+%         Dayton, OH 45435, USA
+%         {\tt\small p.misra at ieee.org}}%
+% }
+
+
+\begin{document}
+
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\noindent
+\begin{abstract}
+\noindent
+In their recent paper titled ``Large Associative Memory Problem in Neurobiology and Machine Learning" \cite{krotov2021large} the authors gave a biologically plausible microscopic theory from which one can recover many dense associative memory models discussed in the literature. We show that the layers of the recent "MLP-mixer" \cite{tolstikhin2021mlpmixer} as well as the essentially equivalent model in \cite{melaskyriazi2021need} are amongst them.
+\end{abstract}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{INTRODUCTION}
+\noindent
+Krotov et al~\cite{krotov2021large} proposed a continuous network of feature and memory neurons with symmetric synaptic connections between them. The time evolution of the neurons are described by the following dynamic equations.
+\begin{align}
+    \tau_f \frac{dv_i}{dt} &= \sum_{\mu = 1}^{N_h}\xi_{i\mu}f_{\mu} - v_i + I_i  \nonumber\\
+\tau_h \frac{dh_{\mu}}{dt} &= \sum_{i=1}^{N_f}\xi_{\mu i}g_i - h_{\mu}
+\end{align}
+An energy function $E(t)$ was stipulated:
+\begin{align}
+[\sum_{i = 1}^{N_f}(v_i - I_i)g_i - L_v] + [\sum_{\mu=1}^{N_h}h_{\mu}f_{\mu} - L_h] - \sum_{\mu i} f_{\mu}\xi_{\mu i}g_i
+\end{align}
+They showed that the Dense Associative Memory model~\cite{krotov2016dense} and Modern Hopfield Networks model~\cite{ramsauer2021hopfield} can be recovered from this theory using particular Lagrangian functions $L_v$ and $L_h$ as Model A and B, respectively. A Model C was also discussed as having spherical normalization in the feature layer, but without analogue models in the literature. We show in this note that the newly published "MLP-mixer" \cite{tolstikhin2021mlpmixer} can be partially recovered using essentially the Lagrangian for Model C.
+\section{DERIVING THE MLP MIXER LAYER}
+\noindent
+We propose the following slightly amended Lagrangian $L_v$ to Model C in \cite{krotov2021large}
+\begin{align}
+    L_v &= \sqrt{\sum_i (v_i - \bar v)^2}\qquad
+    \text{where }\bar v = \frac{\sum_i v_i}{N_f}
+\end{align} and the same $L_h$, i.e. $L_h = \sum_{\mu}F(h_{\mu})$. This implies
+\begin{align}
+    f_{\mu} &= F'(h_{\mu})\nonumber = f(h_\mu)\\
+    g_i &= \frac{\partial L_v}{\partial v_i} = \frac{v_i - \bar v}{\sqrt{\sum_l (v_l-\bar v)^2}}
+\end{align}
+Equation 20 in \cite{krotov2021large} still holds for this choice of $L_v$, as
+\begin{align}\label{modelc_zeromode}
+\sum_j M_{ij}v_j &= \frac{1}{\sqrt{\sum_l(v_l - \bar v)^2}}\sum_j (\delta_{ij} - \frac{1}{N})v_j\nonumber\\
+&- \frac{v_i - \bar v}{(\sqrt{\sum_l(v_l - \bar v)^2})^3}\sum_j(v_j - \bar v) v_j\nonumber\\
+&=0
+\end{align}
+Thus the dynamic equation for feature neurons (equation 22 in \cite{krotov2021large}) with arbitrary $\alpha$ still holds:
+\begin{align}\label{modelc_updateeqn}
+\tau_f\frac{dv_i}{dt} = \sum_{\mu}\xi_{i\mu}f(\sum_j \xi_{\mu j}g_i) - \alpha v_i
+\end{align}
+If we choose $\alpha=0$, $dt=\tau_f$ and plug in the $g_i$ the update equation becomes:
+\begin{align}\label{updateeqn_mixlayer}
+    v_i^{t+1} = v_i^{t} + \sum_{\mu}\xi_{i\mu}f\left(\sum_j \xi_{\mu j} \frac{v_j^t - \bar v^t}{\sqrt{\sum_k (v_k^t - \bar v^t)^2}}\right)
+\end{align}
+This corresponds to each of the Mixer layers in \cite{tolstikhin2021mlpmixer}
+\begin{align}
+    U_{*, i} &= X_{*, i} + W_2\sigma(W_1 \text{LayerNorm}(X)_{*, i}, \text{for}\, i = 1\dots C,\nonumber\\
+    Y_{j, *} &= U_{j, *} + W_4\sigma(W_3 \text{LayerNorm}(U)_{j, *}, \text{for}\, j = 1\dots S
+\end{align}
+where $\frac{v_j^t - \bar v^t}{\sqrt{\sum_k (v_k^t - \bar v^t)^2}}$ corresponds to the LayerNorm(X), $\sum_j \xi_{\mu j}\cdots$ corresponds to $W_1$ or $W_3$, $\sigma = f=F'$, $\sum_{\mu}\xi_{i\mu}\cdots$ corresponds to $W_2$ or $W_4$ and $v_i^{t} + \cdots$ corresponds to the skip connection.
+
+\section{DISCUSSION}
+\noindent
+In \cite{krotov2021large}, the matrix $\xi_{\mu i}$ is assumed to be symmetric. Thus the above correspondence places a strict limit on the Mixer layer in that $W_1$ and $W_2$ are transposed to each other, and same for $W_3$ and $W_4$. It is possible to drop the symmetric assumption for the special case of Model C which makes an exact one-to-one mapping possible. We leave these derivations to future work.
+
+\bibliographystyle{ieeetr}
+\bibliography{remark}
+
+%\section{Acknowledgements}
+
+\end{document}

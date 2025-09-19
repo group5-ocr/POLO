@@ -3163,8 +3163,283 @@ body,
 }
 
 .upload-container {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
+}
+
+/* 상단 버튼 영역 */
+.upload-actions-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.upload-actions-wrapper {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(229, 231, 235, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+/* 좌우 분할 레이아웃 */
+.upload-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  min-height: 600px;
+  align-items: stretch; /* 높이를 동일하게 맞춤 */
+}
+
+.upload-left {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.upload-right {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 오른쪽 안내 영역 - 히어로 스타일 */
+.upload-guide {
+  background: 
+    /* 메인 그라데이션 */ radial-gradient(
+      ellipse 1200px 600px at 50% 30%,
+      rgba(255, 193, 7, 0.15) 0%,
+      rgba(251, 191, 36, 0.08) 30%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 800px 400px at 20% 80%,
+      rgba(167, 243, 208, 0.12) 0%,
+      rgba(16, 185, 129, 0.06) 40%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 600px 300px at 80% 20%,
+      rgba(191, 219, 254, 0.1) 0%,
+      rgba(59, 130, 246, 0.05) 40%,
+      transparent 70%
+    ),
+    /* 배경 그라데이션 */
+      linear-gradient(
+        135deg,
+        rgba(254, 247, 255, 0.9) 0%,
+        rgba(240, 249, 255, 0.8) 25%,
+        rgba(240, 253, 244, 0.7) 50%,
+        rgba(255, 251, 235, 0.8) 75%,
+        rgba(254, 242, 242, 0.9) 100%
+      );
+  border-radius: 24px;
+  padding: 48px 32px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), 0 8px 25px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 히어로 스타일 장식 요소들 */
+.upload-guide::before {
+  content: "";
+  position: absolute;
+  top: 10%;
+  right: 15%;
+  width: 200px;
+  height: 200px;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 193, 7, 0.1),
+    rgba(251, 191, 36, 0.05)
+  );
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  animation: morphing 8s ease-in-out infinite;
+  z-index: 1;
+}
+
+.upload-guide::after {
+  content: "";
+  position: absolute;
+  bottom: 20%;
+  left: 10%;
+  width: 150px;
+  height: 150px;
+  background: linear-gradient(
+    135deg,
+    rgba(167, 243, 208, 0.08),
+    rgba(16, 185, 129, 0.04)
+  );
+  border-radius: 50% 20% 50% 20%;
+  animation: morphing 10s ease-in-out infinite reverse;
+  z-index: 1;
+}
+
+.upload-guide h3 {
+  font-size: 1.8rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 24px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  position: relative;
+  z-index: 10;
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.upload-guide h3:hover {
+  transform: translateY(-2px);
+  text-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+.upload-guide-steps {
+  text-align: left;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 10;
+}
+
+.upload-guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+.upload-guide-step:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.upload-guide-step-number {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+.upload-guide-step-text {
+  color: #374151;
+  font-size: 1rem;
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+.upload-guide-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 10;
+}
+
+.upload-guide-feature {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 24px 20px;
+  border-radius: 16px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+.upload-guide-feature:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.upload-guide-feature-icon {
+  font-size: 2rem;
+  margin-bottom: 12px;
+  display: block;
+  transition: all 0.3s ease;
+}
+
+.upload-guide-feature:hover .upload-guide-feature-icon {
+  transform: scale(1.1);
+}
+
+.upload-guide-feature-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.upload-guide-feature-desc {
+  font-size: 0.9rem;
+  color: #6b7280;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.upload-guide-stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  position: relative;
+  z-index: 10;
+}
+
+.upload-guide-stat {
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.upload-guide-stat:hover {
+  transform: translateY(-2px);
+}
+
+.upload-guide-stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1f2937;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.upload-guide-stat-label {
+  font-size: 0.9rem;
+  color: #6b7280;
+  font-weight: 500;
 }
 
 .upload-header {
@@ -3266,18 +3541,7 @@ body,
   margin-bottom: 20px;
 }
 
-.conversion-actions {
-  display: flex;
-  gap: 16px;
-  justify-content: center;
-  margin-top: 24px;
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.8);
-  border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(229, 231, 235, 0.5);
-  backdrop-filter: blur(12px);
-}
+/* conversion-actions는 이제 upload-actions-wrapper로 대체됨 */
 
 .btn-convert {
   background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
@@ -3338,30 +3602,113 @@ body,
 }
 
 .result-container {
-  background: linear-gradient(135deg, #fef7ff, #f0f9ff);
-  border-radius: 20px;
-  padding: 32px;
-  box-shadow: 0 10px 30px rgba(167, 139, 250, 0.15);
+  background: 
+    /* 메인 그라데이션 */ radial-gradient(
+      ellipse 1200px 600px at 50% 30%,
+      rgba(167, 139, 250, 0.15) 0%,
+      rgba(139, 92, 246, 0.08) 30%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 800px 400px at 20% 80%,
+      rgba(245, 158, 11, 0.12) 0%,
+      rgba(217, 119, 6, 0.06) 40%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 600px 300px at 80% 20%,
+      rgba(16, 185, 129, 0.1) 0%,
+      rgba(5, 150, 105, 0.05) 40%,
+      transparent 70%
+    ),
+    /* 배경 그라데이션 */
+      linear-gradient(
+        135deg,
+        rgba(254, 247, 255, 0.9) 0%,
+        rgba(240, 249, 255, 0.8) 25%,
+        rgba(240, 253, 244, 0.7) 50%,
+        rgba(255, 251, 235, 0.8) 75%,
+        rgba(254, 242, 242, 0.9) 100%
+      );
+  border-radius: 24px;
+  padding: 48px 32px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), 0 8px 25px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
   margin-top: 32px;
-  border: 1px solid rgba(167, 139, 250, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 결과 컨테이너 장식 요소들 */
+.result-container::before {
+  content: "";
+  position: absolute;
+  top: 15%;
+  right: 10%;
+  width: 180px;
+  height: 180px;
+  background: linear-gradient(
+    45deg,
+    rgba(167, 139, 250, 0.1),
+    rgba(139, 92, 246, 0.05)
+  );
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  animation: morphing 8s ease-in-out infinite;
+  z-index: 1;
+}
+
+.result-container::after {
+  content: "";
+  position: absolute;
+  bottom: 15%;
+  left: 15%;
+  width: 120px;
+  height: 120px;
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.08),
+    rgba(5, 150, 105, 0.04)
+  );
+  border-radius: 50% 20% 50% 20%;
+  animation: morphing 10s ease-in-out infinite reverse;
+  z-index: 1;
 }
 
 .result-header {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 40px;
+  position: relative;
+  z-index: 10;
 }
 
 .result-header h3 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #4b5563;
-  margin-bottom: 8px;
+  font-size: 1.8rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 16px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.result-header h3:hover {
+  transform: translateY(-2px);
+  text-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
 }
 
 .result-header p {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   color: #6b7280;
-  font-size: 1rem;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  font-weight: 500;
 }
 
 .status-badge {
@@ -3947,6 +4294,64 @@ body,
     padding: 20px 16px;
   }
 
+  .upload-actions-container {
+    margin-bottom: 24px;
+  }
+
+  .upload-actions-wrapper {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .upload-layout {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    align-items: stretch;
+  }
+
+  .upload-left,
+  .upload-right {
+    height: auto; /* 모바일에서는 높이 자동 조정 */
+  }
+
+  .upload-guide,
+  .result-container {
+    height: auto; /* 모바일에서는 높이 자동 조정 */
+  }
+
+  .upload-guide {
+    padding: 32px 24px;
+  }
+
+  .upload-guide h3 {
+    font-size: 1.5rem;
+  }
+
+  .upload-guide::before,
+  .upload-guide::after {
+    display: none; /* 모바일에서는 장식 요소 숨김 */
+  }
+
+  .result-container::before,
+  .result-container::after {
+    display: none; /* 모바일에서는 장식 요소 숨김 */
+  }
+
+  .result-header h3 {
+    font-size: 1.5rem;
+  }
+
+  .upload-guide-features {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .upload-guide-stats {
+    flex-direction: column;
+    gap: 12px;
+  }
+
   .upload-header h1 {
     font-size: 2rem;
   }
@@ -3967,10 +4372,7 @@ body,
     font-size: 0.9rem;
   }
 
-  .conversion-actions {
-    flex-direction: column;
-    gap: 12px;
-  }
+  /* conversion-actions는 이제 upload-actions-wrapper로 대체됨 */
 
   .btn-convert {
     width: 100%;
@@ -4747,7 +5149,7 @@ body,
 }
 
 .progress-fill::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
