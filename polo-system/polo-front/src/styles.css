@@ -86,6 +86,17 @@ select {
   color: #6b7280;
 }
 
+/* arXiv 폼 processing 상태 */
+.arxiv-form.processing {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.arxiv-form.processing .btn-primary {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
 /* 탭 스타일 */
 .result-tabs {
   display: flex;
@@ -3859,6 +3870,106 @@ body,
   }
 }
 
+/* 선택된 기능 버튼 스타일 */
+.upload-guide-feature-button.selected {
+  transform: scale(1.02);
+  animation: selectedPulse 0.3s ease-out;
+}
+
+/* 비활성화된 기능 버튼 스타일 */
+.upload-guide-feature-button.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* 모델 생성 중 메시지 스타일 */
+.processing-message {
+  text-align: center;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 16px;
+  border: 2px solid #dee2e6;
+  animation: fadeInScale 0.5s ease-out;
+}
+
+.processing-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  animation: spin 2s linear infinite;
+}
+
+.processing-message h3 {
+  color: #495057;
+  margin-bottom: 12px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.processing-message p {
+  color: #6c757d;
+  margin-bottom: 24px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.processing-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.processing-details span {
+  color: #868e96;
+  font-size: 14px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  border-left: 3px solid #ffc107;
+}
+
+@keyframes selectedPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1.02);
+  }
+}
+
+/* 기능 액션 버튼 스타일 */
+.feature-actions {
+  margin-top: 24px;
+  animation: slideInUp 0.5s ease-out;
+}
+
+.process-selected-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.process-selected-button .spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .result-content .upload-guide-feature-button::before {
   content: "";
   position: absolute;
@@ -4007,6 +4118,19 @@ body,
 .upload-area.uploading {
   border-color: #667eea;
   background: rgba(102, 126, 234, 0.05);
+}
+
+.upload-area.processing {
+  border-color: #ff9800;
+  background: rgba(255, 152, 0, 0.05);
+  cursor: not-allowed;
+  opacity: 0.6;
+  transition: all 0.3s ease;
+}
+
+.upload-area.processing:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .file-input {
@@ -4623,6 +4747,19 @@ body,
     padding: 18px !important;
   }
 
+  .upload-guide-feature-button.selected {
+    transform: scale(1.01);
+  }
+
+  .feature-actions {
+    margin-top: 20px;
+  }
+
+  .process-selected-button {
+    padding: 14px 28px !important;
+    font-size: 15px !important;
+  }
+
   .upload-guide-feature-icon {
     font-size: 2.2rem;
   }
@@ -5068,6 +5205,19 @@ body,
     padding: 24px 20px !important;
     margin-bottom: 20px;
     min-height: 140px;
+  }
+
+  .upload-guide-feature-button.selected {
+    transform: scale(1.01);
+  }
+
+  .feature-actions {
+    margin-top: 20px;
+  }
+
+  .process-selected-button {
+    padding: 14px 24px !important;
+    font-size: 14px !important;
   }
 
   .upload-guide-feature-icon {

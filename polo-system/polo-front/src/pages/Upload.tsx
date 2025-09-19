@@ -60,6 +60,108 @@ export default function Upload() {
   const [mathProgress, setMathProgress] = useState(0);
   const [mathResults, setMathResults] = useState<any>(null);
 
+  // 선택된 기능들 상태 관리
+  const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(
+    new Set()
+  );
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // 모델 생성 중인지 확인하는 함수
+  const isModelProcessing = () => {
+    return isLoadingEasy || isLoadingMath || isProcessing;
+  };
+
+  // 기능 선택/해제 함수
+  const toggleFeature = (featureId: string) => {
+    // 모델 생성 중에는 기능 선택 불가
+    if (isModelProcessing()) {
+      return;
+    }
+
+    setSelectedFeatures((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(featureId)) {
+        newSet.delete(featureId);
+      } else {
+        newSet.add(featureId);
+      }
+      return newSet;
+    });
+  };
+
+  // 선택된 기능들 처리 함수
+  const handleProcessSelectedFeatures = async () => {
+    if (selectedFeatures.size === 0) {
+      alert("최소 하나의 기능을 선택해주세요.");
+      return;
+    }
+
+    // doc_id 확인 및 처리
+    let docId = result?.doc_id;
+
+    console.log("디버깅 - result:", result);
+    console.log("디버깅 - docId:", docId);
+    console.log("디버깅 - selectedFile:", selectedFile);
+
+    // PDF가 선택되어 있지만 아직 업로드되지 않은 경우
+    if (!docId && selectedFile) {
+      try {
+        console.log("PDF 업로드 시작...");
+        const uploadResult = await uploadFile(selectedFile);
+        if (uploadResult?.doc_id) {
+          setResult(uploadResult);
+          docId = uploadResult.doc_id;
+          console.log("PDF 업로드 완료, docId:", docId);
+        } else {
+          alert("PDF 업로드에 실패했습니다. 다시 시도해주세요.");
+          return;
+        }
+      } catch (error) {
+        console.error("PDF 업로드 실패:", error);
+        alert("PDF 업로드 중 오류가 발생했습니다: " + error);
+        return;
+      }
+    }
+
+    if (!docId) {
+      alert("먼저 PDF를 업로드해주세요.");
+      return;
+    }
+
+    console.log("기능 처리 시작, docId:", docId);
+    setIsProcessing(true);
+    setProgress(0);
+
+    try {
+      const promises = [];
+
+      if (selectedFeatures.has("easy")) {
+        console.log("Easy 모델 처리 추가");
+        promises.push(handleGenerateEasyPaper(docId));
+      }
+
+      if (selectedFeatures.has("math")) {
+        console.log("Math 모델 처리 추가");
+        promises.push(handleGenerateMathPaper(docId));
+      }
+
+      if (selectedFeatures.has("overview")) {
+        console.log("Overview 기능 처리 추가");
+        // 한눈에 논문 기능은 쉬운 논문과 동일하게 처리
+        promises.push(handleGenerateEasyPaper(docId));
+      }
+
+      console.log("선택된 기능들 병렬 처리 시작, 총", promises.length, "개");
+      await Promise.all(promises);
+      console.log("모든 기능 처리 완료");
+    } catch (error) {
+      console.error("기능 처리 중 오류:", error);
+      alert("기능 처리 중 오류가 발생했습니다: " + error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // 진행률 업데이트 함수
   const updateProgress = (value: number) => {
     setProgress(Math.min(100, Math.max(0, value)));
@@ -597,8 +699,10 @@ export default function Upload() {
       const data = await response.json();
 
       // 서버에서 반환된 실제 논문 ID 사용
-      setResult({ ...data, status: data.status ?? "processing" });
+      const uploadResult = { ...data, status: data.status ?? "processing" };
+      setResult(uploadResult);
       console.log(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
+      console.log(`[convert] 업로드 결과:`, uploadResult);
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
@@ -873,7 +977,11 @@ export default function Upload() {
             </div>
 
             {showArxivForm && (
-              <div className="arxiv-form">
+              <div
+                className={`arxiv-form ${
+                  isModelProcessing() ? "processing" : ""
+                }`}
+              >
                 <h3>arXiv 논문 업로드</h3>
                 <div className="form-group">
                   <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
@@ -883,7 +991,7 @@ export default function Upload() {
                     value={arxivId}
                     onChange={(e) => setArxivId(e.target.value)}
                     placeholder="2408.12345"
-                    disabled={uploading}
+                    disabled={uploading || isModelProcessing()}
                   />
                 </div>
                 <div className="form-group">
@@ -894,15 +1002,19 @@ export default function Upload() {
                     value={arxivTitle}
                     onChange={(e) => setArxivTitle(e.target.value)}
                     placeholder="논문 제목을 입력하세요"
-                    disabled={uploading}
+                    disabled={uploading || isModelProcessing()}
                   />
                 </div>
                 <button
                   onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
-                  disabled={!arxivId || !arxivTitle || uploading}
+                  disabled={
+                    !arxivId || !arxivTitle || uploading || isModelProcessing()
+                  }
                   className="btn-primary"
                 >
-                  arXiv 논문 처리하기
+                  {isModelProcessing()
+                    ? "모델 생성 중..."
+                    : "arXiv 논문 처리하기"}
                 </button>
               </div>
             )}
@@ -910,12 +1022,15 @@ export default function Upload() {
             <div
               className={`upload-area ${dragActive ? "drag-active" : ""} ${
                 uploading ? "uploading" : ""
-              }`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
+              } ${isModelProcessing() ? "processing" : ""}`}
+              onDragEnter={isModelProcessing() ? undefined : handleDrag}
+              onDragLeave={isModelProcessing() ? undefined : handleDrag}
+              onDragOver={isModelProcessing() ? undefined : handleDrag}
+              onDrop={isModelProcessing() ? undefined : handleDrop}
               onClick={() => {
+                if (isModelProcessing()) {
+                  return; // 모델 생성 중일 때는 클릭 무시
+                }
                 if (selectedFile && !uploading) {
                   // 파일이 선택되어 있고 업로드 중이 아닐 때만 파일 선택 창 열기
                   const fileInput = document.querySelector(
@@ -927,14 +1042,19 @@ export default function Upload() {
                 }
               }}
               style={{
-                cursor: selectedFile && !uploading ? "pointer" : "default",
+                cursor: isModelProcessing()
+                  ? "not-allowed"
+                  : selectedFile && !uploading
+                  ? "pointer"
+                  : "default",
+                opacity: isModelProcessing() ? 0.6 : 1,
               }}
             >
               <input
                 type="file"
                 accept="application/pdf"
                 onChange={onChange}
-                disabled={uploading}
+                disabled={uploading || isModelProcessing()}
                 className="file-input"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -946,6 +1066,16 @@ export default function Upload() {
                     <div className="upload-spinner"></div>
                     <h3>AI가 논문을 분석하고 있습니다...</h3>
                     <p>잠시만 기다려주세요!</p>
+                  </>
+                ) : isModelProcessing() ? (
+                  <>
+                    <div className="upload-icon">⏳</div>
+                    <h3>모델 생성 중입니다</h3>
+                    <p>현재 AI 모델이 논문을 처리하고 있습니다</p>
+                    <div className="upload-info">
+                      <span>• 처리 완료 후 새 파일 업로드 가능</span>
+                      <span>• 잠시만 기다려주세요</span>
+                    </div>
                   </>
                 ) : selectedFile ? (
                   <>
@@ -997,8 +1127,14 @@ export default function Upload() {
               >
                 <div className="result-top">
                   <div className="result-header">
-                    <h3>POLO 시작하기</h3>
-                    <p>원하는 기능을 선택하세요</p>
+                    <h3>
+                      {isModelProcessing() ? "AI 처리 중" : "POLO 시작하기"}
+                    </h3>
+                    <p>
+                      {isModelProcessing()
+                        ? "선택하신 기능들을 처리하고 있습니다"
+                        : "원하는 기능을 선택하세요"}
+                    </p>
                   </div>
 
                   {result?.is_arxiv_paper && result?.arxiv_id && (
@@ -1009,138 +1145,215 @@ export default function Upload() {
                   )}
                 </div>
 
-                {/* 기능 버튼들 */}
-                <div className="result-content">
-                  <button
-                    onClick={handleConvertAndGenerate}
-                    className="upload-guide-feature-button"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                      border: "none",
-                      borderRadius: "12px",
-                      padding: "20px",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
-                      width: "100%",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(102, 126, 234, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(102, 126, 234, 0.3)";
-                    }}
-                  >
-                    <div className="upload-guide-feature-icon">👁️</div>
-                    <div className="upload-guide-feature-title">
-                      한눈에 논문
+                {/* 모델 생성 중 메시지 */}
+                {isModelProcessing() && (
+                  <div className="processing-message">
+                    <div className="processing-icon">⏳</div>
+                    <h3>AI가 논문을 분석하고 있습니다</h3>
+                    <p>선택하신 기능들을 처리 중입니다. 잠시만 기다려주세요!</p>
+                    <div className="processing-details">
+                      <span>• 처리 완료 후 결과를 확인할 수 있습니다</span>
+                      <span>• 새 기능 선택은 처리 완료 후 가능합니다</span>
                     </div>
-                    <div className="upload-guide-feature-desc">
-                      논문의 핵심 내용을 한눈에 파악
-                    </div>
-                  </button>
+                  </div>
+                )}
 
-                  <button
-                    onClick={handleConvertAndGenerate}
-                    className="upload-guide-feature-button"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                      border: "none",
-                      borderRadius: "12px",
-                      padding: "20px",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
-                      width: "100%",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(102, 126, 234, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(102, 126, 234, 0.3)";
-                    }}
-                  >
-                    <div className="upload-guide-feature-icon">🤖</div>
-                    <div className="upload-guide-feature-title">
-                      쉬운 논문 생성
-                    </div>
-                    <div className="upload-guide-feature-desc">
-                      중학생도 이해할 수 있는 쉬운 설명
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={async () => {
-                      if (!result?.doc_id) {
-                        // 전처리부터 시작해서 수학 모델까지 실행
-                        try {
-                          if (!selectedFile) {
-                            alert("먼저 PDF를 선택해주세요.");
-                            return;
-                          }
-                          let docId = result?.doc_id;
-                          if (!docId && selectedFile) {
-                            const r = await uploadFile(selectedFile);
-                            if (r) {
-                              setResult(r); // result 상태 업데이트
-                              docId = r.doc_id || undefined;
-                            }
-                          }
-                          if (!docId) {
-                            alert(
-                              "전처리 실패: 논문 ID를 가져오지 못했습니다."
-                            );
-                            return;
-                          }
-                          await handleGenerateMathPaper(docId);
-                        } catch (e) {
-                          console.error("수학 모델 통합 실행 실패", e);
+                {/* 기능 버튼들 - 모델 생성 중이 아닐 때만 표시 */}
+                {!isModelProcessing() && (
+                  <div className="result-content">
+                    <button
+                      onClick={() => toggleFeature("overview")}
+                      className={`upload-guide-feature-button ${
+                        selectedFeatures.has("overview") ? "selected" : ""
+                      }`}
+                      style={{
+                        background: selectedFeatures.has("overview")
+                          ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
+                          : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                        border: selectedFeatures.has("overview")
+                          ? "2px solid #4caf50"
+                          : "none",
+                        borderRadius: "12px",
+                        padding: "20px",
+                        cursor: "pointer",
+                        transition: "all 0.3s ease",
+                        boxShadow: selectedFeatures.has("overview")
+                          ? "0 6px 20px rgba(76, 175, 80, 0.4)"
+                          : "0 4px 15px rgba(102, 126, 234, 0.3)",
+                        width: "100%",
+                      }}
+                      onMouseOver={(e) => {
+                        if (!selectedFeatures.has("overview")) {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(102, 126, 234, 0.4)";
                         }
-                      } else {
-                        handleGenerateMathPaper();
-                      }
-                    }}
-                    className="upload-guide-feature-button"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                      border: "none",
-                      borderRadius: "12px",
-                      padding: "20px",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
-                      width: "100%",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(25, 118, 210, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(25, 118, 210, 0.3)";
-                    }}
-                    title="수학 모델로 수식 해설 생성 (전처리 포함)"
-                  >
-                    <div className="upload-guide-feature-icon">🔢</div>
-                    <div className="upload-guide-feature-title">수학 모델</div>
-                    <div className="upload-guide-feature-desc">
-                      수식 해설 및 상세 설명
-                    </div>
-                  </button>
-                </div>
+                      }}
+                      onMouseOut={(e) => {
+                        if (!selectedFeatures.has("overview")) {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(102, 126, 234, 0.3)";
+                        }
+                      }}
+                    >
+                      <div className="upload-guide-feature-icon">
+                        {selectedFeatures.has("overview") ? "✅" : "👁️"}
+                      </div>
+                      <div className="upload-guide-feature-title">
+                        한눈에 논문
+                      </div>
+                      <div className="upload-guide-feature-desc">
+                        논문의 핵심 내용을 한눈에 파악
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => toggleFeature("easy")}
+                      className={`upload-guide-feature-button ${
+                        selectedFeatures.has("easy") ? "selected" : ""
+                      }`}
+                      style={{
+                        background: selectedFeatures.has("easy")
+                          ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
+                          : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                        border: selectedFeatures.has("easy")
+                          ? "2px solid #4caf50"
+                          : "none",
+                        borderRadius: "12px",
+                        padding: "20px",
+                        cursor: "pointer",
+                        transition: "all 0.3s ease",
+                        boxShadow: selectedFeatures.has("easy")
+                          ? "0 6px 20px rgba(76, 175, 80, 0.4)"
+                          : "0 4px 15px rgba(102, 126, 234, 0.3)",
+                        width: "100%",
+                      }}
+                      onMouseOver={(e) => {
+                        if (!selectedFeatures.has("easy")) {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(102, 126, 234, 0.4)";
+                        }
+                      }}
+                      onMouseOut={(e) => {
+                        if (!selectedFeatures.has("easy")) {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(102, 126, 234, 0.3)";
+                        }
+                      }}
+                    >
+                      <div className="upload-guide-feature-icon">
+                        {selectedFeatures.has("easy") ? "✅" : "🤖"}
+                      </div>
+                      <div className="upload-guide-feature-title">
+                        쉬운 논문 생성
+                      </div>
+                      <div className="upload-guide-feature-desc">
+                        중학생도 이해할 수 있는 쉬운 설명
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => toggleFeature("math")}
+                      className={`upload-guide-feature-button ${
+                        selectedFeatures.has("math") ? "selected" : ""
+                      }`}
+                      style={{
+                        background: selectedFeatures.has("math")
+                          ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
+                          : "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                        border: selectedFeatures.has("math")
+                          ? "2px solid #4caf50"
+                          : "none",
+                        borderRadius: "12px",
+                        padding: "20px",
+                        cursor: "pointer",
+                        transition: "all 0.3s ease",
+                        boxShadow: selectedFeatures.has("math")
+                          ? "0 6px 20px rgba(76, 175, 80, 0.4)"
+                          : "0 4px 15px rgba(25, 118, 210, 0.3)",
+                        width: "100%",
+                      }}
+                      onMouseOver={(e) => {
+                        if (!selectedFeatures.has("math")) {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(25, 118, 210, 0.4)";
+                        }
+                      }}
+                      onMouseOut={(e) => {
+                        if (!selectedFeatures.has("math")) {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(25, 118, 210, 0.3)";
+                        }
+                      }}
+                      title="수학 모델로 수식 해설 생성"
+                    >
+                      <div className="upload-guide-feature-icon">
+                        {selectedFeatures.has("math") ? "✅" : "🔢"}
+                      </div>
+                      <div className="upload-guide-feature-title">
+                        수학 모델
+                      </div>
+                      <div className="upload-guide-feature-desc">
+                        수식 해설 및 상세 설명
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {/* 선택된 기능들 처리 버튼 - 모델 생성 중이 아닐 때만 표시 */}
+                {!isModelProcessing() && selectedFeatures.size > 0 && (
+                  <div className="feature-actions">
+                    <button
+                      onClick={handleProcessSelectedFeatures}
+                      disabled={isProcessing}
+                      className="process-selected-button"
+                      style={{
+                        background:
+                          "linear-gradient(135deg, #ff6b35 0%, #f7931e 100%)",
+                        border: "none",
+                        borderRadius: "12px",
+                        padding: "16px 32px",
+                        fontSize: "16px",
+                        fontWeight: "600",
+                        color: "white",
+                        cursor: isProcessing ? "not-allowed" : "pointer",
+                        transition: "all 0.3s ease",
+                        boxShadow: "0 4px 15px rgba(255, 107, 53, 0.3)",
+                        width: "100%",
+                        marginTop: "20px",
+                        opacity: isProcessing ? 0.7 : 1,
+                      }}
+                      onMouseOver={(e) => {
+                        if (!isProcessing) {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(255, 107, 53, 0.4)";
+                        }
+                      }}
+                      onMouseOut={(e) => {
+                        if (!isProcessing) {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(255, 107, 53, 0.3)";
+                        }
+                      }}
+                    >
+                      {isProcessing ? (
+                        <>
+                          <span className="spinner"></span>
+                          처리 중... ({selectedFeatures.size}개 기능)
+                        </>
+                      ) : (
+                        <>선택된 {selectedFeatures.size}개 기능 실행하기</>
+                      )}
+                    </button>
+                  </div>
+                )}
 
                 {/* 진행률 표시 */}
                 {isLoadingEasy && (
