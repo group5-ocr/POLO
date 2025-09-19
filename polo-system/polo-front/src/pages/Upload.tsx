@@ -555,6 +555,8 @@ export default function Upload() {
   );
   const [downloadInfo, setDownloadInfo] = useState<any>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showFeatures, setShowFeatures] = useState(false);
+  const [showFeaturesModal, setShowFeaturesModal] = useState(false);
 
   // 로그인 체크
   useEffect(() => {
@@ -642,7 +644,10 @@ export default function Upload() {
       let docId = result?.doc_id;
       if (!docId && selectedFile) {
         const r = await uploadFile(selectedFile);
-        docId = r?.doc_id || undefined;
+        if (r) {
+          setResult(r); // result 상태 업데이트
+          docId = r.doc_id || undefined;
+        }
       }
       if (!docId) {
         alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
@@ -855,124 +860,6 @@ export default function Upload() {
           <p>PDF 파일을 업로드하면 AI가 쉽게 이해할 수 있도록 변환해드려요!</p>
         </div>
 
-        {/* 상단 버튼 영역 */}
-        {selectedFile && !uploading && (
-          <div className="upload-actions-container">
-            <div className="upload-actions-wrapper">
-              <button
-                onClick={handleConvertAndGenerate}
-                className="btn-primary"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "12px 24px",
-                  fontSize: "16px",
-                  fontWeight: "600",
-                  color: "white",
-                  cursor: "pointer",
-                  transition: "all 0.3s ease",
-                  boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.transform = "translateY(-2px)";
-                  e.currentTarget.style.boxShadow =
-                    "0 6px 20px rgba(102, 126, 234, 0.4)";
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow =
-                    "0 4px 15px rgba(102, 126, 234, 0.3)";
-                }}
-              >
-                쉬운 논문 생성
-              </button>
-              <button
-                onClick={async () => {
-                  if (!result?.doc_id) {
-                    // 전처리부터 시작해서 수학 모델까지 실행
-                    try {
-                      if (!selectedFile) {
-                        alert("먼저 PDF를 선택해주세요.");
-                        return;
-                      }
-                      let docId = result?.doc_id;
-                      if (!docId && selectedFile) {
-                        const r = await uploadFile(selectedFile);
-                        docId = r?.doc_id || undefined;
-                      }
-                      if (!docId) {
-                        alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
-                        return;
-                      }
-                      await handleGenerateMathPaper(docId);
-                    } catch (e) {
-                      console.error("수학 모델 통합 실행 실패", e);
-                    }
-                  } else {
-                    handleGenerateMathPaper();
-                  }
-                }}
-                style={{
-                  background:
-                    "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "12px 24px",
-                  fontSize: "16px",
-                  fontWeight: "600",
-                  color: "white",
-                  cursor: "pointer",
-                  transition: "all 0.3s ease",
-                  boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.transform = "translateY(-2px)";
-                  e.currentTarget.style.boxShadow =
-                    "0 6px 20px rgba(25, 118, 210, 0.4)";
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow =
-                    "0 4px 15px rgba(25, 118, 210, 0.3)";
-                }}
-                title="수학 모델로 수식 해설 생성 (전처리 포함)"
-              >
-                수학 모델
-              </button>
-              <button
-                onClick={() => {
-                  setSelectedFile(null);
-                  setError(null);
-                  setResult(null);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "2px solid #e0e0e0",
-                  borderRadius: "8px",
-                  padding: "10px 22px",
-                  fontSize: "16px",
-                  fontWeight: "500",
-                  color: "#666",
-                  cursor: "pointer",
-                  transition: "all 0.3s ease",
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = "#999";
-                  e.currentTarget.style.color = "#333";
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.borderColor = "#e0e0e0";
-                  e.currentTarget.style.color = "#666";
-                }}
-              >
-                파일 다시 선택
-              </button>
-            </div>
-          </div>
-        )}
-
         <div className="upload-layout">
           {/* 왼쪽: PDF 업로드 영역 */}
           <div className="upload-left">
@@ -1028,6 +915,20 @@ export default function Upload() {
               onDragLeave={handleDrag}
               onDragOver={handleDrag}
               onDrop={handleDrop}
+              onClick={() => {
+                if (selectedFile && !uploading) {
+                  // 파일이 선택되어 있고 업로드 중이 아닐 때만 파일 선택 창 열기
+                  const fileInput = document.querySelector(
+                    ".file-input"
+                  ) as HTMLInputElement;
+                  if (fileInput) {
+                    fileInput.click();
+                  }
+                }
+              }}
+              style={{
+                cursor: selectedFile && !uploading ? "pointer" : "default",
+              }}
             >
               <input
                 type="file"
@@ -1035,6 +936,9 @@ export default function Upload() {
                 onChange={onChange}
                 disabled={uploading}
                 className="file-input"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
               />
               <div className="upload-content">
                 {uploading ? (
@@ -1052,8 +956,8 @@ export default function Upload() {
                       {(selectedFile.size / 1024).toFixed(2)} KB
                     </p>
                     <div className="upload-info">
+                      <span>• 클릭하여 다른 파일 선택</span>
                       <span>• PDF 파일만 지원</span>
-                      <span>• 최대 50MB</span>
                     </div>
                   </>
                 ) : (
@@ -1083,94 +987,160 @@ export default function Upload() {
 
           {/* 오른쪽: 안내 또는 결과 영역 */}
           <div className="upload-right">
-            {result ? (
-              <div className="result-container">
-                <div className="result-header">
-                  <h3>전처리 완료</h3>
-                  <p>
-                    논문이 분석되었습니다. 아래 버튼으로 쉬운 논문 생성을
-                    시작하세요.
-                  </p>
-                  {result.is_arxiv_paper && result.arxiv_id && (
-                    <div className="arxiv-info">
+            {result || selectedFile ? (
+              <div
+                className={`result-container ${
+                  isLoadingEasy || isLoadingMath || easyReady || mathReady
+                    ? "has-content"
+                    : "buttons-only"
+                }`}
+              >
+                <div className="result-top">
+                  <div className="result-header">
+                    <h3>POLO 시작하기</h3>
+                    <p>원하는 기능을 선택하세요</p>
+                  </div>
+
+                  {result?.is_arxiv_paper && result?.arxiv_id && (
+                    <div className="arxiv-container">
                       <span className="arxiv-badge">📄 arXiv 논문</span>
                       <span className="arxiv-id">ID: {result.arxiv_id}</span>
                     </div>
                   )}
                 </div>
 
-                {downloadInfo && (
-                  <div className="download-info">
-                    <h4>다운로드 가능한 파일</h4>
-                    <div className="file-list">
-                      {downloadInfo.files.easy.length > 0 && (
-                        <div className="file-category">
-                          <h5>
-                            🖼️ 쉬운 버전 이미지 (
-                            {downloadInfo.files.easy.length}개)
-                          </h5>
-                          <button
-                            className="btn-download"
-                            onClick={() =>
-                              result.doc_id &&
-                              downloadFile(result.doc_id, "easy")
-                            }
-                          >
-                            이미지 다운로드
-                          </button>
-                        </div>
-                      )}
-
-                      {downloadInfo.files.preprocess.length > 0 && (
-                        <div className="file-category">
-                          <h5>
-                            📄 전처리 파일 (
-                            {downloadInfo.files.preprocess.length}
-                            개)
-                          </h5>
-                          <div className="file-items">
-                            {downloadInfo.files.preprocess.map(
-                              (file: any, index: number) => (
-                                <button
-                                  key={index}
-                                  className="btn-download-small"
-                                  onClick={() =>
-                                    downloadFile(file.name, "json")
-                                  }
-                                >
-                                  {file.name} ({(file.size / 1024).toFixed(1)}
-                                  KB)
-                                </button>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {downloadInfo.files.raw.length > 0 && (
-                        <div className="file-category">
-                          <h5>
-                            📁 원본 파일 ({downloadInfo.files.raw.length}개)
-                          </h5>
-                          <div className="file-items">
-                            {downloadInfo.files.raw.map(
-                              (file: any, index: number) => (
-                                <button
-                                  key={index}
-                                  className="btn-download-small"
-                                  onClick={() => downloadFile(file.name, "raw")}
-                                >
-                                  {file.name} ({(file.size / 1024).toFixed(1)}
-                                  KB)
-                                </button>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      )}
+                {/* 기능 버튼들 */}
+                <div className="result-content">
+                  <button
+                    onClick={handleConvertAndGenerate}
+                    className="upload-guide-feature-button"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                      border: "none",
+                      borderRadius: "12px",
+                      padding: "20px",
+                      cursor: "pointer",
+                      transition: "all 0.3s ease",
+                      boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
+                      width: "100%",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow =
+                        "0 6px 20px rgba(102, 126, 234, 0.4)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow =
+                        "0 4px 15px rgba(102, 126, 234, 0.3)";
+                    }}
+                  >
+                    <div className="upload-guide-feature-icon">👁️</div>
+                    <div className="upload-guide-feature-title">
+                      한눈에 논문
                     </div>
-                  </div>
-                )}
+                    <div className="upload-guide-feature-desc">
+                      논문의 핵심 내용을 한눈에 파악
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={handleConvertAndGenerate}
+                    className="upload-guide-feature-button"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                      border: "none",
+                      borderRadius: "12px",
+                      padding: "20px",
+                      cursor: "pointer",
+                      transition: "all 0.3s ease",
+                      boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
+                      width: "100%",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow =
+                        "0 6px 20px rgba(102, 126, 234, 0.4)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow =
+                        "0 4px 15px rgba(102, 126, 234, 0.3)";
+                    }}
+                  >
+                    <div className="upload-guide-feature-icon">🤖</div>
+                    <div className="upload-guide-feature-title">
+                      쉬운 논문 생성
+                    </div>
+                    <div className="upload-guide-feature-desc">
+                      중학생도 이해할 수 있는 쉬운 설명
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      if (!result?.doc_id) {
+                        // 전처리부터 시작해서 수학 모델까지 실행
+                        try {
+                          if (!selectedFile) {
+                            alert("먼저 PDF를 선택해주세요.");
+                            return;
+                          }
+                          let docId = result?.doc_id;
+                          if (!docId && selectedFile) {
+                            const r = await uploadFile(selectedFile);
+                            if (r) {
+                              setResult(r); // result 상태 업데이트
+                              docId = r.doc_id || undefined;
+                            }
+                          }
+                          if (!docId) {
+                            alert(
+                              "전처리 실패: 논문 ID를 가져오지 못했습니다."
+                            );
+                            return;
+                          }
+                          await handleGenerateMathPaper(docId);
+                        } catch (e) {
+                          console.error("수학 모델 통합 실행 실패", e);
+                        }
+                      } else {
+                        handleGenerateMathPaper();
+                      }
+                    }}
+                    className="upload-guide-feature-button"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                      border: "none",
+                      borderRadius: "12px",
+                      padding: "20px",
+                      cursor: "pointer",
+                      transition: "all 0.3s ease",
+                      boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                      width: "100%",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow =
+                        "0 6px 20px rgba(25, 118, 210, 0.4)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow =
+                        "0 4px 15px rgba(25, 118, 210, 0.3)";
+                    }}
+                    title="수학 모델로 수식 해설 생성 (전처리 포함)"
+                  >
+                    <div className="upload-guide-feature-icon">🔢</div>
+                    <div className="upload-guide-feature-title">수학 모델</div>
+                    <div className="upload-guide-feature-desc">
+                      수식 해설 및 상세 설명
+                    </div>
+                  </button>
+                </div>
 
                 {/* 진행률 표시 */}
                 {isLoadingEasy && (
@@ -1247,107 +1217,112 @@ export default function Upload() {
                         ✨ 시각화 이미지도 함께 생성되었습니다!
                       </span>
                     </p>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "center",
-                        gap: "15px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <button
-                        onClick={viewEasyResultsInBrowser}
+                    <div className="result-content">
+                      <div
                         style={{
-                          background:
-                            "linear-gradient(135deg, #4caf50 0%, #45a049 100%)",
-                          border: "none",
-                          borderRadius: "8px",
-                          padding: "12px 24px",
-                          fontSize: "16px",
-                          fontWeight: "600",
-                          color: "white",
-                          cursor: "pointer",
-                          transition: "all 0.3s ease",
-                          boxShadow: "0 4px 15px rgba(76, 175, 80, 0.3)",
                           display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(76, 175, 80, 0.4)";
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(76, 175, 80, 0.3)";
+                          justifyContent: "center",
+                          gap: "15px",
+                          flexWrap: "wrap",
                         }}
                       >
-                        결과 보러가기
-                      </button>
-                      <button
-                        onClick={downloadEasyResultsAsHTML}
-                        style={{
-                          background:
-                            "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
-                          border: "none",
-                          borderRadius: "8px",
-                          padding: "12px 24px",
-                          fontSize: "16px",
-                          fontWeight: "600",
-                          color: "white",
-                          cursor: "pointer",
-                          transition: "all 0.3s ease",
-                          boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(255, 152, 0, 0.4)";
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(255, 152, 0, 0.3)";
-                        }}
-                      >
-                        다운로드
-                      </button>
-                      <button
-                        onClick={downloadVizImages}
-                        style={{
-                          background:
-                            "linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)",
-                          border: "none",
-                          borderRadius: "8px",
-                          padding: "12px 24px",
-                          fontSize: "16px",
-                          fontWeight: "600",
-                          color: "white",
-                          cursor: "pointer",
-                          transition: "all 0.3s ease",
-                          boxShadow: "0 4px 15px rgba(156, 39, 176, 0.3)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(156, 39, 176, 0.4)";
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(156, 39, 176, 0.3)";
-                        }}
-                      >
-                        🖼️ 이미지 다운로드
-                      </button>
+                        <button
+                          onClick={viewEasyResultsInBrowser}
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #4caf50 0%, #45a049 100%)",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "12px 24px",
+                            fontSize: "16px",
+                            fontWeight: "600",
+                            color: "white",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 4px 15px rgba(76, 175, 80, 0.3)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.transform =
+                              "translateY(-2px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 6px 20px rgba(76, 175, 80, 0.4)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.boxShadow =
+                              "0 4px 15px rgba(76, 175, 80, 0.3)";
+                          }}
+                        >
+                          결과 보러가기
+                        </button>
+                        <button
+                          onClick={downloadEasyResultsAsHTML}
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "12px 24px",
+                            fontSize: "16px",
+                            fontWeight: "600",
+                            color: "white",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.transform =
+                              "translateY(-2px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 6px 20px rgba(255, 152, 0, 0.4)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.boxShadow =
+                              "0 4px 15px rgba(255, 152, 0, 0.3)";
+                          }}
+                        >
+                          다운로드
+                        </button>
+                        <button
+                          onClick={downloadVizImages}
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "12px 24px",
+                            fontSize: "16px",
+                            fontWeight: "600",
+                            color: "white",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 4px 15px rgba(156, 39, 176, 0.3)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.transform =
+                              "translateY(-2px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 6px 20px rgba(156, 39, 176, 0.4)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.boxShadow =
+                              "0 4px 15px rgba(156, 39, 176, 0.3)";
+                          }}
+                        >
+                          🖼️ 이미지 다운로드
+                        </button>
+                      </div>
                     </div>
                     <div
                       style={{
@@ -1439,76 +1414,80 @@ export default function Upload() {
                         ✨ MathJax로 렌더링된 수식 해설 HTML이 생성되었습니다!
                       </span>
                     </p>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "center",
-                        gap: "15px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <button
-                        onClick={viewMathResultsInBrowser}
+                    <div className="result-content">
+                      <div
                         style={{
-                          background:
-                            "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                          border: "none",
-                          borderRadius: "8px",
-                          padding: "12px 24px",
-                          fontSize: "16px",
-                          fontWeight: "600",
-                          color: "white",
-                          cursor: "pointer",
-                          transition: "all 0.3s ease",
-                          boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
                           display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(25, 118, 210, 0.4)";
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(25, 118, 210, 0.3)";
+                          justifyContent: "center",
+                          gap: "15px",
+                          flexWrap: "wrap",
                         }}
                       >
-                        👁️ 결과 보러가기
-                      </button>
-                      <button
-                        onClick={downloadMathResultsAsHTML}
-                        style={{
-                          background:
-                            "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
-                          border: "none",
-                          borderRadius: "8px",
-                          padding: "12px 24px",
-                          fontSize: "16px",
-                          fontWeight: "600",
-                          color: "white",
-                          cursor: "pointer",
-                          transition: "all 0.3s ease",
-                          boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(255, 152, 0, 0.4)";
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(255, 152, 0, 0.3)";
-                        }}
-                      >
-                        💾 HTML 다운로드
-                      </button>
+                        <button
+                          onClick={viewMathResultsInBrowser}
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "12px 24px",
+                            fontSize: "16px",
+                            fontWeight: "600",
+                            color: "white",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.transform =
+                              "translateY(-2px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 6px 20px rgba(25, 118, 210, 0.4)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.boxShadow =
+                              "0 4px 15px rgba(25, 118, 210, 0.3)";
+                          }}
+                        >
+                          👁️ 결과 보러가기
+                        </button>
+                        <button
+                          onClick={downloadMathResultsAsHTML}
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "12px 24px",
+                            fontSize: "16px",
+                            fontWeight: "600",
+                            color: "white",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.transform =
+                              "translateY(-2px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 6px 20px rgba(255, 152, 0, 0.4)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.boxShadow =
+                              "0 4px 15px rgba(255, 152, 0, 0.3)";
+                          }}
+                        >
+                          💾 HTML 다운로드
+                        </button>
+                      </div>
                     </div>
                     <div
                       style={{
@@ -1526,66 +1505,108 @@ export default function Upload() {
                     </div>
                   </div>
                 )}
-
-                {/* 로딩 상태 */}
-                {isLoadingEasy && (
-                  <div className="loading-easy">
-                    <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
-                  </div>
-                )}
-
-                <div className="action-buttons">
-                  <button
-                    className="btn-secondary"
-                    onClick={() => navigate("/")}
-                  >
-                    홈으로 돌아가기
-                  </button>
-                </div>
               </div>
             ) : (
               /* 오른쪽 안내 가이드 */
               <div className="upload-guide">
-                <h3>POLO 시작하기</h3>
+                <div className="guide-header">
+                  <h3>POLO 시작하기</h3>
+                  <p className="guide-subtitle">
+                    PDF를 업로드하고 AI가 논문을 쉽게 설명해드려요
+                  </p>
+                </div>
 
-                <div className="upload-guide-steps">
-                  <div className="upload-guide-step">
-                    <div className="upload-guide-step-number">1</div>
-                    <div className="upload-guide-step-text">
-                      PDF를 왼쪽에 드래그하거나 클릭하세요
-                    </div>
-                  </div>
-                  <div className="upload-guide-step">
-                    <div className="upload-guide-step-number">2</div>
-                    <div className="upload-guide-step-text">
-                      원하는 기능을 선택하세요
+                <div className="step-item">
+                  <div className="step-number">1</div>
+                  <div className="step-content">
+                    <div className="step-title">PDF 업로드</div>
+                    <div className="step-desc">
+                      왼쪽 영역에 PDF 파일을 드래그하거나 클릭하세요
                     </div>
                   </div>
                 </div>
-
-                <div className="upload-guide-features">
-                  <div className="upload-guide-feature">
-                    <div className="upload-guide-feature-icon">🤖</div>
-                    <div className="upload-guide-feature-title">
-                      쉬운 논문 생성
-                    </div>
-                    <div className="upload-guide-feature-desc">
-                      중학생도 이해할 수 있는 쉬운 설명
-                    </div>
-                  </div>
-                  <div className="upload-guide-feature">
-                    <div className="upload-guide-feature-icon">🔢</div>
-                    <div className="upload-guide-feature-title">수학 모델</div>
-                    <div className="upload-guide-feature-desc">
-                      수식 해설 및 상세 설명
-                    </div>
+                <div className="step-item">
+                  <div className="step-number">2</div>
+                  <div className="step-content">
+                    <div className="step-title">기능 선택</div>
+                    <div className="step-desc">원하는 AI 기능을 선택하세요</div>
                   </div>
                 </div>
+
+                <div className="features-divider"></div>
+
+                <button
+                  className="features-modal-button"
+                  onClick={() => setShowFeaturesModal(true)}
+                >
+                  <span>기능 보기</span>
+                  <span className="modal-icon">ℹ️</span>
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* 기능 보기 모달 */}
+      {showFeaturesModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowFeaturesModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>POLO 기능 소개</h3>
+              <button
+                className="modal-close"
+                onClick={() => setShowFeaturesModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="modal-feature-item">
+                <div className="modal-feature-icon">👁️</div>
+                <div className="modal-feature-content">
+                  <div className="modal-feature-name">한눈에 논문</div>
+                  <div className="modal-feature-desc">
+                    논문의 핵심 내용을 한눈에 파악할 수 있습니다. 요약, 키워드,
+                    주요 내용을 빠르게 확인하세요.
+                  </div>
+                </div>
+              </div>
+              <div className="modal-feature-item">
+                <div className="modal-feature-icon">🤖</div>
+                <div className="modal-feature-content">
+                  <div className="modal-feature-name">쉬운 논문 생성</div>
+                  <div className="modal-feature-desc">
+                    중학생도 이해할 수 있는 쉬운 설명으로 변환합니다. 복잡한
+                    학술 용어를 일상 언어로 바꿔드려요.
+                  </div>
+                </div>
+              </div>
+              <div className="modal-feature-item">
+                <div className="modal-feature-icon">🔢</div>
+                <div className="modal-feature-content">
+                  <div className="modal-feature-name">수학 모델</div>
+                  <div className="modal-feature-desc">
+                    수식과 수학적 개념을 상세히 해설합니다. 단계별 설명과
+                    시각화를 제공해드려요.
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="modal-close-button"
+                onClick={() => setShowFeaturesModal(false)}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
