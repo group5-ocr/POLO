@@ -1,0 +1,92 @@
+\section{The Deal}
+
+So here's the deal with YOLOv3: We mostly took good ideas from other people. We also trained a new classifier network that's better than the other ones. We'll just take you through the whole system from scratch so you can understand it all.
+
+\begin{figure}[t]
+\hspace{-6mm}
+\includegraphics[width=1.06\linewidth]{yolov3.pdf}
+\caption{We adapt this figure from the Focal Loss paper \cite{focal}. YOLOv3 runs significantly faster than other detection methods with comparable performance. Times from either an M40 or Titan X, they are basically the same GPU.}
+\label{fig:teaser}
+\vspace{-4mm}
+\end{figure}
+
+\subsection{Bounding Box Prediction}
+
+Following YOLO9000 our system predicts bounding boxes using dimension clusters as anchor boxes \cite{redmon2017yolo9000}. The network predicts 4 coordinates for each bounding box, $t_x$, $t_y$, $t_w$, $t_h$. If the cell is offset from the top left corner of the image by $(c_x, c_y)$ and the bounding box prior has width and height $p_w$, $p_h$, then the predictions correspond to:
+
+\begin{align*}
+b_x &= \sigma(t_x) + c_x \\
+b_y &= \sigma(t_y)  + c_y\\
+b_w &= p_w e^{t_w}\\
+b_h &= p_h e^{t_h}\\
+\end{align*}
+
+During training we use sum of squared error loss. If the ground truth for some coordinate prediction is $\hat{t}_{\mbox{*}}$ our gradient is the ground truth value (computed from the ground truth box) minus our prediction: $\hat{t}_{\mbox{*}} - t_{\mbox{*}}$. This ground truth value can be easily computed by inverting the equations above.
+
+
+\begin{figure}[]
+      \centering
+        \includegraphics[width=\linewidth]{bbox}
+      \caption{\small \textbf{Bounding boxes with dimension priors and location prediction.} We predict the width and height of the box as offsets from cluster centroids. We predict the center coordinates of the box relative to the location of filter application using a sigmoid function. This figure blatantly self-plagiarized from \cite{redmon2017yolo9000}.}
+      \label{box}
+   \end{figure}
+
+
+YOLOv3 predicts an objectness score for each bounding box using logistic regression. This should be 1 if the bounding box prior overlaps a ground truth object by more than any other bounding box prior. If the bounding box prior is not the best but does overlap a ground truth object by more than some threshold we ignore the prediction, following \cite{ren2015faster}. We use the threshold of $.5$. Unlike \cite{ren2015faster} our system only assigns one bounding box prior for each ground truth object. If a bounding box prior is not assigned to a ground truth object it incurs no loss for coordinate or class predictions, only objectness.
+
+\subsection{Class Prediction}
+
+Each box predicts the classes the bounding box may contain using multilabel classification. We do not use a softmax as we have found it is unnecessary for good performance, instead we simply use independent logistic classifiers. During training we use binary cross-entropy loss for the class predictions.
+
+This formulation helps when we move to more complex domains like the Open Images Dataset \cite{openimages}. In this dataset there are many overlapping labels (i.e. Woman and Person). Using a softmax imposes the assumption that each box has exactly one class which is often not the case. A multilabel approach better models the data.
+
+\subsection{Predictions Across Scales}
+
+YOLOv3 predicts boxes at 3 different scales. Our system extracts features from those scales using a similar concept to feature pyramid networks \cite{lin2017feature}. From our base feature extractor we add several convolutional layers. The last of these predicts a 3-d tensor encoding bounding box, objectness, and class predictions. In our experiments with COCO \cite{lin2014microsoft} we predict 3 boxes at each scale so the tensor is $N\times N\times [3*(4+1+80)]$ for the 4 bounding box offsets, 1 objectness prediction, and 80 class predictions.
+
+Next we take the feature map from 2 layers previous and upsample it by $2\times$. We also take a feature map from earlier in the network and merge it with our upsampled features using concatenation. This method allows us to get more meaningful semantic information from the upsampled features and finer-grained information from the earlier feature map. We then add a few more convolutional layers to process this combined feature map, and eventually predict a similar tensor, although now twice the size.
+
+We perform the same design one more time to predict boxes for the final scale. Thus our predictions for the 3rd scale benefit from all the prior computation as well as fine-grained features from early on in the network.
+
+We still use k-means clustering to determine our bounding box priors. We just sort of chose 9 clusters and 3 scales arbitrarily and then divide up the clusters evenly across scales. On the COCO dataset the 9 clusters were: $(10 \times 13), (16\times 30), (33 \times 23), (30 \times 61), (62 \times 45), (59 \times 119), (116 \times 90), (156 \times 198), (373 \times 326)$.
+
+\subsection{Feature Extractor}
+
+We use a new network for performing feature extraction. Our new network is a hybrid approach between the network used in YOLOv2, Darknet-19, and that newfangled residual network stuff. Our network uses successive $3 \times 3$ and $1 \x 1$ convolutional layers but now has some shortcut connections as well and is significantly larger. It has 53 convolutional layers so we call it.... wait for it..... Darknet-53!
+
+\begin{table}[h] 
+\begin{center}
+\includegraphics[width=.8\linewidth]{arch2.pdf}
+\end{center}
+\caption{\small \textbf{Darknet-53.}}
+\label{net}
+\end{table}
+
+This new network is much more powerful than Darknet-19 but still more efficient than ResNet-101 or ResNet-152. Here are some ImageNet results:
+
+\begin{table}[h]
+\small
+\begin{center}
+\begin{tabular}{lrrrrr}
+Backbone & Top-1 & Top-5 & Bn Ops & BFLOP/s & FPS\\
+\hline
+Darknet-19 \cite{redmon2017yolo9000}& 74.1 & 91.8 & 7.29 & 1246 & \bd{171}  \\
+ResNet-101\cite{resnet}& 77.1 & 93.7 & 19.7 & 1039 & 53 \\
+ResNet-152 \cite{resnet}& \bd{77.6} & \bd{93.8} & 29.4 & 1090 & 37 \\
+Darknet-53 & 77.2 & \bd{93.8} & 18.7 & \bd{1457} & 78 \\
+\end{tabular}
+\end{center}
+\caption{\small \textbf{Comparison of backbones.} Accuracy, billions of operations, billion floating point operations per second, and FPS for various networks.}
+\label{imnet}
+\vspace{-1mm}
+\end{table}
+
+Each network is trained with identical settings and tested at $256 \times 256$, single crop accuracy. Run times are measured on a Titan X at $256 \x 256$. Thus Darknet-53 performs on par with state-of-the-art classifiers but with fewer floating point operations and more speed. Darknet-53 is better than ResNet-101 and $1.5\x$ faster. Darknet-53 has similar performance to ResNet-152 and is $2\x$ faster.
+
+Darknet-53 also achieves the highest measured floating point operations per second. This means the network structure better utilizes the GPU, making it more efficient to evaluate and thus faster. That's mostly because ResNets have just way too many layers and aren't very efficient.
+
+
+\subsection{Training}
+
+We still train on full images with no hard negative mining or any of that stuff. We use multi-scale training, lots of data augmentation, batch normalization, all the standard stuff. We use the Darknet neural network framework for training and testing \cite{darknet13}.
+
