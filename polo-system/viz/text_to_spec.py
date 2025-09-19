@@ -5,15 +5,12 @@
 - 나머지 개념 도식은 templates/generic_rules.build_concept_specs 에서 추가
 """
 from __future__ import annotations
-import re, json, math, random, hashlib, statistics
+import re, json, math, statistics
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 # 개념/예시 도식 트리거
 from templates.generic_rules import build_concept_specs
-
-# 스펙을 값 없이 템플릿으로 추가하지 않음
-ALLOW_FALLBACK_TEMPLATES = False
 
 # 히스토그램 필터
 _NUM = r"-?\d+(?:\.\d+)?"
@@ -49,7 +46,6 @@ def parse_hist_values(text, min_n=20, min_unique=8):
         return vals
     return []
 
-
 # 구성/비율: "Label 12%" 여러 개 → 100±5%면 parts로 채택
 _COMPOSE_PAT = re.compile(r'(?P<label>[A-Za-z가-힣0-9/+\-_. ]{2,30})\s*[:=]?\s*(?P<pct>\d{1,3})\s*%')
 def parse_composition_parts(text, max_labels=10):
@@ -81,7 +77,7 @@ def parse_benchmark(text, max_tasks=12, max_series=8):
             vals.setdefault(n.strip(), []).append(float(v))
     cats = cats[:max_tasks]
     series = [{"label": k, "values": (v + [0.0]*(len(cats)-len(v)))[:len(cats)]}
-              for k,v in list(vals.items())[:max_series]]
+            for k,v in list(vals.items())[:max_series]]
     return (cats, series) if cats and series else ([], [])
 
 # 카테고리 분해(스택): "Dataset A: Span 20%, ..." 라인 다수 → (categories, series)
@@ -117,16 +113,6 @@ def parse_special_tokens(text):
 # 유틸리티(라벨 한글화, 값 정규화)
 def _label(en, ko): return {"en": en, "ko": ko}
 
-def _stable_seed(text: str, salt: str = "") -> int:
-    h = hashlib.sha256((salt + "|" + (text or "")).encode("utf-8")).hexdigest()
-    return int(h[:8], 16)
-
-def _rng_from(text: str, salt: str = "") -> random.Random:
-    return random.Random(_stable_seed(text, salt))
-
-def _clip(v, lo=0.05, hi=0.95):
-    return max(lo, min(hi, v))
-
 # 용어 IO
 def _find_glossary_path():
     here = Path(__file__).parent
@@ -152,7 +138,7 @@ def _compile_patterns(entry: Dict[str, Any]):
     return pats
 
 def build_concept_index(glossary):
-    """glossary 레코드를 concept_id → 메타 dict로 인덱싱"""
+    # glossary 레코드를 concept_id → 메타 dict로 인덱싱
     idx = {}
     for e in glossary:
         cid = e.get("concept_id") or e.get("name")
@@ -205,6 +191,152 @@ def _looks_like_grid_or_range(text: str, pos: int) -> bool:
         return True
     if re.search(r"\b0\s*~\s*1\b", around):     # 0~1 범위
         return True
+    return False
+
+# 유니코드 지수/마이너스 정규화
+_SUP_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+
+def _normalize_superscript(expr: str) -> str:
+    # 10⁻⁶ → 10^-6 , 유니코드 마이너스(−) → -, 슈퍼스크립트 숫자 → 일반 숫자
+    s = expr.replace("−", "-").replace("⁻", "^-")
+    return s.translate(_SUP_DIGITS)
+
+def _parse_ber_value(token: str) -> float | None:
+    t = _normalize_superscript(token.strip())
+    # 10^-6
+    m = re.search(r"10\s*\^\s*(-?\d+)", t)
+    if m:
+        try:
+            return 10.0 ** (int(m.group(1)))
+        except Exception:
+            pass
+    # 1e-6, 3.2e-5
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[eE]\s*(-?\d+)", t)
+    if m:
+        try:
+            return float(m.group(1)) * (10.0 ** int(m.group(2)))
+        except Exception:
+            pass
+    # 소수 직접
+    try:
+        v = float(t)
+        return v if 0 < v < 1 else None
+    except Exception:
+        return None
+
+# BER vs SNR spec 빌더
+def build_spec_ber_snr(text: str) -> dict:
+    T = text
+    pairs_dc, pairs_mod = [], []
+
+    rx1 = re.finditer(
+        r"(?P<snr>\d+(?:\.\d+)?)\s*dB.{0,600}?(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)",
+        T, re.I | re.S
+    )
+    rx2 = re.finditer(
+        r"(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)\s*(?:at|@|에서)?.{0,600}?SNR\s*[:=]?\s*(?P<snr>\d+(?:\.\d+)?)\s*dB",
+        T, re.I | re.S
+    )
+
+    for m in list(rx1) + list(rx2):
+        snr = float(m.group("snr"))
+        ber = _parse_ber_value(m.group("ber"))
+        if not ber:
+            continue
+        ctx = T[max(0, m.start()-120): min(len(T), m.end()+120)].lower()
+        if "deepcode" in ctx:
+            pairs_dc.append([snr, ber])
+        elif ("modulo-sk" in ctx) or ("모듈로" in ctx):
+            pairs_mod.append([snr, ber])
+        else:
+            pairs_mod.append([snr, ber])
+
+    def _uniq_sorted(pairs):
+        seen, out = set(), []
+        for x, y in pairs:
+            k = (round(x, 3), round(y, 12))
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append([x, y])
+        return sorted(out, key=lambda t: t[0])
+
+    pairs_dc, pairs_mod = _uniq_sorted(pairs_dc), _uniq_sorted(pairs_mod)
+    if not (pairs_dc or pairs_mod):
+        return {}
+    series = []
+    if pairs_dc:
+        series.append({"name": "Deepcode", "points": pairs_dc})
+    if pairs_mod:
+        series.append({"name": "Modulo-SK", "points": pairs_mod})
+    return {
+        "series": series,
+        "title": "BER vs SNR",
+        "x_label": "SNR (dB)",
+        "y_label": "BER",
+        "y_log": True
+    }
+
+# BER vs Rounds spec 빌더
+def build_spec_ber_rounds(text: str) -> dict:
+    T = text
+    pairs_dc, pairs_mod = [], []
+
+    N_PAT = r"(?:N\s*=\s*(?P<n1>\d+)|(?P<n2>\d+)\s*(?:rounds?|라운드|회))"
+    B_PAT = r"(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)"
+
+    rx1 = re.finditer(fr"{N_PAT}.{{0,600}}?{B_PAT}", T, re.I | re.S)
+    rx2 = re.finditer(fr"{B_PAT}.{{0,600}}?{N_PAT}", T, re.I | re.S)
+
+    for m in list(rx1) + list(rx2):
+        n = int((m.group("n1") or m.group("n2") or "0"))
+        ber = _parse_ber_value(m.group("ber"))
+        if not ber:
+            continue
+        ctx = T[max(0, m.start()-120): min(len(T), m.end()+120)].lower()
+        if "deepcode" in ctx:
+            pairs_dc.append([n, ber])
+        elif ("modulo-sk" in ctx) or ("모듈로" in ctx):
+            pairs_mod.append([n, ber])
+        else:
+            pairs_mod.append([n, ber])
+
+    def _uniq_sorted(pairs):
+        seen, out = set(), []
+        for x, y in pairs:
+            k = (int(x), round(y, 12))
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append([x, y])
+        return sorted(out, key=lambda t: t[0])
+
+    pairs_dc, pairs_mod = _uniq_sorted(pairs_dc), _uniq_sorted(pairs_mod)
+    if not (pairs_dc or pairs_mod):
+        return {}
+    series = []
+    if pairs_dc:
+        series.append({"name": "Deepcode", "points": pairs_dc})
+    if pairs_mod:
+        series.append({"name": "Modulo-SK", "points": pairs_mod})
+    return {
+        "series": series,
+        "title": "BER vs Rounds",
+        "x_label": "Rounds (N)",
+        "y_label": "BER",
+        "y_log": True
+    }
+
+# --- 트리거 체크 유틸 (그대로 사용) ---
+def _has_trigger(concept_idx, key: str, text: str) -> bool:
+    meta = concept_idx.get(key)
+    if meta and meta.get("patterns"):
+        return any(p.search(text) for p in meta["patterns"])
+    for _, m in concept_idx.items():
+        if m.get("category") == key:
+            for p in m.get("patterns", []):
+                if p.search(text):
+                    return True
     return False
 
 # 평가지표 범위
@@ -268,14 +400,6 @@ def _forbidden_tokens(concept_idx) -> set[str]:
             out.update([t for t in _g_label_tokens(meta) if t])
     return out
 
-def _has_trigger(concept_idx, category: str, text: str) -> bool:
-    for _, meta in concept_idx.items():
-        if meta.get("category") == category:
-            for pat in meta["patterns"]:
-                if pat.search(text):
-                    return True
-    return False
-
 def _norm_range_from_meta(cid: str, meta: dict) -> tuple[float, float]:
     rng = meta.get("entry", {}).get("norm_range")
     if isinstance(rng, (list, tuple)) and len(rng) == 2:
@@ -318,6 +442,68 @@ def _coerce_metric_value(cid: str, meta: dict, val: float, is_pct: bool):
     if is_pct and 0 <= val <= 100:      return (val, True)
     if b <= 1.0 and val > 1.0:          return None
     return None
+
+# 산점도 전용 숫자 파서
+_SCAT_PAIR = re.compile(r'\(\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*\)')
+_SCAT_X    = re.compile(r'(?:^|\b)x\s*[:=]\s*\[\s*([^\]]+)\s*\]', re.I)
+_SCAT_Y    = re.compile(r'(?:^|\b)y\s*[:=]\s*\[\s*([^\]]+)\s*\]', re.I)
+
+def _to_float_list_csv(s: str):
+    return [float(t) for t in re.findall(r'[-+]?\d+(?:\.\d+)?', s or '')]
+
+def parse_scatter_points(text: str, min_n: int = 10):
+    """
+    (x,y) 쌍 또는 x:[..], y:[..] 병렬 리스트를 찾아 반환.
+    - 최소 포인트 미만이면 빈 리스트 반환
+    - 수평/수직/단일점(변동 없음) 형태면 빈 리스트 반환
+    """
+    xs, ys = [], []
+
+    # (x, y) 쌍
+    for m in _SCAT_PAIR.finditer(text):
+        xs.append(float(m.group(1))); ys.append(float(m.group(2)))
+
+    # x:[..], y:[..] 병렬 리스트
+    if len(xs) < min_n:
+        mx = _SCAT_X.search(text); my = _SCAT_Y.search(text)
+        if mx and my:
+            xlist = _to_float_list_csv(mx.group(1))
+            ylist = _to_float_list_csv(my.group(1))
+            if len(xlist) == len(ylist):
+                xs, ys = xlist, ylist
+
+    # 기본 유효성 체크
+    if len(xs) >= min_n:
+        try:
+            if len(set(xs)) <= 1 or len(set(ys)) <= 1:
+                return [], []
+        except Exception:
+            return [], []
+        return xs, ys
+
+    return [], []
+
+def _L(en, ko):
+    return {"en": en, "ko": ko}
+
+def pick_scatter_axis_labels_from_glossary(text: str, concept_idx):
+    # 매칭되는 첫 쌍을 적용. 없으면 x/y 기본값을 반환.
+    xlab = _L("x", "x")
+    ylab = _L("y", "y")
+
+    for cid, meta in concept_idx.items():
+        if meta.get("category") != "viz.trigger.scatter":
+            continue
+        entry = meta.get("entry", {})
+        pats  = meta.get("patterns", [])
+        for p in pats:
+            if p.search(text):
+                al = entry.get("axis_labels", {})
+                if isinstance(al.get("x"), dict) and isinstance(al.get("y"), dict):
+                    return al["x"], al["y"]
+                # axis_labels가 없으면 다음 매칭 후보로 넘어감
+                break
+    return xlab, ylab
 
 # 특수 토큰 필터
 def _pick_method_token(chunk: str, stopwords: set[str],
@@ -423,7 +609,7 @@ def make_bar_group(cid: str, meta: dict, series_map: Dict[str, float]):
         }
     }
 
-# 루브릭 테이블
+# 평가지표 테이블
 RUBRICS: dict[str, dict] = {
     "metric.accuracy": {"mode": "up", "title": "Accuracy rubric",
                         "col": "min score",
@@ -443,7 +629,7 @@ RUBRICS: dict[str, dict] = {
     "metric.auprc": {"mode": "up", "title": "AUPRC rubric (baseline≈prevalence)",
                     "col": "min score",
                     "thr": [(0.70, "Excellent"), (0.50, "Good"), (0.30, "Fair"), (0.00, "Poor")]},
-    "metric.map_detection": {"mode": "up", "title": "mAP rubric (@[.5:.95])",
+    "metric.map_detection": {"mode": "up", "title": "mAP rubric",
                             "col": "min mAP",
                             "thr": [(0.55, "Excellent"), (0.40, "Good"), (0.25, "Fair"), (0.00, "Poor")]},
     "metric.average_recall": {"mode": "up", "title": "AR rubric",
@@ -481,26 +667,75 @@ RUBRICS: dict[str, dict] = {
                 "thr": [(0.02, "Excellent"), (0.05, "Good"), (0.10, "Fair"), (1.0, "Poor")]},
 }
 
-def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None = None):
+def collect_metric_keyword_hits(text: str, concept_idx) -> set[str]:
+    """숫자 없이 '지표 키워드'만 매칭된 CID 집합을 수집."""
+    hits = set()
+    for cid, meta in concept_idx.items():
+        if meta.get("category") != "metric":
+            continue
+        for pat in meta["patterns"]:
+            if pat.search(text):
+                hits.add(cid); break
+    return hits
+
+# 평가지표 하단 설명
+RUBRIC_CAPTIONS = {
+    "metric.accuracy": "정확도=(TP+TN)/전체. 클래스 불균형 상황에선 보조 지표와 함께 해석.",
+    "metric.precision": "Precision=TP/(TP+FP). 적중의 순도. 낮으면 오탐이 많음.",
+    "metric.recall": "Recall=TP/(TP+FN). 놓침 방지. 낮으면 미탐이 많음.",
+    "metric.f1": "F1=2·(Prec·Rec)/(Prec+Rec). 정밀도·재현율의 균형.",
+    "metric.auroc": "AUROC: 임계 전 범위에서 TPR 대 FPR 면적. 0.5는 무작위.",
+    "metric.auprc": "AUPRC: 클래스 희소 시 해석 유리. 기준선≈양성 비율.",
+    "metric.map_detection": "COCO mAP: IoU 0.50–0.95(0.05 간격) AP 평균.",
+    "metric.average_recall": "AR: 다수 임계에서의 평균 재현율.",
+    "metric.miou": "mIoU: 교집합/합집합의 클래스 평균. 세그멘테이션 품질.",
+    "metric.iou": "IoU: 교집합/합집합. 1에 가까울수록 정확.",
+    "metric.dice": "Dice=2·|∩|/(|A|+|B|). IoU와 유사, 민감도 높음.",
+    "metric.pq": "PQ: Panoptic Quality. 세그멘트 매칭+정확도 결합.",
+    "metric.fid": "FID↓: 생성 분포와 실제 분포의 거리. 낮을수록 좋음.",
+    "metric.kid": "KID↓: 커널 기반 분포 거리. 낮을수록 좋음.",
+    "metric.lpips": "LPIPS↓: 지각적 거리. 낮을수록 유사.",
+    "metric.inception_score": "IS: 클래스 다양성과 확신을 함께 반영.",
+    "metric.wer": "WER↓: 단어 오류율. 낮을수록 좋음.",
+    "metric.cer": "CER↓: 문자 오류율. 낮을수록 좋음.",
+}
+
+def _add_rubric_tables(spec: list, mentions: dict,
+                    numeric_cids: set[str] | None = None):
+    """
+    숫자 유무와 무관하게 '언급된 지표'에 대해 1회만 표 생성.
+    - 상단 헤드라인/수치(예: VOC2012: …)는 넣지 않음
+    - 캡션은 지표별 설명을 붙이고, 간격을 좁히기 위한 파라미터 전달
+    """
     if numeric_cids is None:
-        numeric_cids = {cid for cid, by_method in mentions.items() if by_method}
+        # 기본: 숫자 없이 키워드만 매칭된 CID 들
+        numeric_cids = set(mentions.keys())
 
     def _append_table(cid: str, rub: dict):
         title_en = rub.get("title", cid)
+        if cid == "metric.map_detection":
+            title_en = "mAP rubric"
         title_ko = title_en.replace("rubric", "해석")
+
         rows   = [name for _, name in rub["thr"]]
         values = [[round(th, 3)] for th, _ in rub["thr"]]
-        spec.append({
+
+        item = {
             "id": f"{cid.split('.')[-1]}_rubric",
             "type": "metric_table",
             "labels": {"en": title_en, "ko": title_ko},
+            "caption_labels": {"ko": RUBRIC_CAPTIONS.get(cid, "")},
             "inputs": {
                 "methods": rows,
                 "metrics": [rub["col"]],
                 "values":  values,
                 "title":   {"en": title_en, "ko": title_ko},
+                # 간격
+                "caption_bottom": 0.14,
+                "caption_y": 0.02,      
             }
-        })
+        }
+        spec.append(item)
 
     for cid in sorted(numeric_cids):
         rub = RUBRICS.get(cid)
@@ -508,37 +743,7 @@ def _add_rubric_tables(spec: list, mentions: dict, numeric_cids: set[str] | None
             _append_table(cid, rub)
 
 # 학습 곡선 빌더
-ALLOW_IMPUTED_CURVES = False
-ALLOW_CURVE_FRONT_IMPUTE = True
 MIN_POINTS_FOR_CURVE = 3
-
-def _build_series_with_front_impute(points, label, text, ylabel):
-    rnd = _rng_from(text, f"train-curve:{label}:{ylabel}")
-    points = sorted(points, key=lambda t: t[0])
-    xs_obs = [p[0] for p in points]
-    ys_obs = [p[1] for p in points]
-
-    x0, y0 = xs_obs[0], ys_obs[0]
-    x_last = xs_obs[-1]
-    x_min = 0 if x0 > 0 else x0
-
-    xs = list(range(int(x_min), int(x_last) + 1))
-    ys, mask = [], []
-    y = max(0.0, min(1.0, y0 - (0.04 + 0.03 * rnd.random())))
-    slope = (ys_obs[-1] - y) / max(1, (x_last - x_min))
-    slope = max(0.002, min(0.08, slope))
-    for x in xs:
-        if x < x0:
-            y = y + slope * 0.6 + rnd.uniform(-0.004, 0.004)
-            ys.append(_clip(y)); mask.append(0)
-        else:
-            if x in xs_obs:
-                y = ys_obs[xs_obs.index(x)]
-                ys.append(_clip(y)); mask.append(1)
-            else:
-                y = y + slope + rnd.uniform(-0.004, 0.004)
-                ys.append(_clip(y)); mask.append(0)
-    return xs, ys, mask, any(m == 0 for m in mask)
 
 def _dedup(spec):
     seen, out = set(), []
@@ -574,8 +779,31 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         if cond:
             spec.append(item)
 
-    # 루브릭 표: 실제 숫자가 잡힌 지표에만 추가
-    _add_rubric_tables(spec, mentions, numeric_cids)
+    # 평가지표
+    mentioned_cids = collect_metric_keyword_hits(text, cidx)
+    _add_rubric_tables(spec, mentions, numeric_cids=mentioned_cids)
+
+    # 산점도: 트리거가 있어도 '실데이터'가 없으면 생성하지 않음(예시/더미 금지)
+    if _has_trigger(cidx, "viz.trigger.scatter", text):
+        xs, ys = parse_scatter_points(text, min_n=10)
+        if xs and ys:
+            # 축 라벨: 사전에서 별도 축-키를 안 쓰는 경우 기본값 (x/y)로만
+            xlab = {"en": "x", "ko": "x"}
+            ylab = {"en": "y", "ko": "y"}
+
+            spec.append({
+                "id": "ratios_scatter",       
+                "type": "dist_scatter",
+                "labels": {"ko": "산점도", "en": "Scatter"},
+                "inputs": {
+                    "x": xs,
+                    "y": ys,
+                    "xlabel": xlab,
+                    "ylabel": ylab,
+                    "title": {"ko": "산점도", "en": "Scatter"}
+                }
+            })
+        # else: 데이터 부족 → 추가하지 않음
 
     # 비교/벤치마크 → 그룹 막대
     if _has_trigger(cidx, "viz.intent.comparison", text) or _has_trigger(cidx, "viz.trigger.bar_group", text):
@@ -623,23 +851,34 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
                 }
             })
 
-    # 임베딩/특징 결합 → 도식 (값 파싱 불필요)
+    # 임베딩/특징 결합 → 도식 (흐름이 있을 때만)
     if _has_trigger(cidx, "viz.intent.fusion", text) or _has_trigger(cidx, "viz.trigger.embedding_sum", text):
-        spec.append({
-            "id":"fusion_sum",
-            "type":"embedding_sum",
-            "labels":{"ko":"특징/임베딩 결합"},
-            "inputs":{
-                "title":{"ko":"특징/임베딩 결합"},
-                "rows":["Feature/Embedding A","Feature/Embedding B","(optional) C"],
-                "right":"Encoder / Fusion"
-            }
-        })
+        # 결합/합치기 의사어휘가 실제로 등장?
+        has_action = bool(re.search(r"(합치|결합|sum|add|concat|merge|fuse)", text, re.I))
+        # 따옴표/대괄호/백틱 안의 명칭을 후보로 수집
+        feats = re.findall(r"[‘'\"`]{1}([^‘'\"`]{1,40})[’'\"`]{1}", text)
+        if not feats:
+            feats = re.findall(r"\[([^\[\]\n]{1,40})\]", text)
+        feats = [f.strip() for f in feats if f.strip()]
 
-    # 시퀀스 포맷/특수 토큰 → 도식 (문서에 실제 토큰 있을 때만)
+        if has_action and len(feats) >= 2:
+            spec.append({
+                "id":"fusion_sum",
+                "type":"embedding_sum",
+                "labels":{"ko":"특징/임베딩 결합"},
+                "inputs":{
+                    "title":{"ko":"특징/임베딩 결합"},
+                    "rows": feats[:3],
+                    "right":"Encoder / Fusion"
+                }
+            })
+
+    # 시퀀스 포맷/특수 토큰 → 도식 (흐름이 있을 때만)
     if _has_trigger(cidx, "viz.intent.sequence_format", text) or _has_trigger(cidx, "viz.trigger.token_sequence", text):
         tokens = parse_special_tokens(text)
-        if tokens:
+        # 경계/순서 기호가 실제 텍스트에 있는지 확인
+        has_flow = any(sym in text for sym in ["[CLS]","[SEP]","<bos>","<eos>","→","->","|"])
+        if tokens and len(tokens) >= 3 and has_flow:
             spec.append({
                 "id":"seq_format",
                 "type":"token_sequence",
@@ -651,18 +890,6 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
                 }
             })
 
-    # 곡선(학습/ROC/PR 템플릿)
-    _append_if(_has_trigger(cidx, "viz.trigger.curve_generic", text), {
-        "id":"curve_auto",
-        "type":"curve_generic",
-        "labels":{"ko":"곡선(예시)"},
-        "inputs":{"title":"Learning Curve","xlabel":"epoch","ylabel":"metric",
-                "series":[
-                    {"label":"train","x":[1,2,3,4,5],"y":[0.9,0.7,0.6,0.5,0.45]},
-                    {"label":"val","x":[1,2,3,4,5],"y":[1.0,0.8,0.7,0.62,0.60]}
-                ],
-                "legend_loc":"upper right","annotate_last":True}
-    })
 
     # 분포/히스토그램: 의도 트리거 + 값 파싱 성공 시에만
     vals = parse_hist_values(text)
@@ -682,33 +909,74 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
     )
         # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
-    # (E) 개념/예시 도식들
-    spec += build_concept_specs(text, spec, mentions, numeric_cids)
+    # 개념/예시 도식들
+    spec += build_concept_specs(text, spec, mentions, numeric_cids, concept_idx=cidx)
 
-    # (F) 단일 포인트 학습곡선(옵션: 앞단 보정)
-    m = re.search(
-        r"(?:epoch|에폭)\s*(\d+)[^\n]{0,40}?"
-        r"(?:acc(?:uracy)?|정확도)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(%)?",
-        text, re.I
-    )
-    if m:
-        ep   = int(m.group(1))
-        val  = float(m.group(2))
-        y    = val / 100.0 if m.group(3) else val
-        points = [(ep, y)]
-        xs, ys, mask, imputed = _build_series_with_front_impute(points, "Model A", text, "정확도")
-        spec.append({
-            "id": "train_curve",
-            "type": "curve_generic",
-            "labels": _label("Learning curve", "학습 곡선"),
-            "inputs": {
-                "series": [{"x": xs, "y": ys, "label": _label("Model A", "모델 A"),
-                            "observed_mask": mask}],
-                "xlabel": _label("Epoch", "에폭"),
-                "ylabel": _label("Accuracy", "정확도"),
-                "title": _label("Learning curve" + (" (예시 보정)" if imputed else ""),
-                                "학습 곡선" + (" (예시 보정)" if imputed else ""))
-            }
-        })
+    # 학습곡선/ROC/PR 등 curve_generic — 실제 수치가 여러 개 있을 때만
+    # 더미/임퓨트 금지
+    # 용어사전 트리거(의도) + 최소 3개 포인트 필요
+    if _has_trigger(cidx, "viz.trigger.curve_generic", text) or _has_trigger(cidx, "viz.intent.curve_generic", text):
 
+        # (epoch, accuracy) 페어 추출 — 주변이 '예시/샘플/example/dummy'면 버림
+        pts = []
+        for m in re.finditer(
+            r"(?:epoch|에폭)\s*(\d+)[^\n]{0,40}?(?:acc(?:uracy)?|정확도)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(%)?",
+            text, re.I
+        ):
+            ep   = int(m.group(1))
+            val  = float(m.group(2))
+            y    = val / 100.0 if m.group(3) else val
+
+            ctx = text[max(0, m.start()-40): min(len(text), m.end()+40)].lower()
+            if re.search(r"예시|샘플|example|e\.g\.|dummy", ctx):
+                continue  # 문맥이 예시면 제외
+
+            pts.append((ep, y))
+
+        # 중복 epoch 제거 + 정렬 + 기본 유효성(포인트≥3, epoch 증가)
+        pts_dict = {}
+        for ep, y in pts:
+            pts_dict[ep] = y
+        points = sorted(pts_dict.items(), key=lambda t: t[0])
+
+        if len(points) >= 3 and all(points[i][0] < points[i+1][0] for i in range(len(points)-1)):
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+
+            spec.append({
+                "id": "train_curve_points",
+                "type": "curve_generic",
+                "labels": _label("Learning curve", "학습 곡선"),
+                "inputs": {
+                    "series": [{"x": xs, "y": ys, "label": _label("Model", "모델")}],
+                    "xlabel": _label("Epoch", "에폭"),
+                    "ylabel": _label("Accuracy", "정확도"),
+                    "title":  _label("Learning curve", "학습 곡선"),
+                    # 캡션/기타 옵션은 glossary 힌트로만 추가(예: diag/kind)
+                }
+            })
+            # 조건을 못 만족하면 아무 것도 추가하지 않음 (더미/예시 차트 생성 금지)
+
+    # BER vs SNR (trigger: viz.trigger.ber_snr)
+    if _has_trigger(cidx, "viz.trigger.ber_snr", text):
+        snr_spec = build_spec_ber_snr(text)
+        if snr_spec.get("series"):
+            spec.append({
+                "id": "ber_vs_snr",
+                "type": "ber_vs_snr",
+                "labels": {"ko": "BER 대 SNR", "en": "BER vs SNR"},
+                "inputs": snr_spec
+            })
+
+    # BER vs Rounds
+    if _has_trigger(cidx, "viz.trigger.ber_rounds", text):
+        r_spec = build_spec_ber_rounds(text)
+        if r_spec.get("series"):
+            spec.append({
+                "id": "ber_vs_rounds",
+                "type": "ber_vs_rounds",
+                "labels": {"ko": "BER 대 라운드수", "en": "BER vs Rounds"},
+                "inputs": r_spec
+            })
     return _dedup(spec)
+
