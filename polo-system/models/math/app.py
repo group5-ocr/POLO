@@ -46,12 +46,13 @@ try:
 except Exception:
     pass
 
-VERSION = "POLO-Math-API v6 (term-protect + complexity-score + caps + sanitizer)"
+VERSION = "POLO-Math-API v6.1 (dyn-maxnew + no-example + concl-guard)"
 print(VERSION, flush=True)
 
 # ----- 경로 설정 -----
 INPUT_TEX_PATH = r"C:\\POLO\\polo-system\\models\\math\\yolo.tex"
-OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
+# OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
+OUT_DIR        = "C:/POLO/POLO/polo-system/models/math/_build"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ----- 모델/토크나이저 설정 -----
@@ -91,7 +92,7 @@ HF_TOKEN = os.getenv("허깅페이스 토큰") or os.getenv("HUGGINGFACE_TOKEN")
 print(f"HF_TOKEN={'설정됨' if HF_TOKEN else '없음'}", flush=True)
 
 def load_model():
-    global tokenizer, model, GEN_KW
+    global tokenizer, model
     try:
         print(f"🔄 Math 모델 로딩 시작: {MODEL_ID}", flush=True)
         tokenizer = AutoTokenizer.from_pretrained(
@@ -123,13 +124,12 @@ def load_model():
             model.resize_token_embeddings(len(tokenizer))
             print("🔧 토큰 임베딩 크기 조정됨", flush=True)
 
-        GEN_KW = dict(max_new_tokens=512, temperature=0.2, top_p=0.9, do_sample=True)
         print("🎉 Math 모델 로딩 성공!", flush=True)
         return True
     except Exception as e:
         print(f"❌ Math 모델 로딩 실패: {e}", flush=True)
         import traceback; traceback.print_exc()
-        tokenizer = None; model = None; GEN_KW = {}
+        tokenizer = None; model = None
         return False
 
 print("🚀 Math 모델 로딩 시작...", flush=True)
@@ -226,7 +226,7 @@ def take_slices(text: str, head_chars=4000, mid_chars=2000, tail_chars=4000):
     tail = text[max(0, n - tail_chars):]
     return head, mid, tail
 
-def _generate_with_mask_from_messages(messages: List[Dict]) -> str:
+def _generate_with_mask_from_messages(messages: List[Dict], gen_kw: dict) -> str:
     if not model_loaded or tokenizer is None or model is None:
         raise RuntimeError("Math model is not loaded")
     inputs = tokenizer.apply_chat_template(
@@ -237,7 +237,7 @@ def _generate_with_mask_from_messages(messages: List[Dict]) -> str:
         out = model.generate(
             input_ids=inputs.to(model.device),
             attention_mask=attention_mask.to(model.device),
-            **GEN_KW
+            **gen_kw
         )
     return tokenizer.decode(out[0], skip_special_tokens=True)
 
@@ -247,25 +247,30 @@ def chat_overview(prompt: str) -> str:
          "You are a clear, concise technical writer who summarizes LaTeX-based AI papers for a general technical audience."},
         {"role": "user", "content": prompt}
     ]
-    text = _generate_with_mask_from_messages(messages)
+    gen_kw = dict(max_new_tokens=256, do_sample=False, early_stopping=True,
+                  eos_token_id=tokenizer.eos_token_id)
+    text = _generate_with_mask_from_messages(messages, gen_kw)
     return text.split(messages[-1]["content"])[-1].strip()
 
 # === 셀 5: 수식 해설 LLM (기호/용어 고정 강화)
 EXPLAIN_SYSTEM = (
-    "You are a teacher who explains math/AI research equations in clear, simple English. "
-    "Always be precise, polite, and easy to understand. "
-    "Never translate or alter technical identifiers/symbols (e.g., IOU, NMS, Class_i, Object, x_i, y_i). "
-    "Never replace ASCII identifiers with other scripts. If unsure, call it 'identifier'."
+    "You are an AI research equation explanation expert. "
+    "You are given equations extracted from a LaTeX research paper. "
+    "Ignore very simple arithmetic (like addition, subtraction, multiplication, division). "
+    "For all other equations, explain them clearly so that even a middle school student can understand. "
+    "Always follow this structure: Explanation → Conclusion. "
+    "Base your explanation on the context of research papers (why the equation appears, what role it plays). "
+    "Do not translate or modify equation symbols (e.g., IOU, NMS, Class_i, Object, x_i, y_i). "
+    "Keep the original math notation exactly as it is."
 )
+
 EXPLAIN_TEMPLATE = """Please explain the following equation so that it can be understood by someone at least at a middle school level.
-Follow this exact order in your output: Example → Explanation → Conclusion
+Follow this exact order in your output: Explanation → Conclusion
 
 Format your answer in Markdown with the exact section headers:
-### Example
 ### Explanation
 ### Conclusion
 
-- Example: Show the equation exactly as LaTeX in a single block (do not modify or add anything).
 - Explanation: Provide bullet points explaining the meaning of symbols (∑, 𝟙, ^, _, √, \\, etc.) and the role of each term, in a clear and concise way.
 - Conclusion: Summarize in one sentence the core purpose of this equation in the context of the paper (e.g., loss composition, normalization, coordinate error, probability/log-likelihood, etc.).
 - (Important) Do not change the symbols or the order of the equation, and do not invent new symbols.
@@ -275,13 +280,46 @@ Format your answer in Markdown with the exact section headers:
 [Equation]
 {EQUATION}
 """
+
+def _calc_gen_kwargs(eq_latex: str) -> dict:
+    # 수식 길이에 비례해 생성 한도를 늘려서 멀티라인 잘림 방지
+    eq_tokens = len(tokenizer(eq_latex, add_special_tokens=False).input_ids)
+    base = 384 + int(eq_tokens * 2.0)   # 식이 길수록 설명 여유를 더
+    max_new = max(512, min(1536, base)) # 하한 512, 상한 1536
+    return dict(
+        max_new_tokens=max_new,
+        do_sample=False,
+        top_p=None, temperature=None,
+        early_stopping=True,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
 def explain_equation_with_llm(eq_latex: str) -> str:
     messages = [
         {"role": "system", "content": EXPLAIN_SYSTEM},
         {"role": "user",   "content": EXPLAIN_TEMPLATE.format(EQUATION=eq_latex)}
     ]
-    text = _generate_with_mask_from_messages(messages)
+    gen_kw = _calc_gen_kwargs(eq_latex)
+    text = _generate_with_mask_from_messages(messages, gen_kw)
     return text.split(messages[-1]["content"])[-1].strip()
+
+# === [NEW] 결론 누락 보정 ===
+CONC_PROMPT = "Continue the previous answer. Output ONLY the missing section:\n\n### Conclusion\n"
+
+def ensure_conclusion(text: str, eq_latex: str) -> str:
+    if re.search(r"###\s*Conclusion", text, flags=re.I):
+        return text
+    messages = [
+        {"role": "system", "content": EXPLAIN_SYSTEM},
+        {"role": "user",   "content": EXPLAIN_TEMPLATE.format(EQUATION=eq_latex)},
+        {"role": "assistant", "content": text},
+        {"role": "user", "content": CONC_PROMPT}
+    ]
+    gen_kw = dict(max_new_tokens=160, do_sample=False, early_stopping=True,
+                  eos_token_id=tokenizer.eos_token_id)
+    add = _generate_with_mask_from_messages(messages, gen_kw)
+    add = add.split(CONC_PROMPT)[-1].strip()
+    return (text.rstrip() + ("\n\n" if not text.endswith("\n") else "") + add).strip()
 
 # === [NEW] 수식/해설 Sanitizer ===============================================
 CJK_RE = re.compile(r"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7A3]")
@@ -292,29 +330,25 @@ MATH_BLOCK_RE = re.compile(
 )
 
 def _std_example(eq_body: str) -> str:
-    """Example 섹션을 '정확히' 원본 수식으로 재구성"""
+    # 더 이상 사용하지 않지만, 남겨둬도 무방
     return f"### Example\n$$\n{eq_body}\n$$\n"
 
 def _normalize_example_section(text: str, eq_body: str) -> str:
     """
-    템플릿을 어겨도 Example 섹션만큼은 강제로 원본 수식으로 교체.
-    - '### Example' ~ 다음 섹션(Explanation/Conclusion/끝)까지를 통째로 교체
-    - Example 섹션이 없다면 맨 앞에 삽입
+    Example 섹션을 강제로 넣지 않는다.
+    - '### Example'이 있으면 그 블록을 통째로 제거
+    - 없으면 원문 유지
     """
     sec_pat = re.compile(
-        r"(###\s*Example)([\s\S]*?)(?=(###\s*Explanation|###\s*Conclusion|\Z))",
+        r"###\s*Example[\s\S]*?(?=(###\s*Explanation|###\s*Conclusion|\Z))",
         re.I
     )
-    if sec_pat.search(text):
-        # ✅ 콜백을 써서 백슬래시를 '있는 그대로' 넣는다
-        return sec_pat.sub(lambda m: _std_example(eq_body), text)
-    else:
-        return _std_example(eq_body) + ("\n" + text if text.strip() else "")
+    text = sec_pat.sub("", text)
+    return text.lstrip()
 
 def _drop_cjk_math_blocks(text: str) -> str:
     """
     Explanation/Conclusion 중 수식 블록에 CJK가 섞였으면 해당 수식 블록을 제거.
-    (불일치/오역 수식을 없애 혼란 최소화. Example은 이미 원본으로 교체됨)
     """
     def repl(m: re.Match) -> str:
         block = m.group(0)
@@ -323,17 +357,16 @@ def _drop_cjk_math_blocks(text: str) -> str:
 
 def sanitize_explanation(exp_text: str, eq_body: str) -> str:
     """
-    1) Example을 '원본 수식'으로 강제 동일화
+    1) Example 섹션 제거
     2) 다른 섹션 수식 중 CJK 섞인 블록 제거
     3) 여백 정돈
     """
     if not isinstance(exp_text, str):
         exp_text = str(exp_text)
     exp_text = _normalize_example_section(exp_text, eq_body)
-    # '### Explanation' 이후만 안전 처리
     parts = re.split(r"(###\s*Explanation)", exp_text, flags=re.I)
     if len(parts) >= 3:
-        head = "".join(parts[:2])         # Example까지
+        head = "".join(parts[:2])         # Explanation 헤더까지
         tail = "".join(parts[2:])         # Explanation 이후
         tail = _drop_cjk_math_blocks(tail)
         exp_text = head + tail
@@ -398,7 +431,8 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
 # ======================================================================
 
 # 1) 로컬 키 파일로 직접 초기화(환경변수 불필요)
-SERVICE_ACCOUNT_PATH = Path(__file__).parent / "stone-booking-466716-n6-f6fff7380e05.json"
+# SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
 GCP_LOCATION = "global"   # 필요 시 "asia-northeast3" 등으로 변경
 
 gcp_translate_client = None
@@ -642,7 +676,8 @@ def run_pipeline(input_tex_path: str) -> Dict:
     for idx, item in enumerate(target_items, start=1):
         print(f"[{idx}/{len(target_items)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
         raw_exp = explain_equation_with_llm(item["body"])
-        exp = sanitize_explanation(raw_exp, item["body"])  # ★ Sanitize 적용
+        raw_exp = ensure_conclusion(raw_exp, item["body"])      # ★ 결론 보장
+        exp = sanitize_explanation(raw_exp, item["body"])       # ★ Example 제거 + CJK 수식 정리
         explanations.append({
             "index": idx, "line_start": item["line_start"], "line_end": item["line_end"],
             "kind": item["kind"], "env": item["env"],
@@ -883,7 +918,7 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
 </html>"""
 
 # === FastAPI 앱 ===
-app = FastAPI(title="POLO Math Explainer API", version="1.3.1")
+app = FastAPI(title="POLO Math Explainer API", version="1.4.0")
 
 @app.get("/html/{file_path:path}", response_class=HTMLResponse)
 async def html_preview(file_path: str):
@@ -947,7 +982,8 @@ Please produce a concise English overview with:
         items = []
         for idx, it in enumerate(equations_adv[:MAX_EXPLAINS], start=1):
             raw_exp_en = explain_equation_with_llm(it["body"])
-            exp_en = sanitize_explanation(raw_exp_en, it["body"])  # ★ Sanitize 적용
+            raw_exp_en = ensure_conclusion(raw_exp_en, it["body"])
+            exp_en = sanitize_explanation(raw_exp_en, it["body"])
             exp_ko = translate_text_gcp(exp_en, target_lang="ko") if (gcp_translate_client and GCP_PARENT) else ""
             title = f"Lines {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
             items.append({

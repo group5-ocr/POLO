@@ -855,674 +855,736 @@ export default function Upload() {
           <p>PDF 파일을 업로드하면 AI가 쉽게 이해할 수 있도록 변환해드려요!</p>
         </div>
 
-        <div className="upload-actions">
-          <button
-            onClick={() => setShowArxivForm(!showArxivForm)}
-            className="btn-secondary"
-          >
-            {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
-          </button>
-        </div>
-
-        {showArxivForm && (
-          <div className="arxiv-form">
-            <h3>arXiv 논문 업로드</h3>
-            <div className="form-group">
-              <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
-              <input
-                type="text"
-                id="arxivId"
-                value={arxivId}
-                onChange={(e) => setArxivId(e.target.value)}
-                placeholder="2408.12345"
-                disabled={uploading}
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="arxivTitle">논문 제목</label>
-              <input
-                type="text"
-                id="arxivTitle"
-                value={arxivTitle}
-                onChange={(e) => setArxivTitle(e.target.value)}
-                placeholder="논문 제목을 입력하세요"
-                disabled={uploading}
-              />
-            </div>
-            <button
-              onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
-              disabled={!arxivId || !arxivTitle || uploading}
-              className="btn-primary"
-            >
-              arXiv 논문 처리하기
-            </button>
-          </div>
-        )}
-
-        <div
-          className={`upload-area ${dragActive ? "drag-active" : ""} ${
-            uploading ? "uploading" : ""
-          }`}
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-        >
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={onChange}
-            disabled={uploading}
-            className="file-input"
-          />
-          <div className="upload-content">
-            {uploading ? (
-              <>
-                <div className="upload-spinner"></div>
-                <h3>AI가 논문을 분석하고 있습니다...</h3>
-                <p>잠시만 기다려주세요!</p>
-              </>
-            ) : selectedFile ? (
-              <>
-                <div className="upload-icon">📄</div>
-                <h3>선택된 파일</h3>
-                <p className="selected-file-name">{selectedFile.name}</p>
-                <p className="selected-file-size">
-                  {(selectedFile.size / 1024).toFixed(2)} KB
-                </p>
-                <div className="upload-info">
-                  <span>• PDF 파일만 지원</span>
-                  <span>• 최대 50MB</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="upload-icon">📁</div>
-                <h3>PDF 파일을 업로드하세요</h3>
-                <p>여기를 클릭하거나 파일을 드래그하여 업로드하세요</p>
-                <div className="upload-info">
-                  <span>• PDF 파일만 지원</span>
-                  <span>• 최대 80MB</span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
+        {/* 상단 버튼 영역 */}
         {selectedFile && !uploading && (
-          <div className="conversion-actions">
-            <button
-              onClick={handleConvertAndGenerate}
-              className="btn-primary"
-              style={{
-                marginRight: 15,
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                border: "none",
-                borderRadius: "8px",
-                padding: "12px 24px",
-                fontSize: "16px",
-                fontWeight: "600",
-                color: "white",
-                cursor: "pointer",
-                transition: "all 0.3s ease",
-                boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.transform = "translateY(-2px)";
-                e.currentTarget.style.boxShadow =
-                  "0 6px 20px rgba(102, 126, 234, 0.4)";
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow =
-                  "0 4px 15px rgba(102, 126, 234, 0.3)";
-              }}
-            >
-              쉬운 논문 생성
-            </button>
-            <button
-              onClick={async () => {
-                if (!result?.doc_id) {
-                  // 전처리부터 시작해서 수학 모델까지 실행
-                  try {
-                    if (!selectedFile) {
-                      alert("먼저 PDF를 선택해주세요.");
-                      return;
+          <div className="upload-actions-container">
+            <div className="upload-actions-wrapper">
+              <button
+                onClick={handleConvertAndGenerate}
+                className="btn-primary"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 20px rgba(102, 126, 234, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 15px rgba(102, 126, 234, 0.3)";
+                }}
+              >
+                쉬운 논문 생성
+              </button>
+              <button
+                onClick={async () => {
+                  if (!result?.doc_id) {
+                    // 전처리부터 시작해서 수학 모델까지 실행
+                    try {
+                      if (!selectedFile) {
+                        alert("먼저 PDF를 선택해주세요.");
+                        return;
+                      }
+                      let docId = result?.doc_id;
+                      if (!docId && selectedFile) {
+                        const r = await uploadFile(selectedFile);
+                        docId = r?.doc_id || undefined;
+                      }
+                      if (!docId) {
+                        alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
+                        return;
+                      }
+                      await handleGenerateMathPaper(docId);
+                    } catch (e) {
+                      console.error("수학 모델 통합 실행 실패", e);
                     }
-                    let docId = result?.doc_id;
-                    if (!docId && selectedFile) {
-                      const r = await uploadFile(selectedFile);
-                      docId = r?.doc_id || undefined;
-                    }
-                    if (!docId) {
-                      alert("전처리 실패: 논문 ID를 가져오지 못했습니다.");
-                      return;
-                    }
-                    await handleGenerateMathPaper(docId);
-                  } catch (e) {
-                    console.error("수학 모델 통합 실행 실패", e);
+                  } else {
+                    handleGenerateMathPaper();
                   }
-                } else {
-                  handleGenerateMathPaper();
-                }
-              }}
-              style={{
-                marginRight: 15,
-                background: "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                border: "none",
-                borderRadius: "8px",
-                padding: "12px 24px",
-                fontSize: "16px",
-                fontWeight: "600",
-                color: "white",
-                cursor: "pointer",
-                transition: "all 0.3s ease",
-                boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.transform = "translateY(-2px)";
-                e.currentTarget.style.boxShadow =
-                  "0 6px 20px rgba(25, 118, 210, 0.4)";
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow =
-                  "0 4px 15px rgba(25, 118, 210, 0.3)";
-              }}
-              title="수학 모델로 수식 해설 생성 (전처리 포함)"
-            >
-              수학 모델
-            </button>
-            <button
-              onClick={() => {
-                setSelectedFile(null);
-                setError(null);
-                setResult(null);
-              }}
-              style={{
-                background: "transparent",
-                border: "2px solid #e0e0e0",
-                borderRadius: "8px",
-                padding: "10px 22px",
-                fontSize: "16px",
-                fontWeight: "500",
-                color: "#666",
-                cursor: "pointer",
-                transition: "all 0.3s ease",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.borderColor = "#999";
-                e.currentTarget.style.color = "#333";
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.borderColor = "#e0e0e0";
-                e.currentTarget.style.color = "#666";
-              }}
-            >
-              파일 다시 선택
-            </button>
-          </div>
-        )}
-
-        {error && (
-          <div className="error-message">
-            <div className="error-icon">⚠️</div>
-            <div className="error-content">
-              <strong>오류가 발생했습니다</strong>
-              <p>{error}</p>
-            </div>
-          </div>
-        )}
-
-        {result && (
-          <div className="result-container">
-            <div className="result-header">
-              <h3>전처리 완료</h3>
-              <p>
-                논문이 분석되었습니다. 아래 버튼으로 쉬운 논문 생성을
-                시작하세요.
-              </p>
-              {result.is_arxiv_paper && result.arxiv_id && (
-                <div className="arxiv-info">
-                  <span className="arxiv-badge">📄 arXiv 논문</span>
-                  <span className="arxiv-id">ID: {result.arxiv_id}</span>
-                </div>
-              )}
-            </div>
-
-            {downloadInfo && (
-              <div className="download-info">
-                <h4>다운로드 가능한 파일</h4>
-                <div className="file-list">
-                  {downloadInfo.files.easy.length > 0 && (
-                    <div className="file-category">
-                      <h5>
-                        🖼️ 쉬운 버전 이미지 ({downloadInfo.files.easy.length}개)
-                      </h5>
-                      <button
-                        className="btn-download"
-                        onClick={() =>
-                          result.doc_id && downloadFile(result.doc_id, "easy")
-                        }
-                      >
-                        이미지 다운로드
-                      </button>
-                    </div>
-                  )}
-
-                  {downloadInfo.files.preprocess.length > 0 && (
-                    <div className="file-category">
-                      <h5>
-                        📄 전처리 파일 ({downloadInfo.files.preprocess.length}
-                        개)
-                      </h5>
-                      <div className="file-items">
-                        {downloadInfo.files.preprocess.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() => downloadFile(file.name, "json")}
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {downloadInfo.files.raw.length > 0 && (
-                    <div className="file-category">
-                      <h5>📁 원본 파일 ({downloadInfo.files.raw.length}개)</h5>
-                      <div className="file-items">
-                        {downloadInfo.files.raw.map(
-                          (file: any, index: number) => (
-                            <button
-                              key={index}
-                              className="btn-download-small"
-                              onClick={() => downloadFile(file.name, "raw")}
-                            >
-                              {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* 진행률 표시 */}
-            {isLoadingEasy && (
-              <div className="progress-section">
-                <h4>🔄 쉬운 논문 생성 중...</h4>
-                <div className="progress-container">
-                  <div className="progress-bar">
-                    <div
-                      className="progress-fill"
-                      style={{
-                        width: `${progress}%`,
-                        background:
-                          "linear-gradient(90deg, #4caf50 0%, #8bc34a 50%, #cddc39 100%)",
-                        transition: "width 0.3s ease-in-out",
-                        borderRadius: "10px",
-                        boxShadow: "0 2px 10px rgba(76, 175, 80, 0.3)",
-                      }}
-                    ></div>
-                  </div>
-                  <div
-                    style={{
-                      textAlign: "center",
-                      marginTop: "10px",
-                      color: "#4caf50",
-                      fontWeight: "600",
-                      fontSize: "14px",
-                    }}
-                  >
-                    {progressPhase || "처리 중..."}
-                  </div>
-                </div>
-                <div
-                  style={{
-                    textAlign: "center",
-                    marginTop: "15px",
-                    color: "#666",
-                    fontSize: "12px",
-                    fontStyle: "italic",
-                  }}
-                >
-                  AI가 논문을 쉬운 언어로 변환하고 있습니다...
-                </div>
-              </div>
-            )}
-
-            {/* Easy 모델 완료 시 결과 보기 버튼들 */}
-            {easyReady && (
-              <div className="model-buttons">
-                <h4
-                  style={{
-                    textAlign: "center",
-                    marginBottom: "20px",
-                    color: "#2c3e50",
-                    fontSize: "18px",
-                  }}
-                >
-                  🎉 쉬운 논문 생성 완료!
-                </h4>
-                <p
-                  style={{
-                    textAlign: "center",
-                    marginBottom: "20px",
-                    color: "#666",
-                    fontSize: "14px",
-                  }}
-                >
-                  AI가 논문을 중학생도 이해할 수 있는 쉬운 언어로 변환했습니다.
-                  <br />
-                  전문 용어는 굵게 표시되고, 핵심 문장은 형광펜으로 강조됩니다.
-                  <br />
-                  <span style={{ color: "#4caf50", fontWeight: "600" }}>
-                    ✨ 시각화 이미지도 함께 생성되었습니다!
-                  </span>
-                </p>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    gap: "15px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <button
-                    onClick={viewEasyResultsInBrowser}
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #4caf50 0%, #45a049 100%)",
-                      border: "none",
-                      borderRadius: "8px",
-                      padding: "12px 24px",
-                      fontSize: "16px",
-                      fontWeight: "600",
-                      color: "white",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(76, 175, 80, 0.3)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(76, 175, 80, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(76, 175, 80, 0.3)";
-                    }}
-                  >
-                    결과 보러가기
-                  </button>
-                  <button
-                    onClick={downloadEasyResultsAsHTML}
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
-                      border: "none",
-                      borderRadius: "8px",
-                      padding: "12px 24px",
-                      fontSize: "16px",
-                      fontWeight: "600",
-                      color: "white",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(255, 152, 0, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(255, 152, 0, 0.3)";
-                    }}
-                  >
-                    다운로드
-                  </button>
-                  <button
-                    onClick={downloadVizImages}
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)",
-                      border: "none",
-                      borderRadius: "8px",
-                      padding: "12px 24px",
-                      fontSize: "16px",
-                      fontWeight: "600",
-                      color: "white",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(156, 39, 176, 0.3)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(156, 39, 176, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(156, 39, 176, 0.3)";
-                    }}
-                  >
-                    🖼️ 이미지 다운로드
-                  </button>
-                </div>
-                <div
-                  style={{
-                    marginTop: "15px",
-                    padding: "10px",
-                    backgroundColor: "#f8f9fa",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    color: "#666",
-                    textAlign: "center",
-                  }}
-                >
-                  ✨ 새로운 기능: 자동 굵게 처리, 핵심 문장 하이라이트, 수식
-                  제거, 한글 번역, 시각화 이미지 생성
-                </div>
-              </div>
-            )}
-
-            {/* Math 모델 처리 중 표시 */}
-            {isLoadingMath && (
-              <div className="progress-section">
-                <h4>🔢 수학 모델 처리 중...</h4>
-                <div className="progress-container">
-                  <div className="progress-bar">
-                    <div
-                      className="progress-fill"
-                      style={{
-                        width: `${mathProgress}%`,
-                        background:
-                          "linear-gradient(90deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%)",
-                        transition: "width 0.3s ease-in-out",
-                        borderRadius: "10px",
-                        boxShadow: "0 2px 10px rgba(25, 118, 210, 0.3)",
-                      }}
-                    ></div>
-                  </div>
-                  <div
-                    style={{
-                      textAlign: "center",
-                      marginTop: "10px",
-                      color: "#1976d2",
-                      fontWeight: "600",
-                      fontSize: "14px",
-                    }}
-                  >
-                    수식 분석 및 해설 생성 중...
-                  </div>
-                </div>
-                <div
-                  style={{
-                    textAlign: "center",
-                    marginTop: "15px",
-                    color: "#666",
-                    fontSize: "12px",
-                    fontStyle: "italic",
-                  }}
-                >
-                  AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수 있도록
-                  해설을 생성하고 있습니다...
-                </div>
-              </div>
-            )}
-
-            {/* Math 모델 완료 시 결과 보기 버튼들 */}
-            {mathReady && (
-              <div className="model-buttons">
-                <h4
-                  style={{
-                    textAlign: "center",
-                    marginBottom: "20px",
-                    color: "#2c3e50",
-                    fontSize: "18px",
-                  }}
-                >
-                  🎉 수학 모델 처리 완료!
-                </h4>
-                <p
-                  style={{
-                    textAlign: "center",
-                    marginBottom: "20px",
-                    color: "#666",
-                    fontSize: "14px",
-                  }}
-                >
-                  AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수 있는
-                  해설을 생성했습니다.
-                  <br />
-                  <span style={{ color: "#1976d2", fontWeight: "600" }}>
-                    ✨ MathJax로 렌더링된 수식 해설 HTML이 생성되었습니다!
-                  </span>
-                </p>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    gap: "15px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <button
-                    onClick={viewMathResultsInBrowser}
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                      border: "none",
-                      borderRadius: "8px",
-                      padding: "12px 24px",
-                      fontSize: "16px",
-                      fontWeight: "600",
-                      color: "white",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(25, 118, 210, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(25, 118, 210, 0.3)";
-                    }}
-                  >
-                    👁️ 결과 보러가기
-                  </button>
-                  <button
-                    onClick={downloadMathResultsAsHTML}
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
-                      border: "none",
-                      borderRadius: "8px",
-                      padding: "12px 24px",
-                      fontSize: "16px",
-                      fontWeight: "600",
-                      color: "white",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 6px 20px rgba(255, 152, 0, 0.4)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow =
-                        "0 4px 15px rgba(255, 152, 0, 0.3)";
-                    }}
-                  >
-                    💾 HTML 다운로드
-                  </button>
-                </div>
-                <div
-                  style={{
-                    marginTop: "15px",
-                    padding: "10px",
-                    backgroundColor: "#f8f9fa",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    color: "#666",
-                    textAlign: "center",
-                  }}
-                >
-                  ✨ 수학 모델 기능: LaTeX 수식 추출, 중학생 수준 해설 생성,
-                  MathJax 렌더링, 영문/한글 탭 전환
-                </div>
-              </div>
-            )}
-
-            {/* 상세 결과/통계 UI는 간소화 요청에 따라 제거 */}
-
-            {/* 로딩 상태 */}
-            {isLoadingEasy && (
-              <div className="loading-easy">
-                <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
-              </div>
-            )}
-
-            <div className="action-buttons">
-              <button className="btn-secondary" onClick={() => navigate("/")}>
-                홈으로 돌아가기
+                }}
+                style={{
+                  background:
+                    "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 20px rgba(25, 118, 210, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 15px rgba(25, 118, 210, 0.3)";
+                }}
+                title="수학 모델로 수식 해설 생성 (전처리 포함)"
+              >
+                수학 모델
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedFile(null);
+                  setError(null);
+                  setResult(null);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "2px solid #e0e0e0",
+                  borderRadius: "8px",
+                  padding: "10px 22px",
+                  fontSize: "16px",
+                  fontWeight: "500",
+                  color: "#666",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = "#999";
+                  e.currentTarget.style.color = "#333";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = "#e0e0e0";
+                  e.currentTarget.style.color = "#666";
+                }}
+              >
+                파일 다시 선택
               </button>
             </div>
           </div>
         )}
+
+        <div className="upload-layout">
+          {/* 왼쪽: PDF 업로드 영역 */}
+          <div className="upload-left">
+            <div className="upload-actions">
+              <button
+                onClick={() => setShowArxivForm(!showArxivForm)}
+                className="btn-secondary"
+              >
+                {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
+              </button>
+            </div>
+
+            {showArxivForm && (
+              <div className="arxiv-form">
+                <h3>arXiv 논문 업로드</h3>
+                <div className="form-group">
+                  <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
+                  <input
+                    type="text"
+                    id="arxivId"
+                    value={arxivId}
+                    onChange={(e) => setArxivId(e.target.value)}
+                    placeholder="2408.12345"
+                    disabled={uploading}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="arxivTitle">논문 제목</label>
+                  <input
+                    type="text"
+                    id="arxivTitle"
+                    value={arxivTitle}
+                    onChange={(e) => setArxivTitle(e.target.value)}
+                    placeholder="논문 제목을 입력하세요"
+                    disabled={uploading}
+                  />
+                </div>
+                <button
+                  onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
+                  disabled={!arxivId || !arxivTitle || uploading}
+                  className="btn-primary"
+                >
+                  arXiv 논문 처리하기
+                </button>
+              </div>
+            )}
+
+            <div
+              className={`upload-area ${dragActive ? "drag-active" : ""} ${
+                uploading ? "uploading" : ""
+              }`}
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+            >
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={onChange}
+                disabled={uploading}
+                className="file-input"
+              />
+              <div className="upload-content">
+                {uploading ? (
+                  <>
+                    <div className="upload-spinner"></div>
+                    <h3>AI가 논문을 분석하고 있습니다...</h3>
+                    <p>잠시만 기다려주세요!</p>
+                  </>
+                ) : selectedFile ? (
+                  <>
+                    <div className="upload-icon">📄</div>
+                    <h3>선택된 파일</h3>
+                    <p className="selected-file-name">{selectedFile.name}</p>
+                    <p className="selected-file-size">
+                      {(selectedFile.size / 1024).toFixed(2)} KB
+                    </p>
+                    <div className="upload-info">
+                      <span>• PDF 파일만 지원</span>
+                      <span>• 최대 50MB</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="upload-icon">📁</div>
+                    <h3>PDF 파일을 업로드하세요</h3>
+                    <p>여기를 클릭하거나 파일을 드래그하여 업로드하세요</p>
+                    <div className="upload-info">
+                      <span>• PDF 파일만 지원</span>
+                      <span>• 최대 80MB</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {error && (
+              <div className="error-message">
+                <div className="error-icon">⚠️</div>
+                <div className="error-content">
+                  <strong>오류가 발생했습니다</strong>
+                  <p>{error}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 오른쪽: 안내 또는 결과 영역 */}
+          <div className="upload-right">
+            {result ? (
+              <div className="result-container">
+                <div className="result-header">
+                  <h3>전처리 완료</h3>
+                  <p>
+                    논문이 분석되었습니다. 아래 버튼으로 쉬운 논문 생성을
+                    시작하세요.
+                  </p>
+                  {result.is_arxiv_paper && result.arxiv_id && (
+                    <div className="arxiv-info">
+                      <span className="arxiv-badge">📄 arXiv 논문</span>
+                      <span className="arxiv-id">ID: {result.arxiv_id}</span>
+                    </div>
+                  )}
+                </div>
+
+                {downloadInfo && (
+                  <div className="download-info">
+                    <h4>다운로드 가능한 파일</h4>
+                    <div className="file-list">
+                      {downloadInfo.files.easy.length > 0 && (
+                        <div className="file-category">
+                          <h5>
+                            🖼️ 쉬운 버전 이미지 (
+                            {downloadInfo.files.easy.length}개)
+                          </h5>
+                          <button
+                            className="btn-download"
+                            onClick={() =>
+                              result.doc_id &&
+                              downloadFile(result.doc_id, "easy")
+                            }
+                          >
+                            이미지 다운로드
+                          </button>
+                        </div>
+                      )}
+
+                      {downloadInfo.files.preprocess.length > 0 && (
+                        <div className="file-category">
+                          <h5>
+                            📄 전처리 파일 (
+                            {downloadInfo.files.preprocess.length}
+                            개)
+                          </h5>
+                          <div className="file-items">
+                            {downloadInfo.files.preprocess.map(
+                              (file: any, index: number) => (
+                                <button
+                                  key={index}
+                                  className="btn-download-small"
+                                  onClick={() =>
+                                    downloadFile(file.name, "json")
+                                  }
+                                >
+                                  {file.name} ({(file.size / 1024).toFixed(1)}
+                                  KB)
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {downloadInfo.files.raw.length > 0 && (
+                        <div className="file-category">
+                          <h5>
+                            📁 원본 파일 ({downloadInfo.files.raw.length}개)
+                          </h5>
+                          <div className="file-items">
+                            {downloadInfo.files.raw.map(
+                              (file: any, index: number) => (
+                                <button
+                                  key={index}
+                                  className="btn-download-small"
+                                  onClick={() => downloadFile(file.name, "raw")}
+                                >
+                                  {file.name} ({(file.size / 1024).toFixed(1)}
+                                  KB)
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 진행률 표시 */}
+                {isLoadingEasy && (
+                  <div className="progress-section">
+                    <h4>🔄 쉬운 논문 생성 중...</h4>
+                    <div className="progress-container">
+                      <div className="progress-bar">
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${progress}%`,
+                            background:
+                              "linear-gradient(90deg, #4caf50 0%, #8bc34a 50%, #cddc39 100%)",
+                            transition: "width 0.3s ease-in-out",
+                            borderRadius: "10px",
+                            boxShadow: "0 2px 10px rgba(76, 175, 80, 0.3)",
+                          }}
+                        ></div>
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          marginTop: "10px",
+                          color: "#4caf50",
+                          fontWeight: "600",
+                          fontSize: "14px",
+                        }}
+                      >
+                        {progressPhase || "처리 중..."}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        marginTop: "15px",
+                        color: "#666",
+                        fontSize: "12px",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      AI가 논문을 쉬운 언어로 변환하고 있습니다...
+                    </div>
+                  </div>
+                )}
+
+                {/* Easy 모델 완료 시 결과 보기 버튼들 */}
+                {easyReady && (
+                  <div className="model-buttons">
+                    <h4
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#2c3e50",
+                        fontSize: "18px",
+                      }}
+                    >
+                      🎉 쉬운 논문 생성 완료!
+                    </h4>
+                    <p
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#666",
+                        fontSize: "14px",
+                      }}
+                    >
+                      AI가 논문을 중학생도 이해할 수 있는 쉬운 언어로
+                      변환했습니다.
+                      <br />
+                      전문 용어는 굵게 표시되고, 핵심 문장은 형광펜으로
+                      강조됩니다.
+                      <br />
+                      <span style={{ color: "#4caf50", fontWeight: "600" }}>
+                        ✨ 시각화 이미지도 함께 생성되었습니다!
+                      </span>
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: "15px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        onClick={viewEasyResultsInBrowser}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #4caf50 0%, #45a049 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(76, 175, 80, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(76, 175, 80, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(76, 175, 80, 0.3)";
+                        }}
+                      >
+                        결과 보러가기
+                      </button>
+                      <button
+                        onClick={downloadEasyResultsAsHTML}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(255, 152, 0, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(255, 152, 0, 0.3)";
+                        }}
+                      >
+                        다운로드
+                      </button>
+                      <button
+                        onClick={downloadVizImages}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(156, 39, 176, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(156, 39, 176, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(156, 39, 176, 0.3)";
+                        }}
+                      >
+                        🖼️ 이미지 다운로드
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "15px",
+                        padding: "10px",
+                        backgroundColor: "#f8f9fa",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        color: "#666",
+                        textAlign: "center",
+                      }}
+                    >
+                      ✨ 새로운 기능: 자동 굵게 처리, 핵심 문장 하이라이트, 수식
+                      제거, 한글 번역, 시각화 이미지 생성
+                    </div>
+                  </div>
+                )}
+
+                {/* Math 모델 처리 중 표시 */}
+                {isLoadingMath && (
+                  <div className="progress-section">
+                    <h4>🔢 수학 모델 처리 중...</h4>
+                    <div className="progress-container">
+                      <div className="progress-bar">
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${mathProgress}%`,
+                            background:
+                              "linear-gradient(90deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%)",
+                            transition: "width 0.3s ease-in-out",
+                            borderRadius: "10px",
+                            boxShadow: "0 2px 10px rgba(25, 118, 210, 0.3)",
+                          }}
+                        ></div>
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          marginTop: "10px",
+                          color: "#1976d2",
+                          fontWeight: "600",
+                          fontSize: "14px",
+                        }}
+                      >
+                        수식 분석 및 해설 생성 중...
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        marginTop: "15px",
+                        color: "#666",
+                        fontSize: "12px",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수
+                      있도록 해설을 생성하고 있습니다...
+                    </div>
+                  </div>
+                )}
+
+                {/* Math 모델 완료 시 결과 보기 버튼들 */}
+                {mathReady && (
+                  <div className="model-buttons">
+                    <h4
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#2c3e50",
+                        fontSize: "18px",
+                      }}
+                    >
+                      🎉 수학 모델 처리 완료!
+                    </h4>
+                    <p
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "20px",
+                        color: "#666",
+                        fontSize: "14px",
+                      }}
+                    >
+                      AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수 있는
+                      해설을 생성했습니다.
+                      <br />
+                      <span style={{ color: "#1976d2", fontWeight: "600" }}>
+                        ✨ MathJax로 렌더링된 수식 해설 HTML이 생성되었습니다!
+                      </span>
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: "15px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        onClick={viewMathResultsInBrowser}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(25, 118, 210, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(25, 118, 210, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(25, 118, 210, 0.3)";
+                        }}
+                      >
+                        👁️ 결과 보러가기
+                      </button>
+                      <button
+                        onClick={downloadMathResultsAsHTML}
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "12px 24px",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white",
+                          cursor: "pointer",
+                          transition: "all 0.3s ease",
+                          boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(255, 152, 0, 0.4)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 15px rgba(255, 152, 0, 0.3)";
+                        }}
+                      >
+                        💾 HTML 다운로드
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "15px",
+                        padding: "10px",
+                        backgroundColor: "#f8f9fa",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        color: "#666",
+                        textAlign: "center",
+                      }}
+                    >
+                      ✨ 수학 모델 기능: LaTeX 수식 추출, 중학생 수준 해설 생성,
+                      MathJax 렌더링, 영문/한글 탭 전환
+                    </div>
+                  </div>
+                )}
+
+                {/* 로딩 상태 */}
+                {isLoadingEasy && (
+                  <div className="loading-easy">
+                    <p>🔄 Easy 모델이 논문을 쉬운 언어로 변환 중입니다...</p>
+                  </div>
+                )}
+
+                <div className="action-buttons">
+                  <button
+                    className="btn-secondary"
+                    onClick={() => navigate("/")}
+                  >
+                    홈으로 돌아가기
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* 오른쪽 안내 가이드 */
+              <div className="upload-guide">
+                <h3>POLO 시작하기</h3>
+
+                <div className="upload-guide-steps">
+                  <div className="upload-guide-step">
+                    <div className="upload-guide-step-number">1</div>
+                    <div className="upload-guide-step-text">
+                      PDF를 왼쪽에 드래그하거나 클릭하세요
+                    </div>
+                  </div>
+                  <div className="upload-guide-step">
+                    <div className="upload-guide-step-number">2</div>
+                    <div className="upload-guide-step-text">
+                      원하는 기능을 선택하세요
+                    </div>
+                  </div>
+                </div>
+
+                <div className="upload-guide-features">
+                  <div className="upload-guide-feature">
+                    <div className="upload-guide-feature-icon">🤖</div>
+                    <div className="upload-guide-feature-title">
+                      쉬운 논문 생성
+                    </div>
+                    <div className="upload-guide-feature-desc">
+                      중학생도 이해할 수 있는 쉬운 설명
+                    </div>
+                  </div>
+                  <div className="upload-guide-feature">
+                    <div className="upload-guide-feature-icon">🔢</div>
+                    <div className="upload-guide-feature-title">수학 모델</div>
+                    <div className="upload-guide-feature-desc">
+                      수식 해설 및 상세 설명
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
