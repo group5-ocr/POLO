@@ -3240,17 +3240,601 @@ body,
   height: 100%;
 }
 
+/* 업로드 영역과 가이드 영역 높이 동일하게 맞춤 */
+.upload-area {
+  flex: 1;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 로딩 박스 스타일 */
+.loading-box {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  border-radius: 16px;
+  padding: 24px;
+  margin: 20px 0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  animation: slideInUp 0.4s ease-out;
+  position: relative;
+  z-index: 10;
+}
+
+.loading-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.loading-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #2c3e50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.loading-icon {
+  font-size: 1.5rem;
+  animation: pulse 2s infinite;
+}
+
+.loading-close-btn {
+  transition: all 0.3s ease;
+}
+
+.loading-close-btn:hover {
+  color: #e74c3c !important;
+  transform: scale(1.1);
+}
+
+.loading-details {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(102, 126, 234, 0.08);
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  border: 1px solid rgba(102, 126, 234, 0.15);
+}
+
+.loading-details span {
+  display: block;
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.loading-details span:last-child {
+  margin-bottom: 0;
+}
+
+.loading-progress {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s ease-in-out;
+}
+
+.progress-text {
+  text-align: center;
+  color: #666;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 모델별 로딩 컨테이너 */
+.model-loading-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 4px 0;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  min-height: 200px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 모델별 로딩 박스 */
+.model-loading-box {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(248, 250, 252, 0.9) 100%
+  );
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.05);
+  animation: slideInUp 0.6s ease-out, floatingBox 3s ease-in-out infinite,
+    rainbowGlow 4s linear infinite;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transform-style: preserve-3d;
+  transition: all 0.3s ease;
+}
+
+.model-loading-box::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: rotate 3s linear infinite;
+  z-index: 1;
+}
+
+.model-loading-box::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 70%
+  );
+  animation: shimmer 2s ease-in-out infinite;
+  z-index: 2;
+}
+
+@keyframes floatingBox {
+  0%,
+  100% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg);
+  }
+  25% {
+    transform: translateY(-8px) rotateX(2deg) rotateY(1deg);
+  }
+  50% {
+    transform: translateY(-12px) rotateX(0deg) rotateY(0deg);
+  }
+  75% {
+    transform: translateY(-8px) rotateX(-2deg) rotateY(-1deg);
+  }
+}
+
+@keyframes rainbowGlow {
+  0% {
+    box-shadow: 0 8px 32px rgba(255, 0, 150, 0.1),
+      0 4px 16px rgba(0, 255, 255, 0.05);
+  }
+  16.66% {
+    box-shadow: 0 8px 32px rgba(255, 165, 0, 0.1),
+      0 4px 16px rgba(255, 0, 150, 0.05);
+  }
+  33.33% {
+    box-shadow: 0 8px 32px rgba(255, 255, 0, 0.1),
+      0 4px 16px rgba(255, 165, 0, 0.05);
+  }
+  50% {
+    box-shadow: 0 8px 32px rgba(0, 255, 0, 0.1),
+      0 4px 16px rgba(255, 255, 0, 0.05);
+  }
+  66.66% {
+    box-shadow: 0 8px 32px rgba(0, 255, 255, 0.1),
+      0 4px 16px rgba(0, 255, 0, 0.05);
+  }
+  83.33% {
+    box-shadow: 0 8px 32px rgba(0, 0, 255, 0.1),
+      0 4px 16px rgba(0, 255, 255, 0.05);
+  }
+  100% {
+    box-shadow: 0 8px 32px rgba(255, 0, 150, 0.1),
+      0 4px 16px rgba(0, 0, 255, 0.05);
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes loadingGlow {
+  0%,
+  100% {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08), 0 2px 5px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* Easy 모델 스타일 */
+.model-loading-box.easy-model {
+  border: 2px solid rgba(76, 175, 80, 0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(76, 175, 80, 0.1) 0%,
+    rgba(139, 195, 74, 0.05) 50%,
+    rgba(76, 175, 80, 0.1) 100%
+  );
+  animation: slideInUp 0.6s ease-out, floatingBox 3s ease-in-out infinite,
+    easyMagic 2.5s ease-in-out infinite, rainbowGlow 4s linear infinite;
+  position: relative;
+}
+
+.model-loading-box.easy-model::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(76, 175, 80, 0.2),
+    transparent,
+    rgba(139, 195, 74, 0.2),
+    transparent
+  );
+  animation: rotate 2.5s linear infinite;
+}
+
+.model-loading-box.easy-model::after {
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(76, 175, 80, 0.15) 50%,
+    transparent 70%
+  );
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes easyMagic {
+  0%,
+  100% {
+    transform: scale(1) rotateZ(0deg);
+    filter: hue-rotate(0deg);
+  }
+  25% {
+    transform: scale(1.05) rotateZ(1deg);
+    filter: hue-rotate(90deg);
+  }
+  50% {
+    transform: scale(1.1) rotateZ(0deg);
+    filter: hue-rotate(180deg);
+  }
+  75% {
+    transform: scale(1.05) rotateZ(-1deg);
+    filter: hue-rotate(270deg);
+  }
+}
+
+@keyframes easyGlow {
+  0%,
+  100% {
+    box-shadow: 0 4px 16px rgba(76, 175, 80, 0.1),
+      0 1px 3px rgba(76, 175, 80, 0.2);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(76, 175, 80, 0.15),
+      0 2px 5px rgba(76, 175, 80, 0.3);
+  }
+}
+
+/* Math 모델 스타일 */
+.model-loading-box.math-model {
+  border: 2px solid rgba(25, 118, 210, 0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(25, 118, 210, 0.1) 0%,
+    rgba(21, 101, 192, 0.05) 50%,
+    rgba(25, 118, 210, 0.1) 100%
+  );
+  animation: slideInUp 0.6s ease-out, floatingBox 3s ease-in-out infinite,
+    mathPulse 2.2s ease-in-out infinite, rainbowGlow 4s linear infinite;
+  position: relative;
+}
+
+.model-loading-box.math-model::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(25, 118, 210, 0.2),
+    transparent,
+    rgba(21, 101, 192, 0.2),
+    transparent
+  );
+  animation: rotate 2.2s linear infinite;
+}
+
+.model-loading-box.math-model::after {
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(25, 118, 210, 0.15) 50%,
+    transparent 70%
+  );
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes mathPulse {
+  0%,
+  100% {
+    transform: scale(1) rotateX(0deg);
+    filter: brightness(1) saturate(1);
+  }
+  25% {
+    transform: scale(1.08) rotateX(5deg);
+    filter: brightness(1.2) saturate(1.3);
+  }
+  50% {
+    transform: scale(1.12) rotateX(0deg);
+    filter: brightness(1.4) saturate(1.5);
+  }
+  75% {
+    transform: scale(1.08) rotateX(-5deg);
+    filter: brightness(1.2) saturate(1.3);
+  }
+}
+
+@keyframes mathGlow {
+  0%,
+  100% {
+    box-shadow: 0 4px 16px rgba(25, 118, 210, 0.1),
+      0 1px 3px rgba(25, 118, 210, 0.2);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(25, 118, 210, 0.15),
+      0 2px 5px rgba(25, 118, 210, 0.3);
+  }
+}
+
+/* Overview 모델 스타일 */
+.model-loading-box.overview-model {
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.1) 0%,
+    rgba(118, 75, 162, 0.05) 50%,
+    rgba(102, 126, 234, 0.1) 100%
+  );
+  animation: slideInUp 0.6s ease-out, floatingBox 3s ease-in-out infinite,
+    overviewWave 2.8s ease-in-out infinite, rainbowGlow 4s linear infinite;
+  position: relative;
+}
+
+.model-loading-box.overview-model::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(102, 126, 234, 0.2),
+    transparent,
+    rgba(118, 75, 162, 0.2),
+    transparent
+  );
+  animation: rotate 2.8s linear infinite;
+}
+
+.model-loading-box.overview-model::after {
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(102, 126, 234, 0.15) 50%,
+    transparent 70%
+  );
+  animation: shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes overviewWave {
+  0%,
+  100% {
+    transform: scale(1) rotateZ(0deg) skewX(0deg);
+    filter: hue-rotate(0deg) contrast(1);
+  }
+  25% {
+    transform: scale(1.06) rotateZ(2deg) skewX(2deg);
+    filter: hue-rotate(90deg) contrast(1.2);
+  }
+  50% {
+    transform: scale(1.1) rotateZ(0deg) skewX(0deg);
+    filter: hue-rotate(180deg) contrast(1.4);
+  }
+  75% {
+    transform: scale(1.06) rotateZ(-2deg) skewX(-2deg);
+    filter: hue-rotate(270deg) contrast(1.2);
+  }
+}
+
+@keyframes overviewGlow {
+  0%,
+  100% {
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.1),
+      0 1px 3px rgba(102, 126, 234, 0.2);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.15),
+      0 2px 5px rgba(102, 126, 234, 0.3);
+  }
+}
+
+/* 모델 로딩 헤더 */
+.model-loading-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.model-loading-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.model-icon {
+  font-size: 2rem;
+  animation: iconBounce 2s ease-in-out infinite,
+    iconGlow 3s ease-in-out infinite;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+  z-index: 3;
+  position: relative;
+}
+
+@keyframes iconBounce {
+  0%,
+  100% {
+    transform: translateY(0px) scale(1);
+  }
+  25% {
+    transform: translateY(-5px) scale(1.1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.2);
+  }
+  75% {
+    transform: translateY(-5px) scale(1.1);
+  }
+}
+
+@keyframes iconGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.3)) brightness(1.3);
+  }
+}
+
+/* 모델별 진행률 */
+.model-progress {
+  margin: 20px 0;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.model-progress .progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.model-progress .progress-fill {
+  height: 100%;
+  transition: width 0.3s ease-in-out;
+  animation: progressShimmer 2s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.model-progress .progress-fill::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  animation: progressGlow 1.5s ease-in-out infinite;
+}
+
+@keyframes progressShimmer {
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.6);
+  }
+}
+
+@keyframes progressGlow {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.model-progress .progress-text {
+  text-align: center;
+  color: #666;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 /* 결과 컨테이너 애니메이션 */
 .result-container {
   background: white;
   border-radius: 20px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  padding: 32px;
+  padding: 24px;
   margin: 0;
   position: relative;
   overflow: hidden;
   animation: slideInUp 0.6s ease-out;
   border: 1px solid rgba(102, 126, 234, 0.1);
+  flex: 1;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 결과 컨테이너 등장 애니메이션 */
@@ -3316,6 +3900,11 @@ body,
       );
   border-radius: 24px;
   padding: 24px 32px;
+  flex: 1;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), 0 8px 25px rgba(0, 0, 0, 0.04),
@@ -3847,9 +4436,10 @@ body,
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-decoration: none;
   color: inherit;
-  min-height: 110px;
+  min-height: 80px;
   width: 100%;
   box-sizing: border-box;
   position: relative;
@@ -4003,8 +4593,8 @@ body,
 }
 
 .upload-guide-feature-button .upload-guide-feature-icon {
-  font-size: 1.5rem;
-  margin-bottom: 8px;
+  font-size: 1.3rem;
+  margin-bottom: 6px;
   display: block;
   transition: all 0.3s ease;
   color: white;
@@ -4015,16 +4605,16 @@ body,
 }
 
 .upload-guide-feature-button .upload-guide-feature-title {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 700;
   color: white;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .upload-guide-feature-button .upload-guide-feature-desc {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.9);
-  line-height: 1.3;
+  line-height: 1.2;
   font-weight: 500;
 }
 
@@ -4091,7 +4681,7 @@ body,
 .upload-area {
   border: 3px dashed #cbd5e0;
   border-radius: 20px;
-  padding: 60px 40px;
+  padding: 40px 30px;
   text-align: center;
   background: white;
   transition: all 0.3s ease;
@@ -4161,10 +4751,32 @@ body,
   margin-bottom: 20px;
 }
 
+.hourglass-animation {
+  animation: hourglassRotate 2s ease-in-out infinite;
+}
+
+@keyframes hourglassRotate {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(90deg);
+  }
+  50% {
+    transform: rotate(180deg);
+  }
+  75% {
+    transform: rotate(270deg);
+  }
+}
+
 .upload-info {
   display: flex;
-  gap: 20px;
+  flex-direction: column;
+  gap: 8px;
   justify-content: center;
+  align-items: center;
   font-size: 0.9rem;
   color: #a0aec0;
 }
@@ -4288,14 +4900,14 @@ body,
 
 /* 버튼만 있을 때 (PDF 업로드 직후) */
 .result-container.buttons-only {
-  justify-content: flex-start;
+  justify-content: center;
   min-height: auto;
-  padding: 32px;
+  padding: 24px 24px 16px 24px;
 }
 
 .result-container.buttons-only .result-top {
   position: static;
-  margin-bottom: 32px;
+  margin-bottom: 20px;
   z-index: 10;
 }
 
@@ -4324,7 +4936,7 @@ body,
 .result-content {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 20px;
+  gap: 12px;
   margin: 0;
   flex-shrink: 0;
   max-width: 100%;
@@ -4374,40 +4986,45 @@ body,
   margin-bottom: 24px;
   position: relative;
   z-index: 10;
-  padding: 24px 20px;
+  padding: 32px 24px;
   background: linear-gradient(
     135deg,
-    rgba(102, 126, 234, 0.05) 0%,
-    rgba(118, 75, 162, 0.05) 100%
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(248, 250, 252, 0.9) 100%
   );
-  border-radius: 12px;
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border-radius: 16px;
+  border: 1px solid rgba(102, 126, 234, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .result-header h3 {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: #1f2937;
-  margin-bottom: 12px;
-  line-height: 1.3;
-  letter-spacing: -0.02em;
-  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #374151;
+  margin: 0;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
   transition: all 0.3s ease;
 }
 
 .result-header h3:hover {
-  transform: translateY(-2px);
-  text-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
 }
 
 .result-header p {
-  margin-bottom: 8px;
+  margin: 0;
   color: #6b7280;
   font-size: 1rem;
   line-height: 1.5;
   font-weight: 400;
   max-width: 350px;
-  margin: 0 auto 8px auto;
 }
 
 .arxiv-container {
@@ -4774,15 +5391,16 @@ body,
 
   /* 결과 컨테이너 태블릿 최적화 */
   .result-container {
-    padding: 24px;
+    padding: 20px;
   }
 
   .result-container.buttons-only {
-    padding: 24px;
+    justify-content: center;
+    padding: 20px 20px 12px 20px;
   }
 
   .result-container.buttons-only .result-top {
-    margin-bottom: 28px;
+    margin-bottom: 16px;
   }
 
   .result-header h3 {
@@ -4807,7 +5425,7 @@ body,
 
   .result-content {
     grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    gap: 12px;
     margin-top: 0;
   }
 
@@ -5160,6 +5778,7 @@ body,
   .upload-guide,
   .result-container {
     height: auto; /* 모바일에서는 높이 자동 조정 */
+    min-height: auto; /* 모바일에서는 최소 높이 제한 해제 */
   }
 
   /* 업로드 직후 결과 컨테이너 모바일 최적화 */
@@ -5169,11 +5788,12 @@ body,
   }
 
   .result-container.buttons-only {
-    padding: 20px;
+    justify-content: center;
+    padding: 16px 16px 8px 16px;
   }
 
   .result-container.buttons-only .result-top {
-    margin-bottom: 24px;
+    margin-bottom: 12px;
   }
 
   .result-top {
@@ -5196,7 +5816,7 @@ body,
   }
 
   .result-content {
-    gap: 20px;
+    gap: 12px;
     grid-template-columns: 1fr;
     margin-top: 0;
   }
@@ -5333,6 +5953,48 @@ body,
 
   .upload-guide-feature-button .upload-guide-feature-desc {
     font-size: 0.8rem;
+  }
+
+  /* 로딩 박스 모바일 최적화 */
+  .loading-box {
+    padding: 20px;
+    margin: 16px 0;
+  }
+
+  .loading-header h3 {
+    font-size: 1.1rem;
+  }
+
+  .loading-details {
+    padding: 12px;
+  }
+
+  .loading-progress {
+    padding: 12px;
+  }
+
+  /* 모델별 로딩 박스 모바일 최적화 */
+  .model-loading-container {
+    gap: 10px;
+    margin: 3px 0;
+    justify-content: center;
+    align-items: center;
+    flex: 1;
+    min-height: 150px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .model-loading-box {
+    padding: 20px;
+  }
+
+  .model-loading-header h3 {
+    font-size: 1.1rem;
+  }
+
+  .model-icon {
+    font-size: 1.5rem;
   }
 
   .guide-header h3 {

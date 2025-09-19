@@ -11,8 +11,6 @@ interface UploadResult {
   status: string;
   doc_id?: string;
   json_file_path?: string;
-  arxiv_id?: string;
-  is_arxiv_paper?: boolean;
   // JSONL 데이터 추가
   jsonl_data?: Array<{
     index: number;
@@ -32,13 +30,6 @@ interface UploadResult {
       equation: string;
       explanation: string;
     }>;
-  };
-  // arXiv 결과 추가
-  arxiv_result?: {
-    arxiv_id: string;
-    title: string;
-    tex_id: string;
-    paths: any;
   };
 }
 
@@ -649,9 +640,6 @@ export default function Upload() {
 </html>`;
   };
   const [dragActive, setDragActive] = useState(false);
-  const [arxivId, setArxivId] = useState("");
-  const [arxivTitle, setArxivTitle] = useState("");
-  const [showArxivForm, setShowArxivForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"preview" | "jsonl" | "math">(
     "preview"
   );
@@ -811,95 +799,6 @@ export default function Upload() {
     }
   };
 
-  const uploadFromArxiv = async (arxivId: string, title: string) => {
-    setUploading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const response = await fetch(
-        `${
-          import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
-        }/api/upload/from-arxiv`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            user_id: 1, // 임시 사용자 ID
-            arxiv_id: arxivId,
-            title: title,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        let detail = "arXiv 업로드 실패";
-        try {
-          const j = await response.json();
-          detail = j.detail || detail;
-        } catch {}
-        console.log(`[from-arxiv] 실패: ${response.status} ${detail}`);
-        throw new Error(`[from-arxiv] ${detail}`);
-      }
-
-      const data = await response.json();
-
-      // 서버에서 반환된 실제 논문 ID 사용
-      const docId = data.tex_id;
-
-      // arXiv 업로드는 비동기 처리이므로 성공 메시지만 표시
-      setResult({
-        filename: `${arxivId}.pdf`,
-        file_size: 0,
-        extracted_text_length: 0,
-        extracted_text_preview: `arXiv 논문 처리 시작: ${title}\n논문 ID: ${docId}\n\n처리 중입니다...`,
-        easy_text:
-          "논문이 다운로드되고 처리 중입니다. 완료되면 결과가 표시됩니다.",
-        status: "processing",
-        doc_id: docId,
-        json_file_path: `/api/download/${docId}.json`,
-        // arXiv 처리 결과 추가
-        arxiv_result: {
-          arxiv_id: arxivId,
-          title: title,
-          tex_id: data.tex_id,
-          paths: data.paths,
-        },
-      });
-
-      // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
-      if (docId) {
-        try {
-          const infoResponse = await fetch(
-            `${
-              import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
-            }/api/upload/download/info/${docId}`
-          );
-          if (infoResponse.ok) {
-            const infoData = await infoResponse.json();
-            setDownloadInfo(infoData);
-            console.log(`[download/info] 성공`);
-          } else {
-            console.log(`[download/info] 실패: ${infoResponse.status}`);
-          }
-        } catch (err) {
-          console.warn("다운로드 정보 조회 실패:", err);
-          console.log(`[download/info] 예외: ${String(err)}`);
-        }
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "arXiv 업로드 중 오류가 발생했습니다."
-      );
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const downloadFile = async (
     filename: string,
     fileType: "json" | "pdf" | "math" | "easy" | "raw"
@@ -967,58 +866,6 @@ export default function Upload() {
         <div className="upload-layout">
           {/* 왼쪽: PDF 업로드 영역 */}
           <div className="upload-left">
-            <div className="upload-actions">
-              <button
-                onClick={() => setShowArxivForm(!showArxivForm)}
-                className="btn-secondary"
-              >
-                {showArxivForm ? "PDF 업로드" : "arXiv 논문"}
-              </button>
-            </div>
-
-            {showArxivForm && (
-              <div
-                className={`arxiv-form ${
-                  isModelProcessing() ? "processing" : ""
-                }`}
-              >
-                <h3>arXiv 논문 업로드</h3>
-                <div className="form-group">
-                  <label htmlFor="arxivId">arXiv ID (예: 2408.12345)</label>
-                  <input
-                    type="text"
-                    id="arxivId"
-                    value={arxivId}
-                    onChange={(e) => setArxivId(e.target.value)}
-                    placeholder="2408.12345"
-                    disabled={uploading || isModelProcessing()}
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="arxivTitle">논문 제목</label>
-                  <input
-                    type="text"
-                    id="arxivTitle"
-                    value={arxivTitle}
-                    onChange={(e) => setArxivTitle(e.target.value)}
-                    placeholder="논문 제목을 입력하세요"
-                    disabled={uploading || isModelProcessing()}
-                  />
-                </div>
-                <button
-                  onClick={() => uploadFromArxiv(arxivId, arxivTitle)}
-                  disabled={
-                    !arxivId || !arxivTitle || uploading || isModelProcessing()
-                  }
-                  className="btn-primary"
-                >
-                  {isModelProcessing()
-                    ? "모델 생성 중..."
-                    : "arXiv 논문 처리하기"}
-                </button>
-              </div>
-            )}
-
             <div
               className={`upload-area ${dragActive ? "drag-active" : ""} ${
                 uploading ? "uploading" : ""
@@ -1069,7 +916,7 @@ export default function Upload() {
                   </>
                 ) : isModelProcessing() ? (
                   <>
-                    <div className="upload-icon">⏳</div>
+                    <div className="upload-icon hourglass-animation">⏳</div>
                     <h3>모델 생성 중입니다</h3>
                     <p>현재 AI 모델이 논문을 처리하고 있습니다</p>
                     <div className="upload-info">
@@ -1125,36 +972,102 @@ export default function Upload() {
                     : "buttons-only"
                 }`}
               >
-                <div className="result-top">
-                  <div className="result-header">
-                    <h3>
-                      {isModelProcessing() ? "AI 처리 중" : "POLO 시작하기"}
-                    </h3>
-                    <p>
-                      {isModelProcessing()
-                        ? "선택하신 기능들을 처리하고 있습니다"
-                        : "원하는 기능을 선택하세요"}
-                    </p>
+                {!isModelProcessing() && (
+                  <div className="result-top">
+                    <div className="result-header">
+                      <h3>원하는 기능을 선택하세요</h3>
+                      <p></p>
+                    </div>
                   </div>
+                )}
 
-                  {result?.is_arxiv_paper && result?.arxiv_id && (
-                    <div className="arxiv-container">
-                      <span className="arxiv-badge">📄 arXiv 논문</span>
-                      <span className="arxiv-id">ID: {result.arxiv_id}</span>
-                    </div>
-                  )}
-                </div>
+                {/* 모델별 로딩 박스들 */}
+                {(isLoadingEasy || isLoadingMath || isProcessing) && (
+                  <div className="model-loading-container">
+                    {/* Easy 모델 로딩 */}
+                    {isLoadingEasy && (
+                      <div className="model-loading-box easy-model">
+                        <div className="model-loading-header">
+                          <div className="model-icon">🤖</div>
+                          <h3>쉬운 논문 생성 중...</h3>
+                        </div>
+                        <div className="model-progress">
+                          <div className="progress-bar">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${progress}%`,
+                                background:
+                                  "linear-gradient(90deg, #4caf50 0%, #8bc34a 50%, #cddc39 100%)",
+                                transition: "width 0.3s ease-in-out",
+                                borderRadius: "10px",
+                                boxShadow: "0 2px 10px rgba(76, 175, 80, 0.3)",
+                              }}
+                            ></div>
+                          </div>
+                          <div className="progress-text">
+                            {progressPhase || "처리 중..."}
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-                {/* 모델 생성 중 메시지 */}
-                {isModelProcessing() && (
-                  <div className="processing-message">
-                    <div className="processing-icon">⏳</div>
-                    <h3>AI가 논문을 분석하고 있습니다</h3>
-                    <p>선택하신 기능들을 처리 중입니다. 잠시만 기다려주세요!</p>
-                    <div className="processing-details">
-                      <span>• 처리 완료 후 결과를 확인할 수 있습니다</span>
-                      <span>• 새 기능 선택은 처리 완료 후 가능합니다</span>
-                    </div>
+                    {/* Math 모델 로딩 */}
+                    {isLoadingMath && (
+                      <div className="model-loading-box math-model">
+                        <div className="model-loading-header">
+                          <div className="model-icon">🔢</div>
+                          <h3>수학 모델 처리 중...</h3>
+                        </div>
+                        <div className="model-progress">
+                          <div className="progress-bar">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${mathProgress}%`,
+                                background:
+                                  "linear-gradient(90deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%)",
+                                transition: "width 0.3s ease-in-out",
+                                borderRadius: "10px",
+                                boxShadow: "0 2px 10px rgba(25, 118, 210, 0.3)",
+                              }}
+                            ></div>
+                          </div>
+                          <div className="progress-text">
+                            수식 분석 및 해설 생성 중...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Overview 기능 로딩 */}
+                    {isProcessing && !isLoadingEasy && !isLoadingMath && (
+                      <div className="model-loading-box overview-model">
+                        <div className="model-loading-header">
+                          <div className="model-icon">👁️</div>
+                          <h3>한눈에 논문 분석 중...</h3>
+                        </div>
+                        <div className="model-progress">
+                          <div className="progress-bar">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: "75%",
+                                background:
+                                  "linear-gradient(90deg, #667eea 0%, #764ba2 50%, #9c27b0 100%)",
+                                transition: "width 0.3s ease-in-out",
+                                borderRadius: "10px",
+                                boxShadow:
+                                  "0 2px 10px rgba(102, 126, 234, 0.3)",
+                              }}
+                            ></div>
+                          </div>
+                          <div className="progress-text">
+                            논문 요약 및 키워드 추출 중...
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1355,50 +1268,6 @@ export default function Upload() {
                   </div>
                 )}
 
-                {/* 진행률 표시 */}
-                {isLoadingEasy && (
-                  <div className="progress-section">
-                    <h4>🔄 쉬운 논문 생성 중...</h4>
-                    <div className="progress-container">
-                      <div className="progress-bar">
-                        <div
-                          className="progress-fill"
-                          style={{
-                            width: `${progress}%`,
-                            background:
-                              "linear-gradient(90deg, #4caf50 0%, #8bc34a 50%, #cddc39 100%)",
-                            transition: "width 0.3s ease-in-out",
-                            borderRadius: "10px",
-                            boxShadow: "0 2px 10px rgba(76, 175, 80, 0.3)",
-                          }}
-                        ></div>
-                      </div>
-                      <div
-                        style={{
-                          textAlign: "center",
-                          marginTop: "10px",
-                          color: "#4caf50",
-                          fontWeight: "600",
-                          fontSize: "14px",
-                        }}
-                      >
-                        {progressPhase || "처리 중..."}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        textAlign: "center",
-                        marginTop: "15px",
-                        color: "#666",
-                        fontSize: "12px",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      AI가 논문을 쉬운 언어로 변환하고 있습니다...
-                    </div>
-                  </div>
-                )}
-
                 {/* Easy 모델 완료 시 결과 보기 버튼들 */}
                 {easyReady && (
                   <div className="model-buttons">
@@ -1550,51 +1419,6 @@ export default function Upload() {
                     >
                       ✨ 새로운 기능: 자동 굵게 처리, 핵심 문장 하이라이트, 수식
                       제거, 한글 번역, 시각화 이미지 생성
-                    </div>
-                  </div>
-                )}
-
-                {/* Math 모델 처리 중 표시 */}
-                {isLoadingMath && (
-                  <div className="progress-section">
-                    <h4>🔢 수학 모델 처리 중...</h4>
-                    <div className="progress-container">
-                      <div className="progress-bar">
-                        <div
-                          className="progress-fill"
-                          style={{
-                            width: `${mathProgress}%`,
-                            background:
-                              "linear-gradient(90deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%)",
-                            transition: "width 0.3s ease-in-out",
-                            borderRadius: "10px",
-                            boxShadow: "0 2px 10px rgba(25, 118, 210, 0.3)",
-                          }}
-                        ></div>
-                      </div>
-                      <div
-                        style={{
-                          textAlign: "center",
-                          marginTop: "10px",
-                          color: "#1976d2",
-                          fontWeight: "600",
-                          fontSize: "14px",
-                        }}
-                      >
-                        수식 분석 및 해설 생성 중...
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        textAlign: "center",
-                        marginTop: "15px",
-                        color: "#666",
-                        fontSize: "12px",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      AI가 논문의 수학적 수식을 분석하고 중학생도 이해할 수
-                      있도록 해설을 생성하고 있습니다...
                     </div>
                   </div>
                 )}
