@@ -138,7 +138,7 @@ def _compile_patterns(entry: Dict[str, Any]):
     return pats
 
 def build_concept_index(glossary):
-    """glossary 레코드를 concept_id → 메타 dict로 인덱싱"""
+    # glossary 레코드를 concept_id → 메타 dict로 인덱싱
     idx = {}
     for e in glossary:
         cid = e.get("concept_id") or e.get("name")
@@ -193,7 +193,7 @@ def _looks_like_grid_or_range(text: str, pos: int) -> bool:
         return True
     return False
 
-# --- 유니코드 지수/마이너스 정규화 ---
+# 유니코드 지수/마이너스 정규화
 _SUP_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 
 def _normalize_superscript(expr: str) -> str:
@@ -224,12 +224,11 @@ def _parse_ber_value(token: str) -> float | None:
     except Exception:
         return None
 
-# --- BER vs SNR spec 빌더 ---
+# BER vs SNR spec 빌더
 def build_spec_ber_snr(text: str) -> dict:
     T = text
     pairs_dc, pairs_mod = [], []
 
-    # 윈도우 600으로 확대 (문장 떨어져 있어도 페어링)
     rx1 = re.finditer(
         r"(?P<snr>\d+(?:\.\d+)?)\s*dB.{0,600}?(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)",
         T, re.I | re.S
@@ -278,7 +277,7 @@ def build_spec_ber_snr(text: str) -> dict:
         "y_log": True
     }
 
-# --- BER vs Rounds spec 빌더 ---
+# BER vs Rounds spec 빌더
 def build_spec_ber_rounds(text: str) -> dict:
     T = text
     pairs_dc, pairs_mod = [], []
@@ -286,7 +285,6 @@ def build_spec_ber_rounds(text: str) -> dict:
     N_PAT = r"(?:N\s*=\s*(?P<n1>\d+)|(?P<n2>\d+)\s*(?:rounds?|라운드|회))"
     B_PAT = r"(?:BER|오류\s*확률)\s*[:=]?\s*(?P<ber>10\s*\^\s*-?\d+|10⁻\d+|\d+(?:\.\d+)?[eE]-?\d+|\d*(?:\.\d+)?)"
 
-    # 윈도우 600으로 확대
     rx1 = re.finditer(fr"{N_PAT}.{{0,600}}?{B_PAT}", T, re.I | re.S)
     rx2 = re.finditer(fr"{B_PAT}.{{0,600}}?{N_PAT}", T, re.I | re.S)
 
@@ -458,7 +456,6 @@ def parse_scatter_points(text: str, min_n: int = 10):
     (x,y) 쌍 또는 x:[..], y:[..] 병렬 리스트를 찾아 반환.
     - 최소 포인트 미만이면 빈 리스트 반환
     - 수평/수직/단일점(변동 없음) 형태면 빈 리스트 반환
-    - 절대 '예시/더미' 생성 없음
     """
     xs, ys = [], []
 
@@ -486,17 +483,11 @@ def parse_scatter_points(text: str, min_n: int = 10):
 
     return [], []
 
-# (2) 축 라벨 선택: 용어사전 키를 '하드코딩'하지 않음.
-#     호출부에서 실제 존재하는 glossary 카테고리 키와 라벨쌍을 넘겨주면,
-#     매칭되는 첫 쌍을 적용. 없으면 x/y 기본값을 반환.
 def _L(en, ko):
     return {"en": en, "ko": ko}
 
 def pick_scatter_axis_labels_from_glossary(text: str, concept_idx):
-    """
-    매칭되는 첫 항목의 entry.axis_labels.x/y를 사용.
-    없으면 기본 x/y 반환.
-    """
+    # 매칭되는 첫 쌍을 적용. 없으면 x/y 기본값을 반환.
     xlab = _L("x", "x")
     ylab = _L("y", "y")
 
@@ -919,10 +910,7 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
     # 개념/예시 도식들
-    spec += build_concept_specs(
-    text, spec, mentions, numeric_cids,
-    has_trigger=lambda cid: _has_trigger(cidx, cid, text)
-)
+    spec += build_concept_specs(text, spec, mentions, numeric_cids, concept_idx=cidx)
 
     # 학습곡선/ROC/PR 등 curve_generic — 실제 수치가 여러 개 있을 때만
     # 더미/임퓨트 금지
