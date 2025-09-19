@@ -2,6 +2,8 @@
 """
 LaTeX 수식 해설 API (FastAPI) + GCP Translation(ko) 번역본 저장
 (버그픽스: MathJax에서 \mathlarger, \mathbbm 깨짐 방지)
+(업데이트: 논문 매크로 정의 파싱 & 프롬프트 컨텍스트 주입)
+(추가수정: env별 원래 환경 감싸기 -> MathJax 'Misplaced &' 제거)
 """
 
 # === 셀 1: 환경 준비 & 모델 로드 ===
@@ -41,13 +43,14 @@ try:
 except Exception:
     pass
 
-VERSION = "POLO-Math-API v6.2 (mathjax-macros + eq-normalizer)"  # ★ 변경
+VERSION = "POLO-Math-API v7.1 (macro-parsing + context-aware explain + env-wrap)"  # ★ 변경
 print(VERSION, flush=True)
 
 # ----- 경로 설정 -----
 INPUT_TEX_PATH = r"C:\\POLO\\polo-system\\models\\math\\yolo.tex"
-# OUT_DIR        = "C:/POLO/polo-system/models/math/_build"
-OUT_DIR = "C:/POLO/POLO/polo-system/models/math/_build"
+# OUT_DIR = "C:/POLO/polo-system/models/math/\_build"
+
+OUT_DIR = "C:/POLO/POLO/polo-system/models/math/\_build"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ----- 모델/토크나이저 설정 -----
@@ -169,7 +172,7 @@ def extract_equations(tex: str, pos_to_line) -> List[Dict]:
     for m in re.finditer(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", tex, flags=re.DOTALL):
         add("inline($ $)", m.start(), m.end(), m.group(1))
     envs = ["equation","equation*","align","align*","multline","multline*",
-            "gather","gather*","flalign","flalign*","eqnarray","eqnarray*","split","cases","cases*"]
+            "gather","gather*","flalign","flalign*","eqnarray","eqnarray*","split","cases","cases*","aligned"]
     for env in envs:
         pattern = rf"\\begin{{{re.escape(env)}}}(.+?)\\end{{{re.escape(env)}}}"
         for m in re.finditer(pattern, tex, flags=re.DOTALL):
@@ -198,17 +201,98 @@ def complexity_score(eq: str) -> int:
     score += 2 * len(re.findall(r"\\frac\{.+?\}\{.+?\}", eq))
     score += 2 * len(re.findall(r"\\sqrt\{", eq))
     score += 2 if "\n" in eq else 0
-    score += 2 * len(re.findall(r"\\begin\{(align|multline|cases|split)\*?\}", eq))
+    score += 2 * len(re.findall(r"\\begin\{(align|multline|cases|split|aligned)\*?\}", eq))
     score += 1 * (len(re.findall(r"_[A-Za-z0-9{\\]", eq)) >= 2)
     score += 1 * bool(_GREEK_RE.search(eq))
     score -= 1 * len(re.findall(r"\\times|\\cdot", eq))
     return score
 
-MIN_COMPLEXITY = 3
+MIN_COMPLEXITY = 1.3
 def is_advanced(eq: str) -> bool:
     if numeric_only(eq):
         return False
     return complexity_score(eq) >= MIN_COMPLEXITY
+
+# === 셀 3.5: 논문 매크로/연산자 파싱 =========================================
+_MACRO_NEWCOMMAND_RE = re.compile(
+    r"""\\newcommand\s*\{\\([A-Za-z@]+)\}\s*(?:\[[^\]]*\])?\s*\{([\s\S]*?)\}"""
+)
+_MACRO_DEF_RE = re.compile(
+    r"""\\def\s*\\([A-Za-z@]+)\s*\{([\s\S]*?)\}"""
+)
+_DECL_OP_RE = re.compile(
+    r"""\\DeclareMathOperator\*?\s*\{\\([A-Za-z@]+)\}\s*\{([\s\S]*?)\}"""
+)
+
+HUMAN_MEANING_MAP = {
+    "snr": "Signal-to-Noise Ratio (feedforward): P/σ²",
+    "bsnr": "Feedback SNR: \\widetilde{P}/\\widetilde{σ}² (paper formats S N~ R)",
+    "dsnr": "Delta SNR: ΔSNR (e.g., feedback minus feedforward)",
+    "dB": "decibel unit",
+    "Pe": "error probability",
+    "qfunc": "Q-function (tail probability of standard normal)",
+    "wt": "widetilde (tilde accent)",
+    "wh": "widehat (hat accent)",
+    "dfn": "triangle equals (definition)",
+    "argmin": "argument that minimizes a function",
+    "argmax": "argument that maximizes a function"
+}
+
+def extract_macro_definitions(tex: str) -> Dict[str, Dict[str, str]]:
+    latex_defs: Dict[str, str] = {}
+    for m in _MACRO_NEWCOMMAND_RE.finditer(tex):
+        name, body = m.group(1), m.group(2).strip()
+        latex_defs[name] = body
+    for m in _MACRO_DEF_RE.finditer(tex):
+        name, body = m.group(1), m.group(2).strip()
+        latex_defs[name] = body
+    for m in _DECL_OP_RE.finditer(tex):
+        name, body = m.group(1), m.group(2).strip()
+        latex_defs[name] = body
+
+    human_defs: Dict[str, str] = {}
+    for k in latex_defs.keys():
+        if k in HUMAN_MEANING_MAP:
+            human_defs[k] = HUMAN_MEANING_MAP[k]
+    for k, v in HUMAN_MEANING_MAP.items():
+        if k not in human_defs:
+            human_defs[k] = v
+    return {"latex": latex_defs, "human": human_defs}
+
+def collect_used_macros(eq_latex: str, latex_defs: Dict[str, str]) -> Dict[str, str]:
+    used = {}
+    for name in latex_defs.keys():
+        if re.search(rf"\\{name}(?![A-Za-z])", eq_latex):
+            used[name] = latex_defs[name]
+    for name in ("snr", "bsnr", "dsnr", "dfn", "wt", "wh", "dB", "Pe", "qfunc"):
+        if name in latex_defs and name not in used:
+            if name in ("snr", "bsnr", "dsnr"):
+                used[name] = latex_defs[name]
+    return used
+
+def build_paper_context(eq_item: Dict, full_text: str, macros: Dict[str, Dict[str, str]]) -> str:
+    start = max(0, eq_item.get("start", 0) - 360)
+    end   = min(len(full_text), eq_item.get("end", 0) + 360)
+    local_ctx = full_text[start:end]
+    local_ctx = re.sub(r"\s+", " ", local_ctx).strip()
+
+    used = collect_used_macros(eq_item["body"], macros["latex"])
+    if not used:
+        used = {k: macros["latex"][k] for k in macros["latex"].keys() if k in ("snr","bsnr","dsnr","dfn","wt","wh","dB")}
+
+    macro_lines = []
+    for k, v in sorted(used.items()):
+        human = macros["human"].get(k, "")
+        macro_lines.append(f"\\{k} := {v}  {(' // ' + human) if human else ''}")
+
+    ctx = [
+        "Paper context:",
+        "- Local snippet around the equation (verbatim from the LaTeX source):",
+        f"  {local_ctx}",
+        "- Macro definitions from this paper (LaTeX and human meaning):"
+    ] + [f"  - {line}" for line in macro_lines]
+
+    return "\n".join(ctx)
 
 # === 셀 4: 문서 개요 LLM ===
 def take_slices(text: str, head_chars=4000, mid_chars=2000, tail_chars=4000):
@@ -245,35 +329,49 @@ def chat_overview(prompt: str) -> str:
     text = _generate_with_mask_from_messages(messages, gen_kw)
     return text.split(messages[-1]["content"])[-1].strip()
 
-# === 셀 5: 수식 해설 LLM (기호/용어 고정 강화)
+# === 셀 5: 수식 해설 LLM (논문 맥락 주입 + 기호/용어 고정 강화) ===============
 EXPLAIN_SYSTEM = (
     "You are an AI research equation explanation expert. "
-    "You are given equations extracted from a LaTeX research paper. "
-    "Ignore very simple arithmetic. "
-    "Explain clearly for a middle-school level. "
-    "Always: Explanation → Conclusion. "
-    "Do not modify math symbols."
+    "You receive equations extracted from a LaTeX research paper, ALONG WITH the paper context and macro definitions. "
+    "Use ONLY the provided paper context/macros to resolve symbol meanings; do not invent meanings. "
+    "Ignore trivial arithmetic. "
+    "English only — do NOT use CJK characters. "
+    "Always follow the required output sections in order and keep LaTeX symbols verbatim."
 )
 
-EXPLAIN_TEMPLATE = """Please explain the following equation so that it can be understood by someone at least at a middle school level.
-Follow this exact order: Explanation → Conclusion
+EXPLAIN_TEMPLATE = """You are given:
+1) Paper context (local snippet + macro definitions for this paper).
+2) One LaTeX equation from the paper.
 
-Format:
+Explain the equation grounded in the paper context/macros. If a symbol is not defined in the context, say "not defined in the provided context" instead of making assumptions.
+
+Follow this exact order and headings:
+
 ### Explanation
-### Conclusion
+- Briefly describe what the equation computes or states, referencing the context when relevant.
+- Mention any assumptions or conditions stated in the local snippet.
 
-- Explanation: bullet points for symbols and term roles.
-- Conclusion: one-sentence purpose.
-- Keep symbols verbatim. English only.
+### Variable Glossary
+- Bullet-list each symbol appearing in the equation with a short meaning.
+- Use the paper's macro definitions. If a symbol lacks a definition in context, mark it as "not defined in the provided context".
+
+### Conclusion
+- One sentence on the equation’s purpose/role in the paper.
+
+Keep symbols verbatim. English only.
+
+[Paper Context]
+{CONTEXT}
 
 [Equation]
 {EQUATION}
 """
 
-def _calc_gen_kwargs(eq_latex: str) -> dict:
+def _calc_gen_kwargs(eq_latex: str, ctx_text: str = "") -> dict:
     eq_tokens = len(tokenizer(eq_latex, add_special_tokens=False).input_ids)
-    base = 384 + int(eq_tokens * 2.0)
-    max_new = max(512, min(1536, base))
+    ctx_tokens = len(tokenizer(ctx_text, add_special_tokens=False).input_ids) if ctx_text else 0
+    base = 384 + int(eq_tokens * 2.0) + int(0.5 * ctx_tokens)
+    max_new = max(512, min(1792, base))
     return dict(
         max_new_tokens=max_new,
         do_sample=False,
@@ -282,23 +380,23 @@ def _calc_gen_kwargs(eq_latex: str) -> dict:
         eos_token_id=tokenizer.eos_token_id
     )
 
-def explain_equation_with_llm(eq_latex: str) -> str:
+def explain_equation_with_llm(eq_latex: str, paper_ctx: str) -> str:
     messages = [
         {"role": "system", "content": EXPLAIN_SYSTEM},
-        {"role": "user",   "content": EXPLAIN_TEMPLATE.format(EQUATION=eq_latex)}
+        {"role": "user",   "content": EXPLAIN_TEMPLATE.format(CONTEXT=paper_ctx, EQUATION=eq_latex)}
     ]
-    gen_kw = _calc_gen_kwargs(eq_latex)
+    gen_kw = _calc_gen_kwargs(eq_latex, paper_ctx)
     text = _generate_with_mask_from_messages(messages, gen_kw)
     return text.split(messages[-1]["content"])[-1].strip()
 
 CONC_PROMPT = "Continue the previous answer. Output ONLY the missing section:\n\n### Conclusion\n"
 
-def ensure_conclusion(text: str, eq_latex: str) -> str:
+def ensure_conclusion(text: str, eq_latex: str, paper_ctx: str) -> str:
     if re.search(r"###\s*Conclusion", text, flags=re.I):
         return text
     messages = [
         {"role": "system", "content": EXPLAIN_SYSTEM},
-        {"role": "user",   "content": EXPLAIN_TEMPLATE.format(EQUATION=eq_latex)},
+        {"role": "user",   "content": EXPLAIN_TEMPLATE.format(CONTEXT=paper_ctx, EQUATION=eq_latex)},
         {"role": "assistant", "content": text},
         {"role": "user", "content": CONC_PROMPT}
     ]
@@ -317,7 +415,7 @@ MATH_BLOCK_RE = re.compile(
 
 def _normalize_example_section(text: str, eq_body: str) -> str:
     sec_pat = re.compile(
-        r"###\s*Example[\s\S]*?(?=(###\s*Explanation|###\s*Conclusion|\Z))",
+        r"###\s*Example[\s\S]*?(?=(###\s*Explanation|###\s*Variable Glossary|###\s*Conclusion|\Z))",
         re.I
     )
     text = sec_pat.sub("", text)
@@ -333,38 +431,30 @@ def sanitize_explanation(exp_text: str, eq_body: str) -> str:
     if not isinstance(exp_text, str):
         exp_text = str(exp_text)
     exp_text = _normalize_example_section(exp_text, eq_body)
-    parts = re.split(r"(###\s*Explanation)", exp_text, flags=re.I)
-    if len(parts) >= 3:
-        head = "".join(parts[:2])
-        tail = "".join(parts[2:])
-        tail = _drop_cjk_math_blocks(tail)
-        exp_text = head + tail
-    else:
-        exp_text = _drop_cjk_math_blocks(exp_text)
+    exp_text = _drop_cjk_math_blocks(exp_text)
     exp_text = re.sub(r"\n{3,}", "\n\n", exp_text).strip()
     return exp_text
-# ============================================================================
 
-# === [NEW] MathJax 친화적 수식 정규화 =======================================  # ★ 변경
+# === [NEW] MathJax 친화적 수식 정규화 =======================================
 _MATHBBM_ONE_RE = re.compile(r"\\mathbbm\s*\{\s*1\s*\}")
 _MATHBBM_ANY_RE = re.compile(r"\\mathbbm\s*\{")
-_MATHLARGER_INLINE_RE = re.compile(r"\\mathlarger\s+(?=[^\\\s]|\\[A-Za-z]+|\{)")
 
 def normalize_for_mathjax(eq: str) -> str:
-    """
-    MathJax에서 깨지는 토큰을 안전한 토큰으로 변환
-    - \mathbbm{1} -> \mathbf{1} (지시함수 1)
-    - \mathbbm{X} -> \mathbb{X}
-    - \mathlarger ... -> { ... } 또는 매크로에 맡김
-    """
     s = eq
-    s = _MATHBBM_ONE_RE.sub(r"\\mathbf{1}", s)   # 가장 흔한 표기
-    s = _MATHBBM_ANY_RE.sub(r"\\mathbb{", s)     # 나머지는 \mathbb 대체
-    # \mathlarger 다음 토큰을 그냥 두고, 매크로도 추가로 정의해줌(이중 안전)
-    # 필요시 최소치로 제거:
-    # s = _MATHLARGER_INLINE_RE.sub("", s)
+    s = _MATHBBM_ONE_RE.sub(r"\\mathbf{1}", s)
+    s = _MATHBBM_ANY_RE.sub(r"\\mathbb{", s)
     return s
-# ============================================================================
+
+# === 렌더링: env 저장 시 원래 환경으로 감싸기 ===============================
+_ENV_WRAP_SET = {"cases","cases*","split","aligned","align","align*","gather","gather*","multline","multline*","eqnarray","eqnarray*","flalign","flalign*"}
+def wrap_for_render(eq_body: str, env: str) -> str:
+    """
+    MathJax에서 '&' 정렬 오류를 막기 위해, 정렬형/케이스형 env는 원래 환경으로 감싸서 렌더.
+    그 외에는 $$ ... $$ 로만 감싸도 OK.
+    """
+    if env and env in _ENV_WRAP_SET:
+        return f"\\begin{{{env}}}\n{eq_body}\n\\end{{{env}}}"
+    return eq_body
 
 # === 셀 6: LaTeX 리포트(.tex) ===
 def latex_escape_verbatim(s: str) -> str:
@@ -421,8 +511,8 @@ def count_equations_only(input_tex_path: str) -> Dict[str, int]:
 # ======================================================================
 
 # SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
-SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
 
+SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
 GCP_LOCATION = "global"
 
 gcp_translate_client = None
@@ -471,7 +561,7 @@ init_gcp_from_env()
 if gcp_translate_client is None:
     init_gcp_local()
 
-_MATH_ENV_NAMES = r"(?:equation|align|gather|multline|eqnarray|cases|split)\*?"
+_MATH_ENV_NAMES = r"(?:equation|align|gather|multline|eqnarray|cases|split|aligned)\*?"
 _MATH_PATTERN = re.compile(
     r"(?P<D2>\${2}[\s\S]*?\${2})"
     r"|(?P<D1>(?<!\\)\$[\s\S]*?(?<!\\)\$)"
@@ -639,6 +729,9 @@ def run_pipeline(input_tex_path: str) -> Dict:
     print(f"총 수식: {len(equations_all)}", flush=True)
     print(f"중학생 수준 이상: {len(equations_advanced)} / {len(equations_all)}", flush=True)
 
+    # 논문 매크로 파싱
+    macro_defs = extract_macro_definitions(src)
+
     head, mid, tail = take_slices(src)
     overview_prompt = textwrap.dedent(f"""
     You will be given three slices of a LaTeX document (head / middle / tail).
@@ -662,8 +755,9 @@ def run_pipeline(input_tex_path: str) -> Dict:
     target_items = equations_advanced[:MAX_EXPLAINS]
     for idx, item in enumerate(target_items, start=1):
         print(f"[{idx}/{len(target_items)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
-        raw_exp = explain_equation_with_llm(item["body"])
-        raw_exp = ensure_conclusion(raw_exp, item["body"])
+        paper_ctx = build_paper_context(item, src, macro_defs)
+        raw_exp = explain_equation_with_llm(item["body"], paper_ctx)
+        raw_exp = ensure_conclusion(raw_exp, item["body"], paper_ctx)
         exp = sanitize_explanation(raw_exp, item["body"])
         explanations.append({
             "index": idx, "line_start": item["line_start"], "line_end": item["line_end"],
@@ -711,6 +805,118 @@ def _read_json(p: Path):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cannot read JSON: {p} ({e})")
 
+def _mathjax_macros_block() -> str:
+    return """
+      macros: {
+        mathlarger: ['{\\\\large #1}', 1],
+        mathbbm:    ['{\\\\mathbb{#1}}', 1],
+        wt:         ['{\\\\widetilde{#1}}', 1],
+        wh:         ['{\\\\widehat{#1}}', 1],
+        dfn:        '{\\\\triangleq}',
+        dB:         '{\\\\mathrm{dB}}',
+
+        snr:        '{\\\\mathrm{SNR}}',
+        bsnr:       '{\\\\mathrm{S}\\\\widetilde{\\\\mathrm{N}}\\\\mathrm{R}}',
+        dsnr:       '{\\\\Delta\\\\snr}'
+      }
+    """.strip()
+
+# 1) 새로 추가: 따뜻한 테마 CSS 공통 함수
+def _warm_styles() -> str:
+    return r"""
+  :root {
+    --bg: #f8f5f0;            /* 크림 */
+    --fg: #3b2f2f;            /* 다크 브라운 */
+    --muted: #6b4f4f;         /* 브라운 톤 보조 */
+    --panel: #fff7ed;         /* 살구빛 패널 */
+    --panel-2: #fff3e0;       /* 조금 더 진한 살구 */
+    --bd: #f2e8de;            /* 따뜻한 테두리 */
+    --acc: #ea580c;           /* 오렌지(포인트) */
+    --acc-2: #f59e0b;         /* 앰버(보조 포인트) */
+    --ring: rgba(234, 88, 12, .25);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(1000px 600px at 10% -10%, #fffaf3 0%, transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, #fff5ea 0%, transparent 60%),
+      var(--bg);
+    margin: 0;
+    line-height: 1.75;
+  }
+
+  .wrap { max-width: 960px; margin: 0 auto; padding: 28px; }
+
+  h1, h2, h3 { color: #2c2424; margin: 0 0 12px; letter-spacing: .2px; }
+  .muted { color: var(--muted); }
+
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px;
+  }
+
+  .badge {
+    font-size:12px; color:#5b3a1f;
+    background: linear-gradient(180deg, #fff0e0, #ffe7d1);
+    border:1px solid var(--bd);
+    padding:6px 10px; border-radius:999px;
+    box-shadow: 0 2px 8px rgba(234, 88, 12, .08);
+  }
+
+  .card {
+    background: linear-gradient(180deg, var(--panel), #fffaf4);
+    border:1px solid var(--bd);
+    border-radius:16px;
+    padding:18px 20px; margin: 18px 0;
+    box-shadow:
+      0 10px 30px rgba(234, 88, 12, .08),
+      0 2px 6px rgba(60, 32, 8, .04);
+  }
+
+  .eq {
+    background: linear-gradient(180deg, #fff9ef, #fff5e7);
+    border:1px dashed #eddfce;
+    border-radius:14px;
+    padding:14px; overflow:auto; margin: 10px 0 14px;
+  }
+
+  .tabs, .ovtabs { display:flex; gap:8px; margin-bottom:8px; flex-wrap: wrap; }
+  .tab {
+    background: #fff3e6;
+    color:#5b3a1f;
+    border:1px solid #f0dfcf;
+    border-radius:999px;
+    padding:6px 12px; cursor:pointer;
+    transition: transform .08s ease, box-shadow .12s ease, border-color .12s ease;
+  }
+  .tab:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(245, 158, 11, .12); }
+  .tab.active {
+    background: linear-gradient(180deg, #ffe7d1, #ffdcb9);
+    border-color: var(--acc-2);
+    color:#3b2512;
+    box-shadow: 0 4px 14px rgba(245, 158, 11, .18);
+  }
+
+  .pane { display:none; white-space:pre-wrap; }
+  .pane.show { display:block; }
+
+  a.btn {
+    text-decoration:none;
+    background: linear-gradient(180deg, #ff8a3d, #ea580c);
+    color:#fff; padding:10px 14px; border-radius:12px;
+    box-shadow: 0 8px 18px rgba(234, 88, 12, .25);
+    border: 1px solid rgba(0,0,0,.05);
+  }
+  a.btn:focus, .tab:focus { outline: 3px solid var(--ring); outline-offset: 1px; }
+
+  /* 코드/리스트 가독성 */
+  code, pre { background:#fff3e6; border:1px solid #f0dfcf; border-radius:8px; padding:.2em .4em; }
+  ul, ol { padding-left: 1.2rem; }
+    """
+
 def _render_html(doc_en: dict, doc_ko: dict) -> str:
     items_en = doc_en.get("items", [])
     items_ko = doc_ko.get("items", [])
@@ -721,13 +927,14 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
         it_ko = ko_by_idx.get(idx, {})
         title = f"Lines {it_en.get('line_start')}–{it_en.get('line_end')} / {it_en.get('kind')} {('['+it_en.get('env','')+']') if it_en.get('env') else ''}"
 
-        eq = normalize_for_mathjax(it_en.get("equation", ""))  # ★ 변경
+        eq_raw = normalize_for_mathjax(it_en.get("equation", ""))
+        eq_wrapped = wrap_for_render(eq_raw, it_en.get("env","") or "")
+        eq_block = f"<div class='eq'>$$\n{eq_wrapped}\n$$</div>"
+
         exp_en = it_en.get("explanation", "").strip()
-        exp_ko = it_ko.get("explanation", "").strip() or "<em>번역 없음</em>"
+        exp_ko = (it_ko.get("explanation", "") or "").strip() or "<em>번역 없음</em>"
 
-        eq_block = f"<div class='eq'>$$\n{eq}\n$$</div>"
-
-        html = f"""
+        return f"""
         <section class="card">
           <h3>{title}</h3>
           {eq_block}
@@ -739,39 +946,19 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
           <div id="ko-{idx}" class="pane">{exp_ko}</div>
         </section>
         """
-        return html
 
     overview_en = doc_en.get("overview","").strip() or "<em>No overview</em>"
     overview_ko = doc_ko.get("overview","").strip() or "<em>개요 번역 없음</em>"
-
     body_sections = "\n".join(sec(it) for it in items_en)
+    macros_block = _mathjax_macros_block()
 
-    # ★ 변경: MathJax에 매크로 주입 (mathbbm, mathlarger)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
 <title>POLO – LaTeX Math HTML Preview</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  :root {{ --bd:#e5e7eb; --fg:#111827; --muted:#6b7280; --bg:#0b0c0f; --panel:#111317; --acc:#6366f1; }}
-  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif; 
-          line-height:1.7; margin:0; color:#e5e7eb; background:#0b0c0f; }}
-  .wrap {{ max-width: 960px; margin: 0 auto; padding: 28px; }}
-  h1,h2,h3 {{ color:#fff; margin: 0 0 12px; }}
-  .muted {{ color:#9ca3af; }}
-  .card {{ background:#111317; border:1px solid #1f2937; border-radius:14px; padding:18px 20px; margin: 18px 0; }}
-  .eq {{ background:#0f1115; border:1px dashed #334155; border-radius:12px; padding:14px; overflow:auto; margin: 10px 0 14px; }}
-  .tabs {{ display:flex; gap:8px; margin-bottom:8px; }}
-  .tab {{ background:#0f1115; color:#e5e7eb; border:1px solid #334155; border-radius:999px; padding:6px 12px; cursor:pointer; }}
-  .tab.active {{ border-color:#6366f1; color:#fff; }}
-  .pane {{ display:none; white-space:pre-wrap; }}
-  .pane.show {{ display:block; }}
-  .topbar {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }}
-  .badge {{ font-size:12px; color:#cbd5e1; background:#0f1115; border:1px solid #334155; padding:6px 10px; border-radius:999px; }}
-  a.btn {{ text-decoration:none; background:#1d4ed8; color:#fff; padding:8px 12px; border-radius:10px; }}
-  .ovtabs {{ display:flex; gap:8px; margin-top:10px; }}
-</style>
+<style>{_warm_styles()}</style>
 <script>
   addEventListener('click', (e) => {{
     if (!e.target.classList.contains('tab')) return;
@@ -789,11 +976,7 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
     tex: {{
       inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
       displayMath: [['\\\\[','\\\\]'], ['$$','$$']],
-      macros: {{
-        mathlarger: ['{{\\\\large #1}}', 1],  // ★ 매크로
-        mathbbm:    ['{{\\\\mathbb{{#1}}}}', 1],  // ★ 매크로
-        wt: ['{{\\\\widetilde{{#1}}}}', 1],
-      }}
+      {macros_block}
     }},
     svg: {{ fontCache: 'global' }}
   }};
@@ -828,7 +1011,9 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
 def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
     sections = []
     for it in items:
-        eq_block = f"<div class='eq'>$$\n{normalize_for_mathjax(it['equation'])}\n$$</div>"  # ★ 변경
+        eq_raw = normalize_for_mathjax(it['equation'])
+        eq_wrapped = wrap_for_render(eq_raw, it.get("env","") if isinstance(it, dict) else "")
+        eq_block = f"<div class='eq'>$$\n{eq_wrapped}\n$$</div>"
         sections.append(f"""
         <section class="card">
           <h3>{it['title']}</h3>
@@ -841,28 +1026,17 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
           <div id="ko-{it['index']}" class="pane">{it['exp_ko'] or '<em>번역 없음</em>'}</div>
         </section>
         """)
+
     body_sections = "\n".join(sections)
+    macros_block = _mathjax_macros_block()
+
     return f"""<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
 <title>POLO – Live Math Preview</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  :root {{ --bd:#1f2937; }}
-  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif;
-          line-height:1.7; margin:0; color:#e5e7eb; background:#0b0c0f; }}
-  .wrap {{ max-width: 960px; margin: 0 auto; padding: 28px; }}
-  h1,h2,h3 {{ color:#fff; margin: 0 0 12px; }}
-  .card {{ background:#111317; border:1px solid var(--bd); border-radius:14px; padding:18px 20px; margin: 18px 0; }}
-  .eq {{ background:#0f1115; border:1px dashed #334155; border-radius:12px; padding:14px; overflow:auto; margin: 10px 0 14px; }}
-  .tabs {{ display:flex; gap:8px; margin-bottom:8px; }}
-  .tab {{ background:#0f1115; color:#e5e7eb; border:1px solid #334155; border-radius:999px; padding:6px 12px; cursor:pointer; }}
-  .tab.active {{ border-color:#6366f1; color:#fff; }}
-  .pane {{ display:none; white-space:pre-wrap; }}
-  .pane.show {{ display:block; }}
-  .badge {{ font-size:12px; color:#cbd5e1; background:#0f1115; border:1px solid #334155; padding:6px 10px; border-radius:999px; }}
-</style>
+<style>{_warm_styles()}</style>
 <script>
   addEventListener('click', (e) => {{
     if (!e.target.classList.contains('tab')) return;
@@ -879,11 +1053,7 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
     tex: {{
       inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
       displayMath: [['\\\\[','\\\\]'], ['$$','$$']],
-      macros: {{
-        mathlarger: ['{{\\\\large #1}}', 1],  // ★ 매크로
-        mathbbm:    ['{{\\\\mathbb{{#1}}}}', 1],  // ★ 매크로
-        wt: ['{{\\\\widetilde{{#1}}}}', 1],
-      }}
+      {macros_block}
     }},
     svg: {{ fontCache: 'global' }}
   }};
@@ -892,7 +1062,7 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
 </head>
 <body>
   <div class="wrap">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;">
+    <div class="topbar">
       <h1>POLO – Equation Overview & Explanations (Live)</h1>
       <span class="badge">No disk writes</span>
     </div>
@@ -908,13 +1078,13 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
     </div>
 
     {body_sections}
-    <div style="color:#94a3b8;margin-top:24px;">Rendered with MathJax • POLO</div>
+    <div class="muted" style="margin-top:24px;">Rendered with MathJax • POLO</div>
   </div>
 </body>
 </html>"""
 
 # === FastAPI 앱 ===
-app = FastAPI(title="POLO Math Explainer API", version="1.4.1")  # ★ 변경
+app = FastAPI(title="POLO Math Explainer API", version="1.4.1")  # 그대로
 
 @app.get("/html/{file_path:path}", response_class=HTMLResponse)
 async def html_preview(file_path: str):
@@ -945,6 +1115,9 @@ async def html_live(file_path: str):
         equations_all = extract_equations(src, pos_to_line)
         equations_adv = [e for e in equations_all if is_advanced(e["body"])]
 
+        # 논문 매크로 파싱
+        macro_defs = extract_macro_definitions(src)
+
         head, mid, tail = take_slices(src)
         overview_prompt = f"""
 You will be given three slices of a LaTeX document (head / middle / tail).
@@ -966,15 +1139,18 @@ Please produce a concise English overview with:
 
         items = []
         for idx, it in enumerate(equations_adv[:MAX_EXPLAINS], start=1):
-            raw_exp_en = explain_equation_with_llm(it["body"])
-            raw_exp_en = ensure_conclusion(raw_exp_en, it["body"])
+            paper_ctx = build_paper_context(it, src, macro_defs)
+            raw_exp_en = explain_equation_with_llm(it["body"], paper_ctx)
+            raw_exp_en = ensure_conclusion(raw_exp_en, it["body"], paper_ctx)
             exp_en = sanitize_explanation(raw_exp_en, it["body"])
             exp_ko = translate_text_gcp(exp_en, target_lang="ko") if (gcp_translate_client and GCP_PARENT) else ""
             title = f"Lines {it['line_start']}–{it['line_end']} / {it['kind']} {('['+it['env']+']') if it['env'] else ''}"
+            # env도 넘겨서 라이브 미리보기에서도 감싸기 동작
             items.append({
                 "index": idx,
                 "title": title,
                 "equation": it["body"],
+                "env": it.get("env",""),
                 "exp_en": exp_en,
                 "exp_ko": exp_ko
             })
