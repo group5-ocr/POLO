@@ -26,8 +26,8 @@ if ROOT_ENV.exists():
 HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
 BASE_MODEL               = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
 ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "llama32-3b-qlora" / "checkpoint-4000"))
-MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))
-EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "2"))
+MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))  # 600 → 1200으로 복원
+EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "4"))  # 2 → 4로 증가
 EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "1800"))
 EASY_VIZ_TIMEOUT         = float(os.getenv("EASY_VIZ_TIMEOUT", "1800"))
 EASY_VIZ_HEALTH_TIMEOUT  = float(os.getenv("EASY_VIZ_HEALTH_TIMEOUT", "5"))
@@ -39,6 +39,7 @@ EASY_STRIP_MATH          = os.getenv("EASY_STRIP_MATH", "0").lower() in ("1","tr
 EASY_FORCE_KO            = os.getenv("EASY_FORCE_KO", "1").lower() in ("1","true","yes")
 EASY_AUTO_BOLD           = os.getenv("EASY_AUTO_BOLD", "1").lower() in ("1","true","yes")
 EASY_HILITE              = os.getenv("EASY_HILITE", "1").lower() in ("1","true","yes")
+EASY_CONSERVATIVE        = os.getenv("EASY_CONSERVATIVE", "1").lower() in ("1","true","yes")
 
 # 번역 경로(실패해도 무시, 크래시 금지)
 EASY_FORCE_TRANSLATE     = os.getenv("EASY_FORCE_TRANSLATE", "1").lower() in ("1","true","yes")
@@ -276,22 +277,33 @@ def annotate_terms_with_glossary(text: str) -> str:
         if not part or part.isspace() or re.match(r"\n{2,}$", part):
             out_parts.append(part)
             continue
-        used = set()
+        used = set(); count = 0
+        limit = int(os.getenv("EASY_GLOSS_PER_PARA", "4"))
         txt = part
-        for pat, gloss in patterns:
-            term_key = pat.pattern
+        for pat, gloss, term in patterns:
+            if count >= limit: break
+            term_key = term.lower()
+
             def repl(m):
+                nonlocal count
+                if count >= limit: return m.group(1)
+                end = m.end(1)
+                tail = txt[end:end+64]
+                if re.match(r"\s*\(", tail):
+                    return m.group(1)
                 if term_key in used:
-                    return m.group(1)  # 2회 이상은 원형 유지
+                    return m.group(1)
                 used.add(term_key)
+                count += 1
                 return f"{m.group(1)} ({gloss})"
-            txt = pat.sub(repl, txt, count=1)  # 문단당 1회만
+
+            txt = pat.sub(repl, txt, count=1)
         out_parts.append(txt)
 
     masked2 = "".join(out_parts)
     masked2 = _unmask_blocks(masked2, m_misc)
     masked2 = _unmask_blocks(masked2, m_math)
-    return masked2
+    return _squash_duplicate_parens(masked2)
 # ========================================================================
 
 def reload_glossary_cache() -> int:
@@ -355,6 +367,15 @@ def _pick_attn_impl() -> str:
         return "eager"
 
 def _gen_cfg() -> GenerationConfig:
+    if model is None:
+        # 모델이 로드되지 않았을 때 기본 설정
+        cfg = GenerationConfig()
+        cfg.do_sample = False
+        cfg.top_p = 1.0
+        cfg.temperature = 1.0
+        cfg.no_repeat_ngram_size = 4
+        return cfg
+    
     cfg = GenerationConfig.from_model_config(model.config)
     cfg.do_sample = False
     # 샘플링 파라미터 해제(경고 억제). 일부 버전은 None 미지원 → fallback
@@ -381,18 +402,30 @@ def _detect_lang_safe(text: str) -> str:
 # === PATCH: bracket/ocr noise normalization (drop-in replace) =============
 def _normalize_bracket_tokens(t: str) -> str:
     if not t: return t
-    # ( ) 변환
-    t = re.sub(r"(?i)\bL\s*R\s*B\b|\blrb\b|\bl\s*r\s*b\b", "(", t)
-    t = re.sub(r"(?i)\bR\s*R\s*B\b|\brrb\b|\br\s*r\s*b\b", ")", t)
-    # [ ] 변환
-    t = re.sub(r"(?i)\bL\s*S\s*B\b|\blsb\b|\bl\s*s\s*b\b", "[", t)
-    t = re.sub(r"(?i)\bR\s*S\s*B\b|\brsb\b|\br\s*s\s*b\b", "]", t)
-    # {} from LCB/RCB
-    t = re.sub(r"(?i)\blcb\b", "{", t)
-    t = re.sub(r"(?i)\brcb\b", "}", t)
-    # ⟨⟩ from LANGLE/RANGLE 등 (필요시 각괄호로 통일)
+    # () : LRB/RRB가 '단어 경계 + 공백 0~1 + 영문/숫자' 앞일 때만 치환
+    t = re.sub(r"(?i)\bL\s*R\s*B\b(?=\s*[A-Za-z0-9])|\bLRB\b(?=\s*[A-Za-z0-9])", "(", t)
+    t = re.sub(r"(?i)\bR\s*R\s*B\b(?=\s*[A-Za-z0-9])|\bRRB\b(?=\s*[A-Za-z0-9])", ")", t)
+    # [] : LSB/RSB도 동일
+    t = re.sub(r"(?i)\bL\s*S\s*B\b(?=\s*[A-Za-z0-9])|\bLSB\b(?=\s*[A-Za-z0-9])|\bLRSB\b(?=\s*[A-Za-z0-9])", "[", t)
+    t = re.sub(r"(?i)\bR\s*S\s*B\b(?=\s*[A-Za-z0-9])|\bRSB\b(?=\s*[A-Za-z0-9])|\bRRSB\b(?=\s*[A-Za-z0-9])", "]", t)
+    # ⟨⟩ 등
     t = re.sub(r"(?i)\blangle\b|⟨", "<", t)
     t = re.sub(r"(?i)\brangle\b|⟩", ">", t)
+    return t
+
+_DUP_PARENS = re.compile(r"\(([^()]{1,80})\)\s*\(\1\)")
+
+def _squash_duplicate_parens(t: str) -> str:
+    if not t: return t
+    # (같은내용)(같은내용) → (같은내용)
+    while _DUP_PARENS.search(t):
+        t = _DUP_PARENS.sub(r"(\1)", t)
+    # 여분 괄호/공백 수축
+    t = re.sub(r"\)\s*\)+", ")", t)
+    t = re.sub(r"\(\s*\(+", "(", t)
+    t = re.sub(r"\(\s+\)", "", t)
+    t = re.sub(r"\(\s+", "(", t)
+    t = re.sub(r"\s+\)", ")", t)
     return t
 
 def _strip_debug_markers(s: str) -> str:
@@ -505,10 +538,9 @@ def _postprocess_terms(t: str) -> str:
 def _auto_bold_terms(t: str) -> str:
     if not t or not EASY_AUTO_BOLD: return t
     pats = [
-        r"\b(?:BLEU|ROUGE|BERTScore|BLEURT|mAP|IoU|F1|AUC|ROC|PSNR|SSIM|CER|WER)\b",
-        r"\b(?:Transformer|BERT|GPT(?:-\d+)?|Llama|LLaMA|Mistral|Qwen|Gemma|T5|Whisper)\b",
-        r"\b\d+\s?(?:x|×)\s?\d+\b",
-        r"\b(?:Top-1|Top-5|SOTA|FPS|GFLOPs?|Params?)\b",
+        r"\b(?:Top-1|Top-5|SOTA|F1|AUC|ROC|mAP|IoU|PSNR|SSIM|CER|WER)\b",
+        r"\b\d+(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?(?:ms|s|fps|GFLOPs?|M|K|dB)\b",
+        r"\b(?:Transformer|BERT|GPT(?:-\d+)?|Llama|Mistral|Qwen|Gemma|T5|Whisper)\b",
     ]
     for pat in pats:
         t = re.sub(pat, lambda m: f"**{m.group(0)}**" if not (m.group(0).startswith("**") and m.group(0).endswith("**")) else m.group(0), t)
@@ -565,7 +597,7 @@ def load_model():
     gpu_available = True
     device = "cuda"
     safe_dtype = torch.float16
-    logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
+        logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
     logger.info("==============================================")
 
     tokenizer_local = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN, trust_remote_code=True, cache_dir=CACHE_DIR)
@@ -796,8 +828,8 @@ def _translate_with_llm(text: str) -> str:
             if p != -1:
                 result = result[:p].strip()
                 break
-        # 마스킹된 용어들을 복원하면서 괄호 설명 추가
-        result = _unmask_glossary_terms(result, glossary_masks)
+        # 용어는 '그대로'만 복원 (주석은 이후 단계에서 1회만 적용)
+        result = _unmask_blocks(result, glossary_masks)
         
         result = _postprocess_terms(_normalize_bracket_tokens(result))
         if EASY_STRIP_MATH:
@@ -864,6 +896,9 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     if not content or not content.strip():
         return ""
     
+    start_time = time.time()
+    logger.info(f"[PERF] _rewrite_text 시작: {title or 'Unknown'}")
+    
     # 수식 마스킹
     content_masked, math_masks = _mask_blocks(content, _MASK_MATH)
     
@@ -894,21 +929,46 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
         "<|eot_id|>\n"
     )
     inputs = _safe_tokenize(prompt, max_len=MAX_INPUT_TOKENS)
+    
+    # 디버깅: 입력 프롬프트 로그
+    logger.info(f"[DEBUG] 입력 토큰 수: {inputs['input_ids'].shape[1]}")
+    logger.info(f"[DEBUG] 프롬프트 미리보기: {prompt[:300]}...")
+    
+    # LLM 생성 시간 측정
+    gen_start = time.time()
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
             generation_config=_gen_cfg(),
             max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=False,             # 명시 재확인
+            do_sample=False,          # 🔧 샘플링 OFF
             use_cache=True,
             repetition_penalty=1.15,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
+    gen_time = time.time() - gen_start
+    logger.info(f"[PERF] LLM 생성 시간: {gen_time:.2f}초")
+    
     seq = outputs[0]
     inp_len = inputs["input_ids"].shape[1]
     gen_tokens = seq[inp_len:]
+    
+    # 디버깅: 토큰 정보
+    logger.info(f"[DEBUG] 입력 길이: {inp_len}, 출력 길이: {len(seq)}")
+    logger.info(f"[DEBUG] 생성된 토큰 수: {len(gen_tokens)}")
+    logger.info(f"[DEBUG] 생성된 토큰 ID들: {gen_tokens.tolist()[:20]}...")
+    
     text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+    
+    # 디버깅: 생성된 텍스트 로그
+    logger.info(f"[DEBUG] 생성된 텍스트 길이: {len(text)}")
+    logger.info(f"[DEBUG] 생성된 텍스트 미리보기: {text[:200]}...")
+    
+    # skip_special_tokens=False로도 시도해보기
+    text_raw = tokenizer.decode(gen_tokens, skip_special_tokens=False).strip()
+    logger.info(f"[DEBUG] skip_special_tokens=False 결과: {text_raw[:200]}...")
+    
     for stop in ("[/OUTPUT]", "[/output]", "<|eot_id|>"):
         p = text.find(stop)
         if p != -1:
@@ -923,15 +983,27 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
         text = _strip_math_all(text)
     text = _strip_tables_figures_all(text)
     text = _postprocess_terms(text)
+
+    # 🔧 추가 클리너
+    text = _strip_debug_markers(text)
+    text = _drop_latex_curly_blocks(text)
+    text = _squash_duplicate_parens(text)
+
     text = _auto_bold_terms(text)
     text = _hilite_sentences(text, max_marks=2)
     text = _sanitize_repeats(text)
 
-    # 용어 주석 (중복 괄호 방지 로직 내장)
+    # 용어 주석 — 이 자리에서 1회만
     text = annotate_terms_with_glossary(text)
 
     if _need_ko(text):
         text = _ensure_korean(text, force_external=EASY_FORCE_TRANSLATE)
+    
+    # JSON 전달용: 마크다운 형식으로 변환
+    text = _convert_to_markdown(text, math_masks)
+    
+    total_time = time.time() - start_time
+    logger.info(f"[PERF] _rewrite_text 완료: {total_time:.2f}초 (LLM: {gen_time:.2f}초)")
     return text
 # -------------------- Startup --------------------
 @app.on_event("startup")
@@ -1025,8 +1097,7 @@ async def simplify_text(request: TextRequest):
     simplified_text = await _rewrite_text(request.text, style=style)
     if style != "one_sentence_en" and _need_ko(simplified_text):
         simplified_text = _ensure_korean(simplified_text)
-    # 최종 용어 주석(안전)
-    simplified_text = annotate_terms_with_glossary(simplified_text)
+    # 주석은 _rewrite_text 내에서 1회 적용됨 — 중복 방지
     return TextResponse(simplified_text=simplified_text, translated_text=None)
 
 # -------------------- /generate (요약 JSON 생성) --------------------
@@ -1189,6 +1260,9 @@ async def generate_json(request: TextRequest):
                 if _need_ko(t):
                     t = _ensure_korean(t)
                 t = annotate_terms_with_glossary(t)  # ← 중복 괄호 방지 포함된 최신 함수로 교체
+                
+                # JSON 전달용: 마크다운 형식으로 변환
+                t = _convert_to_markdown(t, m_math)
                 data[k]["easy"] = t
         except Exception:
             pass
@@ -1255,20 +1329,47 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
     abs_beg  = re.compile(r"^\s*\\begin\{abstract\}")
     abs_end  = re.compile(r"^\s*\\end\{abstract\}")
 
+    in_abstract = False
+
     for ln in content.splitlines():
+        # --- Abstract 시작/끝 ---
         if abs_beg.match(ln):
-            _flush(); cur_title="Abstract"; cur_buf, cur_raw=[], []; section_type="section"; continue
+            _flush()
+            cur_title = "Abstract"
+            cur_buf, cur_raw = [], []
+            section_type = "section"
+            in_abstract = True
+            continue
         if abs_end.match(ln):
-            _flush(); cur_title=None; cur_buf, cur_raw=[], []; continue
+            # abstract 본문 누적 끝
+            in_abstract = False
+            _flush()
+            cur_title, cur_buf, cur_raw = None, [], []
+            section_type = "section"
+            continue
+
+        # --- Section / Subsection 헤더 ---
         m1 = sec_pat.match(ln); m2 = sub_pat.match(ln)
         if m1:
-            _flush(); cur_title=m1.group(1).strip(); cur_buf, cur_raw=[], []; section_type="section"; continue
-        if m2:
-            _flush(); cur_title=m2.group(1).strip(); cur_buf, cur_raw=[], []; section_type="subsection"; continue
-        if cur_title is None:
-            # \section 이전 본문은 버림 (가짜 Introduction 생성 금지)
+            _flush()
+            cur_title = m1.group(1).strip()
+            cur_buf, cur_raw = [], []
+            section_type = "section"
             continue
-        cur_buf.append(ln); cur_raw.append(ln)
+        if m2:
+            _flush()
+            cur_title = m2.group(1).strip()
+            cur_buf, cur_raw = [], []
+            section_type = "subsection"
+            continue
+
+        # --- 본문 누적 (✨ 기존 버그: 누적이 전혀 안 되고 있었습니다) ---
+        if cur_title is not None or in_abstract:
+            cur_buf.append(ln)
+            cur_raw.append(ln)
+        else:
+            # \section 이전의 프리앰블/머릿말은 버림
+            continue
 
     _flush()
 
@@ -1279,7 +1380,7 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
             "table_data": _extract_table_data(content), "section_type": "section",
         }]
 
-    # 초단문/노이즈 섹션 제거
+    # 초단문/노이즈 섹션 제거 로직 (조건은 기존과 동일)
     def _len_clean(s: str) -> int:
         return len(_clean_latex_text(s or ""))
 
@@ -1288,7 +1389,6 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
         clen = _len_clean(s.get("content",""))
         if s.get("table_data"):
             pruned.append(s); continue
-        # Abstract는 20자 미만이면 제거, 그 외는 90자 미만 제거
         tlow = (s.get("title","").strip().lower())
         if (tlow.startswith("abstract") and clen < 20) or (not tlow.startswith("abstract") and clen < 90):
             logger.info(f"[EASY] drop tiny section: '{s.get('title')}' (len={clen})")
@@ -1412,6 +1512,46 @@ def _render_rich_html(text: str) -> str:
     html_text = re.sub(r' +', ' ', html_text)
     return html_text
 
+def _convert_to_markdown(text: str, math_masks: List[Tuple[str, str]] = None) -> str:
+    """
+    JSON 전달용: 수식 마스킹 토큰을 마크다운 형식으로 변환
+    """
+    if not text: return ""
+    
+    # 수식 마스킹 토큰을 마크다운 수식으로 변환
+    if math_masks:
+        for token, original in math_masks:
+            # LaTeX 수식을 마크다운 형식으로 변환
+            if original.startswith('$') and original.endswith('$'):
+                # 인라인 수식: $...$ → $...$
+                text = text.replace(token, original)
+            elif original.startswith('$$') and original.endswith('$$'):
+                # 블록 수식: $$...$$ → $$...$$
+                text = text.replace(token, original)
+            elif original.startswith('\\[') and original.endswith('\\]'):
+                # 블록 수식: \[...\] → $$...$$
+                math_content = original[2:-2]
+                text = text.replace(token, f"$${math_content}$$")
+            elif original.startswith('\\(') and original.endswith('\\)'):
+                # 인라인 수식: \(...\) → $...$
+                math_content = original[2:-2]
+                text = text.replace(token, f"${math_content}$")
+            else:
+                # 기타 수식 환경
+                text = text.replace(token, f"$${original}$$")
+    
+    # LaTeX 수식 명령을 마크다운으로 변환
+    text = re.sub(r'\\textbf\{([^}]+)\}', r'**\1**', text)
+    text = re.sub(r'\\textit\{([^}]+)\}', r'*\1*', text)
+    text = re.sub(r'\\emph\{([^}]+)\}', r'*\1*', text)
+    
+    # LaTeX 섹션 명령을 마크다운 헤더로 변환
+    text = re.sub(r'\\section\{([^}]+)\}', r'## \1', text)
+    text = re.sub(r'\\subsection\{([^}]+)\}', r'### \1', text)
+    text = re.sub(r'\\subsubsection\{([^}]+)\}', r'#### \1', text)
+    
+    return text
+
 def _starts_with_same_heading(html_txt: str, title: str) -> bool:
     if not title or not html_txt: return False
     plain = re.sub(r"<[^>]+>", "", html_txt).strip().lower()
@@ -1450,33 +1590,90 @@ def _save_html_results(sections: List[dict], results: List['VizResult'], output_
     gen_at = _get_current_datetime()
 
     css = """
-    body{font-family:'Noto Sans KR',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Apple SD Gothic Neo','Noto Sans',sans-serif;background:#0b0c10;color:#e5e7eb;margin:0}
-    .wrapper{max-width:1200px;margin:0 auto;padding:24px}
-    .header{margin-bottom:18px}
-    .title{font-size:26px;font-weight:700}
-    .subtitle{opacity:.8;margin-top:6px}
-    .meta{opacity:.6;font-size:13px;margin-top:4px}
-    .layout{display:grid;grid-template-columns:280px 1fr;gap:18px}
-    .toc-sidebar{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px;position:sticky;top:18px;height:max-content}
-    .toc-title{font-weight:700;margin-bottom:8px}
-    .toc-list,.toc-sublist{list-style:none;margin:0;padding-left:0}
-    .toc-sublist{padding-left:12px}
-    .toc-item{margin:6px 0}
-    .toc-link{color:#cbd5e1;text-decoration:none}
-    .toc-link:hover{color:#93c5fd}
-    .num{display:inline-block;min-width:30px;opacity:.6}
-    .content-area{display:flex;flex-direction:column;gap:18px}
-    .section-card{background:#0f172a;border:1px solid #1f2937;border-radius:16px;padding:18px}
-    h2{margin:.2rem 0 1rem 0}
-    p{line-height:1.7}
-    mark{background:#f59e0b33;padding:.1em .2em;border-radius:.25em}
-    pre{background:#111827;padding:12px;border-radius:8px;overflow:auto}
-    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace}
-    .image-container{margin:12px 0}
-    .image-caption{font-size:12px;opacity:.7;margin-top:4px}
-    .footer-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-    .btn{background:#2563eb;color:white;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
-    .btn.secondary{background:#374151}
+    :root{
+      --bg: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --brand: #2563eb;
+      --hi: #fff4ae;
+    }
+
+    html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+    body{
+      font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic",
+                   "Pretendard", "Noto Sans KR", Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg); color: var(--text);
+      font-size: 17px; line-height: 1.85; letter-spacing: -0.005em;
+      word-break: keep-all; line-break: loose;
+      margin:0;
+    }
+
+    .wrapper{max-width: 1120px; margin: 0 auto; padding: 28px;}
+    .layout{display:grid; grid-template-columns: 300px 1fr; gap:28px;}
+    @media (max-width: 1100px){ .layout{grid-template-columns: 1fr;} }
+
+    .header{margin-bottom:28px; padding:36px 22px;
+      border-radius:16px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+      color:#fff; box-shadow:0 6px 24px rgba(0,0,0,.12)}
+    .title{font-weight:800; letter-spacing:-0.01em; font-size: clamp(24px, 3vw, 34px); margin:0 0 6px}
+    .subtitle{opacity:.95; font-weight:600; margin-top:6px}
+    .meta{opacity:.9; font-size:14px; margin-top:10px}
+
+    .toc-sidebar{background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:18px; position:sticky; top:24px}
+    .toc-title{font-weight:800; color:#0b1220; font-size:18px; margin-bottom:10px}
+    .toc-link{color:#0b1220; text-decoration:none; display:block; padding:8px 10px; border-radius:8px}
+    .toc-link:hover{background:#eef2ff}
+    .num{opacity:.65; font-weight:700; margin-right:6px}
+
+    .section-card{
+      border:1px solid var(--border); border-radius:16px; padding:22px 22px;
+      box-shadow:0 1px 8px rgba(0,0,0,.05); transition: box-shadow .18s, border-color .18s
+    }
+    .section-card:hover{box-shadow:0 6px 18px rgba(0,0,0,.08); border-color:#d7e0ea}
+
+    .content p, .content ul, .content ol, .content pre, .content blockquote { max-width: 70ch; }
+
+    h2{font-size: clamp(20px, 2.2vw, 26px); font-weight: 800; letter-spacing:-0.01em;
+       margin: 2px 0 14px; line-height:1.35}
+    h3{font-size: clamp(17px, 1.8vw, 20px); font-weight: 700; margin: 18px 0 8px; line-height:1.45}
+
+    p{margin: 0 0 14px; color: var(--text)}
+    p strong{font-weight: 650}
+    p:first-of-type{font-weight: 500}
+    mark{background: var(--hi); padding:.12em .25em; border-radius:.25em}
+
+    a{color: var(--brand); text-decoration: underline; text-underline-offset: 2px}
+    ul{padding-left: 1.25em; margin: 0 0 14px}
+    li{margin: .2em 0}
+    code{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+         background:#0f172a; color:#e5e7eb; padding:2px 6px; border-radius:6px; font-size: 85%}
+    pre{background:#0f172a; color:#e5e7eb; padding:14px; border-radius:10px; overflow:auto}
+
+    blockquote{
+      border-left: 4px solid #c7d2fe; padding: 10px 14px; background:#f5f7ff; border-radius: 8px;
+      color:#1f2a44; margin: 8px 0 14px; font-weight:500
+    }
+
+    .image-container{margin:18px 0}
+    .image-container img{max-width:100%; height:auto; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.08)}
+    .image-caption{font-size: 13px; color:#64748b; margin-top:6px; font-style: italic}
+
+    .footer-actions{display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top: 22px; padding: 16px 0}
+    .btn{background: var(--brand); color:#fff; border:0; padding:11px 18px; border-radius:10px;
+         font-weight:700; box-shadow:0 2px 6px rgba(37,99,235,.25); cursor:pointer}
+    .btn:hover{transform: translateY(-1px); box-shadow:0 6px 12px rgba(37,99,235,.32)}
+    .btn.secondary{background:#64748b}
+
+    :focus-visible{outline: 3px solid #a5b4fc; outline-offset: 3px}
+
+    @media (prefers-color-scheme: dark){
+      :root{ --bg:#0b1220; --text:#e6edf6; --muted:#9fb0c5; --border:#213047; --hi:#534900;}
+      .toc-sidebar{background:#0f172a}
+      .section-card{background:#0b1220}
+      a{color:#8ab4ff}
+      blockquote{background:#0e1a33; border-left-color:#5b7bff; color:#cdd7e5}
+    }
     """
     js = """
     function downloadHTML(){
@@ -1844,8 +2041,8 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
                     context_info,
                     style=(request.style or "three_para_ko")
                 )
-                # 한국어 & 용어 주석 보강
-                easy_text = annotate_terms_with_glossary(_ensure_korean(easy_text))
+                # 한국어 보장 (주석은 _rewrite_text에서 1회 적용됨)
+                easy_text = _ensure_korean(easy_text)
                 logger.info(f"[EASY] ✔ text rewritten for section {i+1}")
             except Exception as e:
                 msg = f"rewrite 실패: {e}"
@@ -2030,7 +2227,7 @@ async def from_transport(request: TransportRequest):
     else:
         ext = tpath.suffix.lower()
         if ext in (".jsonl",".ndjson"): content = _read_text_guarded(tpath)
-        elif ext == ".gz":
+        elif ext == ".gz": 
             with gzip.open(tpath, "rt", encoding="utf-8") as f: content = f.read()
         elif ext == ".tex":
             secs = _parse_latex_sections(tpath)
