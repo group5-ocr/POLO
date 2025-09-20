@@ -1,0 +1,390 @@
+/* Result.tsx 스타일 - 기존 HTML 구조 유지 */
+
+.container {
+  display: flex;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
+}
+
+.table-of-contents {
+  width: 250px;
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-right: 20px;
+  position: sticky;
+  top: 20px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.table-of-contents h3 {
+  margin-top: 0;
+  color: #333;
+  border-bottom: 2px solid #007bff;
+  padding-bottom: 10px;
+}
+
+.table-of-contents ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.table-of-contents li {
+  margin: 8px 0;
+}
+
+.table-of-contents a {
+  text-decoration: none;
+  color: #555;
+  display: block;
+  padding: 8px 12px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.table-of-contents a:hover {
+  background-color: #e9ecef;
+  color: #007bff;
+}
+
+.table-of-contents a.active {
+  background-color: #007bff;
+  color: white;
+}
+
+.main-content {
+  flex: 1;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+
+.paper-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 30px;
+  text-align: center;
+}
+
+.paper-header h1 {
+  margin: 0 0 20px 0;
+  font-size: 2.2em;
+  font-weight: 700;
+}
+
+.paper-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.paper-info p {
+  margin: 5px 0;
+  font-size: 0.95em;
+}
+
+.paper-info strong {
+  display: inline-block;
+  width: 80px;
+  font-weight: 600;
+}
+
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 20px;
+  border-radius: 8px;
+  margin: 20px;
+  text-align: center;
+}
+
+.integrated-paper {
+  padding: 0;
+}
+
+.paper-section {
+  border-bottom: 1px solid #e9ecef;
+  padding: 30px;
+}
+
+.paper-section:last-child {
+  border-bottom: none;
+}
+
+.section-header {
+  margin-bottom: 25px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  font-size: 1.5em;
+  font-weight: 700;
+  color: #333;
+}
+
+.section-order {
+  background: #007bff;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 20px;
+  margin-right: 15px;
+  font-size: 0.8em;
+  font-weight: 600;
+  min-width: 30px;
+  text-align: center;
+}
+
+.easy-content {
+  margin-bottom: 30px;
+}
+
+.paragraph-container {
+  margin-bottom: 20px;
+}
+
+.paragraph-text {
+  font-size: 1.1em;
+  line-height: 1.8;
+  color: #444;
+  margin: 15px 0;
+}
+
+.clickable-paragraph {
+  cursor: pointer;
+  padding: 10px;
+  border-radius: 6px;
+  transition: background-color 0.2s;
+  border: 2px dashed transparent;
+}
+
+.clickable-paragraph:hover {
+  background-color: #f8f9fa;
+  border-color: #007bff;
+}
+
+.visualization-container {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.visualization-item {
+  margin-bottom: 20px;
+}
+
+.visualization-item h4 {
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 1.2em;
+}
+
+.viz-description {
+  color: #666;
+  margin-bottom: 15px;
+  font-style: italic;
+}
+
+.viz-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.image-fallback {
+  padding: 40px;
+  text-align: center;
+  background: #f8f9fa;
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  color: #6c757d;
+}
+
+.math-equations {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #e9ecef;
+}
+
+.equation-item {
+  margin-bottom: 25px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #28a745;
+}
+
+.equation-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.equation-index {
+  background: #28a745;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 15px;
+  margin-right: 10px;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.equation-title {
+  font-weight: 600;
+  color: #333;
+  margin-right: auto;
+}
+
+.equation-toggle {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: background-color 0.2s;
+}
+
+.equation-toggle:hover {
+  background: #0056b3;
+}
+
+.equation {
+  font-size: 1.2em;
+  text-align: center;
+  margin: 20px 0;
+  padding: 15px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.equation-explanation {
+  margin-top: 15px;
+  padding: 15px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+  color: #555;
+  line-height: 1.6;
+}
+
+.paper-footer {
+  background: #f8f9fa;
+  padding: 20px 30px;
+  text-align: center;
+  color: #666;
+  border-top: 1px solid #e9ecef;
+}
+
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  margin-top: 15px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-number {
+  display: block;
+  font-size: 1.8em;
+  font-weight: 700;
+  color: #007bff;
+  margin-bottom: 5px;
+}
+
+.stat-label {
+  font-size: 0.9em;
+  color: #666;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .container {
+    flex-direction: column;
+    padding: 10px;
+  }
+  
+  .table-of-contents {
+    width: 100%;
+    position: static;
+    margin-right: 0;
+    margin-bottom: 20px;
+    max-height: none;
+  }
+  
+  .paper-info {
+    grid-template-columns: 1fr;
+  }
+  
+  .stats {
+    gap: 15px;
+  }
+  
+  .equation-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
+/* MathJax 스타일링 */
+.MathJax {
+  font-size: 1.1em !important;
+}
+
+/* 클릭 가능한 요소에 대한 시각적 피드백 */
+.clickable-paragraph:active {
+  transform: translateY(1px);
+}
+
+/* 애니메이션 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.visualization-container {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.equation-explanation {
+  animation: fadeIn 0.3s ease-in-out;
+}

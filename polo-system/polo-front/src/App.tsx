@@ -5,6 +5,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Upload from "./pages/Upload";
+import Result from "./pages/Result";
 
 function AppContent() {
   const location = useLocation();
@@ -182,6 +183,7 @@ function AppContent() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/result" element={<Result />} />
       </Routes>
 
       <footer className="footer">

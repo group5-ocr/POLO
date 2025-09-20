@@ -48,6 +48,10 @@ export default function Upload() {
   // Math 모델 관련 상태 추가
   const [isLoadingMath, setIsLoadingMath] = useState(false);
   const [mathReady, setMathReady] = useState(false);
+  
+  // 통합 처리 관련 상태
+  const [allProcessingComplete, setAllProcessingComplete] = useState(false);
+  const [integratedData, setIntegratedData] = useState<any>(null);
   const [mathProgress, setMathProgress] = useState(0);
   const [mathResults, setMathResults] = useState<any>(null);
 
@@ -80,77 +84,11 @@ export default function Upload() {
     });
   };
 
-  // 선택된 기능들 처리 함수
+  // 선택된 기능들 처리 함수 (통합 처리로 대체됨)
+  // 이 함수는 더 이상 사용되지 않으며, handleIntegratedProcessing으로 대체되었습니다.
   const handleProcessSelectedFeatures = async () => {
-    if (selectedFeatures.size === 0) {
-      alert("최소 하나의 기능을 선택해주세요.");
-      return;
-    }
-
-    // doc_id 확인 및 처리
-    let docId = result?.doc_id;
-
-    console.log("디버깅 - result:", result);
-    console.log("디버깅 - docId:", docId);
-    console.log("디버깅 - selectedFile:", selectedFile);
-
-    // PDF가 선택되어 있지만 아직 업로드되지 않은 경우
-    if (!docId && selectedFile) {
-      try {
-        console.log("PDF 업로드 시작...");
-        const uploadResult = await uploadFile(selectedFile);
-        if (uploadResult?.doc_id) {
-          setResult(uploadResult);
-          docId = uploadResult.doc_id;
-          console.log("PDF 업로드 완료, docId:", docId);
-        } else {
-          alert("PDF 업로드에 실패했습니다. 다시 시도해주세요.");
-          return;
-        }
-      } catch (error) {
-        console.error("PDF 업로드 실패:", error);
-        alert("PDF 업로드 중 오류가 발생했습니다: " + error);
-        return;
-      }
-    }
-
-    if (!docId) {
-      alert("먼저 PDF를 업로드해주세요.");
-      return;
-    }
-
-    console.log("기능 처리 시작, docId:", docId);
-    setIsProcessing(true);
-    setProgress(0);
-
-    try {
-      const promises = [];
-
-      if (selectedFeatures.has("easy")) {
-        console.log("Easy 모델 처리 추가");
-        promises.push(handleGenerateEasyPaper(docId));
-      }
-
-      if (selectedFeatures.has("math")) {
-        console.log("Math 모델 처리 추가");
-        promises.push(handleGenerateMathPaper(docId));
-      }
-
-      if (selectedFeatures.has("overview")) {
-        console.log("Overview 기능 처리 추가");
-        // 한눈에 논문 기능은 쉬운 논문과 동일하게 처리
-        promises.push(handleGenerateEasyPaper(docId));
-      }
-
-      console.log("선택된 기능들 병렬 처리 시작, 총", promises.length, "개");
-      await Promise.all(promises);
-      console.log("모든 기능 처리 완료");
-    } catch (error) {
-      console.error("기능 처리 중 오류:", error);
-      alert("기능 처리 중 오류가 발생했습니다: " + error);
-    } finally {
-      setIsProcessing(false);
-    }
+    // 통합 처리 함수로 리다이렉트
+    await handleIntegratedProcessing();
   };
 
   // 진행률 업데이트 함수
@@ -836,6 +774,196 @@ export default function Upload() {
     }
   };
 
+  // 통합 처리 함수 - 모든 기능을 한 번에 실행
+  const handleIntegratedProcessing = async () => {
+    const paperId = result?.doc_id;
+    if (!paperId) {
+      alert("먼저 논문을 업로드해주세요.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setProgress(0);
+    setAllProcessingComplete(false);
+    setIntegratedData(null);
+    startProgressAnimation();
+
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      
+      // 1단계: Easy 모델 처리
+      if (selectedFeatures.has("easy")) {
+        console.log("🚀 [통합] Easy 모델 처리 시작...");
+        updateProgress(10);
+        
+        const easyResponse = await fetch(`${apiBase}/api/upload/send-to-easy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paper_id: paperId }),
+        });
+
+        if (easyResponse.ok) {
+          console.log("✅ [통합] Easy 모델 전송 성공");
+          updateProgress(30);
+          
+          // Easy 결과 폴링
+          await pollForEasyResults(paperId);
+          updateProgress(60);
+        } else {
+          throw new Error("Easy 모델 처리 실패");
+        }
+      }
+
+      // 2단계: Math 모델 처리
+      if (selectedFeatures.has("math")) {
+        console.log("🔢 [통합] Math 모델 처리 시작...");
+        updateProgress(70);
+        
+        const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paper_id: paperId }),
+        });
+
+        if (mathResponse.ok) {
+          console.log("✅ [통합] Math 모델 전송 성공");
+          updateProgress(85);
+          
+          // Math 결과 폴링
+          await pollForMathResults(paperId);
+          updateProgress(95);
+        } else {
+          console.warn("⚠️ [통합] Math 모델 처리 실패, 계속 진행");
+        }
+      }
+
+      // 3단계: 통합 데이터 생성
+      console.log("🔗 [통합] 통합 데이터 생성 중...");
+      updateProgress(98);
+      
+      const integratedResponse = await fetch(`${apiBase}/api/integrated-result/${paperId}`);
+      if (integratedResponse.ok) {
+        const integratedResult = await integratedResponse.json();
+        setIntegratedData(integratedResult);
+        console.log("✅ [통합] 통합 데이터 생성 완료");
+      }
+
+      updateProgress(100);
+      setAllProcessingComplete(true);
+      console.log("🎉 [통합] 모든 처리 완료!");
+
+    } catch (error) {
+      console.error("❌ [통합] 처리 중 오류:", error);
+      alert("통합 처리 중 오류가 발생했습니다: " + error);
+    } finally {
+      setIsProcessing(false);
+      stopProgressAnimation();
+    }
+  };
+
+  // Easy 결과 폴링
+  const pollForEasyResults = async (paperId: string) => {
+    const maxWaitMs = 30 * 60 * 1000; // 30분
+    const intervalMs = 3000; // 3초
+    const start = Date.now();
+    let pollCount = 0;
+
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/results/${paperId}/ready`);
+        if (response.ok) {
+          const data = await response.json();
+          pollCount++;
+          
+          if (data.status === "ready" && data.ok) {
+            console.log("✅ [통합] Easy 결과 준비 완료");
+            setEasyReady(true);
+            return;
+          }
+        }
+      } catch (error) {
+        console.log(`[통합 Easy 폴링] ${pollCount}회차 실패:`, error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    
+    throw new Error("Easy 모델 처리 타임아웃");
+  };
+
+  // Math 결과 폴링
+  const pollForMathResults = async (paperId: string) => {
+    const maxWaitMs = 15 * 60 * 1000; // 15분
+    const intervalMs = 5000; // 5초
+    const start = Date.now();
+    let pollCount = 0;
+
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/math/status/${paperId}`);
+        if (response.ok) {
+          const data = await response.json();
+          pollCount++;
+          
+          if (data.status === "completed") {
+            console.log("✅ [통합] Math 결과 준비 완료");
+            setMathReady(true);
+            return;
+          }
+        }
+      } catch (error) {
+        console.log(`[통합 Math 폴링] ${pollCount}회차 실패:`, error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    
+    console.warn("⚠️ [통합] Math 모델 처리 타임아웃, 계속 진행");
+  };
+
+  // Result.tsx 미리보기 열기
+  const openResultPreview = () => {
+    if (integratedData) {
+      // Result.tsx로 데이터와 함께 이동
+      navigate('/result', { 
+        state: { 
+          data: integratedData,
+          paperId: result?.doc_id 
+        } 
+      });
+    } else {
+      alert("통합 데이터가 준비되지 않았습니다.");
+    }
+  };
+
+  // 통합 결과 다운로드
+  const downloadIntegratedResults = async () => {
+    const paperId = result?.doc_id;
+    if (!paperId) return;
+
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/integrated-result/${paperId}/download`);
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `integrated_results_${paperId}.html`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        throw new Error("다운로드 실패");
+      }
+    } catch (error) {
+      console.error("다운로드 오류:", error);
+      alert("다운로드 중 오류가 발생했습니다.");
+    }
+  };
+
   // 로딩 중이거나 로그인하지 않은 경우 로딩 화면 표시
   if (isLoading) {
     return (
@@ -1218,85 +1346,95 @@ export default function Upload() {
                   </div>
                 )}
 
-                {/* 선택된 기능들 처리 버튼 - 모델 생성 중이 아닐 때만 표시 */}
+                {/* 통합 처리 버튼 - 모든 기능을 한 번에 실행 */}
                 {!isModelProcessing() && selectedFeatures.size > 0 && (
                   <div className="feature-actions">
                     <button
-                      onClick={handleProcessSelectedFeatures}
+                      onClick={handleIntegratedProcessing}
                       disabled={isProcessing}
-                      className="process-selected-button"
+                      className="integrated-process-button"
                       style={{
                         background:
-                          "linear-gradient(135deg, #ff6b35 0%, #f7931e 100%)",
+                          "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                         border: "none",
                         borderRadius: "12px",
-                        padding: "16px 32px",
-                        fontSize: "16px",
-                        fontWeight: "600",
+                        padding: "20px 32px",
+                        fontSize: "18px",
+                        fontWeight: "700",
                         color: "white",
                         cursor: isProcessing ? "not-allowed" : "pointer",
                         transition: "all 0.3s ease",
-                        boxShadow: "0 4px 15px rgba(255, 107, 53, 0.3)",
+                        boxShadow: "0 6px 20px rgba(102, 126, 234, 0.4)",
                         width: "100%",
                         marginTop: "20px",
                         opacity: isProcessing ? 0.7 : 1,
+                        position: "relative",
+                        overflow: "hidden",
                       }}
                       onMouseOver={(e) => {
                         if (!isProcessing) {
-                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.transform = "translateY(-3px)";
                           e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(255, 107, 53, 0.4)";
+                            "0 8px 25px rgba(102, 126, 234, 0.5)";
                         }
                       }}
                       onMouseOut={(e) => {
                         if (!isProcessing) {
                           e.currentTarget.style.transform = "translateY(0)";
                           e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(255, 107, 53, 0.3)";
+                            "0 6px 20px rgba(102, 126, 234, 0.4)";
                         }
                       }}
                     >
                       {isProcessing ? (
                         <>
                           <span className="spinner"></span>
-                          처리 중... ({selectedFeatures.size}개 기능)
+                          AI가 논문을 분석하고 있습니다... ({progress}%)
                         </>
                       ) : (
-                        <>선택된 {selectedFeatures.size}개 기능 실행하기</>
+                        <>
+                          🚀 AI 논문 분석 시작하기
+                          <div style={{ fontSize: "12px", marginTop: "4px", opacity: 0.9 }}>
+                            쉬운 설명 + 수식 해설 + 시각화를 한 번에 생성합니다
+                          </div>
+                        </>
                       )}
                     </button>
                   </div>
                 )}
 
-                {/* Easy 모델 완료 시 결과 보기 버튼들 */}
-                {easyReady && (
+                {/* 통합 처리 완료 시 결과 보기 버튼들 */}
+                {allProcessingComplete && (
                   <div className="model-buttons">
                     <h4
                       style={{
                         textAlign: "center",
                         marginBottom: "20px",
                         color: "#2c3e50",
-                        fontSize: "18px",
+                        fontSize: "20px",
                       }}
                     >
-                      🎉 쉬운 논문 생성 완료!
+                      🎉 AI 논문 분석 완료!
                     </h4>
                     <p
                       style={{
                         textAlign: "center",
-                        marginBottom: "20px",
+                        marginBottom: "25px",
                         color: "#666",
                         fontSize: "14px",
+                        lineHeight: "1.6",
                       }}
                     >
-                      AI가 논문을 중학생도 이해할 수 있는 쉬운 언어로
-                      변환했습니다.
+                      AI가 논문을 완전히 분석했습니다:
                       <br />
-                      전문 용어는 굵게 표시되고, 핵심 문장은 형광펜으로
-                      강조됩니다.
+                      ✅ 쉬운 한국어 설명 생성
+                      <br />
+                      ✅ 수식 상세 해설 제공
+                      <br />
+                      ✅ 시각화 이미지 생성
                       <br />
                       <span style={{ color: "#4caf50", fontWeight: "600" }}>
-                        ✨ 시각화 이미지도 함께 생성되었습니다!
+                        🚀 이제 통합 결과를 확인해보세요!
                       </span>
                     </p>
                     <div className="result-content">
@@ -1309,100 +1447,66 @@ export default function Upload() {
                         }}
                       >
                         <button
-                          onClick={viewEasyResultsInBrowser}
+                          onClick={openResultPreview}
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            border: "none",
+                            borderRadius: "12px",
+                            padding: "16px 32px",
+                            fontSize: "16px",
+                            fontWeight: "700",
+                            color: "white",
+                            cursor: "pointer",
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 6px 20px rgba(102, 126, 234, 0.4)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.transform = "translateY(-3px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 8px 25px rgba(102, 126, 234, 0.5)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
+                            e.currentTarget.style.boxShadow =
+                              "0 6px 20px rgba(102, 126, 234, 0.4)";
+                          }}
+                        >
+                          👁️ 통합 결과 미리보기
+                        </button>
+                        <button
+                          onClick={downloadIntegratedResults}
                           style={{
                             background:
                               "linear-gradient(135deg, #4caf50 0%, #45a049 100%)",
                             border: "none",
-                            borderRadius: "8px",
-                            padding: "12px 24px",
+                            borderRadius: "12px",
+                            padding: "16px 32px",
                             fontSize: "16px",
-                            fontWeight: "600",
+                            fontWeight: "700",
                             color: "white",
                             cursor: "pointer",
                             transition: "all 0.3s ease",
-                            boxShadow: "0 4px 15px rgba(76, 175, 80, 0.3)",
+                            boxShadow: "0 6px 20px rgba(76, 175, 80, 0.4)",
                             display: "flex",
                             alignItems: "center",
-                            gap: "8px",
+                            gap: "10px",
                           }}
                           onMouseOver={(e) => {
-                            e.currentTarget.style.transform =
-                              "translateY(-2px)";
+                            e.currentTarget.style.transform = "translateY(-3px)";
+                            e.currentTarget.style.boxShadow =
+                              "0 8px 25px rgba(76, 175, 80, 0.5)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.transform = "translateY(0)";
                             e.currentTarget.style.boxShadow =
                               "0 6px 20px rgba(76, 175, 80, 0.4)";
                           }}
-                          onMouseOut={(e) => {
-                            e.currentTarget.style.transform = "translateY(0)";
-                            e.currentTarget.style.boxShadow =
-                              "0 4px 15px rgba(76, 175, 80, 0.3)";
-                          }}
                         >
-                          결과 보러가기
-                        </button>
-                        <button
-                          onClick={downloadEasyResultsAsHTML}
-                          style={{
-                            background:
-                              "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
-                            border: "none",
-                            borderRadius: "8px",
-                            padding: "12px 24px",
-                            fontSize: "16px",
-                            fontWeight: "600",
-                            color: "white",
-                            cursor: "pointer",
-                            transition: "all 0.3s ease",
-                            boxShadow: "0 4px 15px rgba(255, 152, 0, 0.3)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                          }}
-                          onMouseOver={(e) => {
-                            e.currentTarget.style.transform =
-                              "translateY(-2px)";
-                            e.currentTarget.style.boxShadow =
-                              "0 6px 20px rgba(255, 152, 0, 0.4)";
-                          }}
-                          onMouseOut={(e) => {
-                            e.currentTarget.style.transform = "translateY(0)";
-                            e.currentTarget.style.boxShadow =
-                              "0 4px 15px rgba(255, 152, 0, 0.3)";
-                          }}
-                        >
-                          다운로드
-                        </button>
-                        <button
-                          onClick={downloadVizImages}
-                          style={{
-                            background:
-                              "linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)",
-                            border: "none",
-                            borderRadius: "8px",
-                            padding: "12px 24px",
-                            fontSize: "16px",
-                            fontWeight: "600",
-                            color: "white",
-                            cursor: "pointer",
-                            transition: "all 0.3s ease",
-                            boxShadow: "0 4px 15px rgba(156, 39, 176, 0.3)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                          }}
-                          onMouseOver={(e) => {
-                            e.currentTarget.style.transform =
-                              "translateY(-2px)";
-                            e.currentTarget.style.boxShadow =
-                              "0 6px 20px rgba(156, 39, 176, 0.4)";
-                          }}
-                          onMouseOut={(e) => {
-                            e.currentTarget.style.transform = "translateY(0)";
-                            e.currentTarget.style.boxShadow =
-                              "0 4px 15px rgba(156, 39, 176, 0.3)";
-                          }}
-                        >
-                          🖼️ 이미지 다운로드
+                          💾 통합 결과 다운로드
                         </button>
                       </div>
                     </div>
