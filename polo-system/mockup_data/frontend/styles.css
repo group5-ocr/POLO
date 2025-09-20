@@ -21,17 +21,26 @@ body {
   gap: 30px;
 }
 
+/* 사이드바 스타일 */
+.sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: sticky;
+  top: 20px;
+  height: fit-content;
+}
+
 /* 목차 스타일 */
 .table-of-contents {
-  width: 250px;
+  width: 100%;
   background: white;
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
   height: fit-content;
-  position: sticky;
-  top: 20px;
-  flex-shrink: 0;
 }
 
 .table-of-contents h3 {
@@ -378,6 +387,52 @@ body {
 
 /* 수식 없는 섹션 스타일 제거됨 */
 
+/* 다운로드 섹션 스타일 */
+.download-section {
+  width: 100%;
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+.download-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.download-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+}
+
+.download-btn:active {
+  transform: translateY(0);
+}
+
+.download-btn:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.download-icon {
+  font-size: 1.2em;
+}
+
 /* 푸터 스타일 */
 .paper-footer {
   background: #2c3e50;
@@ -429,10 +484,10 @@ body {
     gap: 20px;
   }
 
-  .table-of-contents {
+  .sidebar {
     width: 100%;
-    position: static;
     order: -1;
+    position: static;
   }
 
   .main-content {
@@ -463,6 +518,11 @@ body {
   .stat-number {
     font-size: 1.5em;
   }
+
+  .download-btn {
+    padding: 10px 20px;
+    font-size: 0.9em;
+  }
 }
 
 @media (max-width: 480px) {
@@ -485,5 +545,10 @@ body {
   .easy-content,
   .equation-item {
     padding: 15px;
+  }
+
+  .download-btn {
+    padding: 8px 16px;
+    font-size: 0.85em;
   }
 }

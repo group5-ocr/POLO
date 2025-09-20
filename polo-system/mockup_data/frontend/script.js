@@ -12,6 +12,7 @@ class IntegratedPaperViewer {
       this.hideLoading();
       this.displayIntegratedPaper();
       this.displayStats();
+      this.setupDownloadButtons();
     } catch (error) {
       this.showError(
         "데이터를 불러오는 중 오류가 발생했습니다: " + error.message
@@ -420,6 +421,212 @@ class IntegratedPaperViewer {
       // MathJax가 아직 로드되지 않은 경우 잠시 후 재시도
       setTimeout(() => this.renderMathJax(), 100);
     }
+  }
+
+  setupDownloadButtons() {
+    const htmlBtn = document.getElementById("download-html-btn");
+
+    if (htmlBtn) {
+      htmlBtn.addEventListener("click", () => this.downloadAsHTML());
+    }
+  }
+
+  async downloadAsHTML() {
+    const htmlBtn = document.getElementById("download-html-btn");
+    const originalText = htmlBtn.innerHTML;
+
+    try {
+      // 버튼 비활성화 및 로딩 상태 표시
+      htmlBtn.disabled = true;
+      htmlBtn.innerHTML =
+        '<span class="download-icon">⏳</span>HTML 생성 중...';
+
+      // HTML 내용 가져오기
+      const element = document.querySelector(".integrated-paper");
+      let htmlContent = element.outerHTML;
+
+      // 이미지를 Base64로 변환
+      htmlContent = await this.convertImagesToBase64(htmlContent);
+
+      // 전체 HTML 문서 생성
+      const fullHtml = `
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLOv1 논문 분석 결과</title>
+    <style>
+        ${this.getInlineStyles()}
+    </style>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [["$", "$"], ["\\(", "\\)"]],
+                displayMath: [["$$", "$$"], ["\\[", "\\]"]]
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="main-content">
+            <header class="paper-header">
+                <h1>${this.paperInfo?.paper_title || "YOLOv1 논문 분석"}</h1>
+                <div class="paper-info">
+                    <p><strong>논문 제목:</strong> ${
+                      this.paperInfo?.paper_title || "로딩 중..."
+                    }</p>
+                    <p><strong>저자:</strong> ${
+                      this.paperInfo?.paper_authors || "로딩 중..."
+                    }</p>
+                    <p><strong>발표:</strong> ${
+                      this.paperInfo?.paper_venue || "로딩 중..."
+                    }</p>
+                    <p><strong>논문 ID:</strong> ${
+                      this.paperInfo?.paper_id || "로딩 중..."
+                    }</p>
+                </div>
+            </header>
+            ${htmlContent}
+            <footer class="paper-footer">
+                <p>AI 통합 분석 시스템 | YOLOv1 논문 분석 결과</p>
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-number">${
+                          this.paperInfo?.total_sections || 0
+                        }</span>
+                        <span class="stat-label">총 섹션</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number">${
+                          this.paperInfo?.total_equations || 0
+                        }</span>
+                        <span class="stat-label">총 수식</span>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+</body>
+</html>`;
+
+      // Blob 생성 및 다운로드
+      const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `YOLOv1_논문분석_${
+        new Date().toISOString().split("T")[0]
+      }.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("HTML 다운로드 오류:", error);
+      alert("HTML 다운로드 중 오류가 발생했습니다: " + error.message);
+    } finally {
+      // 버튼 상태 복원
+      htmlBtn.disabled = false;
+      htmlBtn.innerHTML = originalText;
+    }
+  }
+
+  async convertImagesToBase64(htmlContent) {
+    // 임시 DOM 요소 생성
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = htmlContent;
+
+    // 모든 이미지 요소 찾기
+    const images = tempDiv.querySelectorAll("img");
+
+    for (let img of images) {
+      try {
+        // 이미지가 로드되었는지 확인
+        if (img.complete && img.naturalHeight !== 0) {
+          // Canvas를 사용하여 이미지를 Base64로 변환
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+
+          ctx.drawImage(img, 0, 0);
+          const base64 = canvas.toDataURL("image/png");
+
+          // src를 Base64로 교체
+          img.src = base64;
+        } else {
+          // 이미지가 로드되지 않은 경우 원본 경로 유지
+          console.warn("이미지 로드 실패:", img.src);
+        }
+      } catch (error) {
+        console.error("이미지 변환 오류:", error);
+        // 오류 발생 시 원본 경로 유지
+      }
+    }
+
+    return tempDiv.innerHTML;
+  }
+
+  async waitForMathJax() {
+    return new Promise((resolve) => {
+      if (window.MathJax && typeof window.MathJax.typeset === "function") {
+        window.MathJax.typeset();
+        setTimeout(resolve, 1000); // MathJax 렌더링 완료 대기
+      } else {
+        setTimeout(resolve, 2000); // MathJax 로드 대기
+      }
+    });
+  }
+
+  getInlineStyles() {
+    // CSS 스타일을 인라인으로 반환 (간단한 버전)
+    return `
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f8f9fa; }
+      .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+      .main-content { flex: 1; min-width: 0; }
+      .paper-header { background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+      .paper-header h1 { font-size: 2.5em; margin-bottom: 20px; text-align: center; font-weight: 700; color: white; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3); }
+      .paper-info { background: rgba(0, 0, 0, 0.3); padding: 20px; border-radius: 8px; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+      .paper-info p { margin-bottom: 8px; font-size: 1.1em; color: rgba(255, 255, 255, 0.95); font-weight: 500; }
+      .paper-info strong { color: #ffd700; font-weight: 700; }
+      .integrated-paper { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); overflow: hidden; }
+      .paper-sections { padding: 0; }
+      .paper-section { border-bottom: 1px solid #e9ecef; padding: 40px; transition: background-color 0.3s ease; }
+      .paper-section:hover { background-color: #f8f9fa; }
+      .paper-section:last-child { border-bottom: none; }
+      .section-header { margin-bottom: 30px; padding-bottom: 15px; border-bottom: 2px solid #f59e0b; }
+      .section-title { font-size: 2em; color: #2c3e50; margin-bottom: 10px; font-weight: 600; }
+      .section-order { display: inline-block; background: #f59e0b; color: white; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-weight: bold; margin-right: 15px; vertical-align: middle; }
+      .easy-content { margin-bottom: 30px; padding: 25px; background: #fef3c7; border-radius: 8px; border-left: 4px solid #f59e0b; }
+      .easy-content p { font-size: 1.1em; line-height: 1.8; color: #424242; }
+      .easy-content strong { color: #d97706; font-weight: 600; }
+      .math-equations { margin-top: 30px; }
+      .equation-item { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); transition: box-shadow 0.3s ease; }
+      .equation-item:hover { box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+      .equation-header { display: flex; align-items: center; margin-bottom: 15px; }
+      .equation-index { background: #d32f2f; color: white; width: 25px; height: 25px; border-radius: 50%; text-align: center; line-height: 25px; font-weight: bold; margin-right: 10px; font-size: 0.9em; }
+      .equation-title { color: #d32f2f; font-weight: 600; font-size: 1.1em; }
+      .equation { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 15px; text-align: center; border: 1px solid #e9ecef; overflow-x: auto; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); }
+      .equation-explanation { color: #424242; line-height: 1.7; font-size: 1.05em; }
+      .equation-explanation strong { color: #d32f2f; font-weight: 600; }
+      .visualizations { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #28a745; }
+      .visualization-item { margin-bottom: 25px; padding: 15px; background: white; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+      .visualization-item h4 { color: #2c3e50; margin-bottom: 10px; font-size: 1.1em; font-weight: 600; }
+      .viz-description { color: #6c757d; margin-bottom: 15px; font-size: 0.95em; line-height: 1.5; }
+      .viz-image { width: 100%; max-width: 600px; height: auto; border-radius: 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); display: block; margin: 0 auto; }
+      .paper-footer { background: #2c3e50; color: white; padding: 30px; border-radius: 12px; margin-top: 30px; text-align: center; }
+      .paper-footer p { margin-bottom: 15px; font-size: 1.1em; }
+      .stats { display: flex; justify-content: center; gap: 30px; flex-wrap: wrap; }
+      .stat-item { text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 8px; min-width: 100px; }
+      .stat-number { font-size: 2em; font-weight: bold; color: #ffd700; display: block; margin-bottom: 5px; }
+      .stat-label { font-size: 0.9em; opacity: 0.8; }
+    `;
   }
 }
 

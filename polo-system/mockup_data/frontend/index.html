@@ -29,13 +29,24 @@
   </head>
   <body>
     <div class="container">
-      <!-- 목차 -->
-      <nav class="table-of-contents" id="table-of-contents">
-        <h3>목차</h3>
-        <ul id="toc-list">
-          <!-- JavaScript로 동적 생성 -->
-        </ul>
-      </nav>
+      <!-- 좌측 사이드바 -->
+      <div class="sidebar">
+        <!-- 목차 -->
+        <nav class="table-of-contents" id="table-of-contents">
+          <h3>목차</h3>
+          <ul id="toc-list">
+            <!-- JavaScript로 동적 생성 -->
+          </ul>
+        </nav>
+
+        <!-- HTML 다운로드 버튼 -->
+        <div class="download-section">
+          <button id="download-html-btn" class="download-btn">
+            <span class="download-icon">🌐</span>
+            HTML로 다운로드
+          </button>
+        </div>
+      </div>
 
       <!-- 메인 콘텐츠 -->
       <div class="main-content">
