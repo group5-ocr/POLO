@@ -25,7 +25,7 @@ if ROOT_ENV.exists():
 # -------------------- ENV / 기본값 --------------------
 HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
 BASE_MODEL               = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
-ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "llama32-3b-qlora" / "checkpoint-4000"))
+ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "yolo-easy-qlora" / "checkpoint-45"))
 MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))  # 600 → 1200으로 복원
 EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "4"))  # 2 → 4로 증가
 EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "1800"))
@@ -428,6 +428,37 @@ def _squash_duplicate_parens(t: str) -> str:
     t = re.sub(r"\s+\)", ")", t)
     return t
 
+def _drop_latex_curly_blocks(t: str) -> str:
+    """LaTeX 중괄호 블록 정리 (보수 모드)"""
+    if not t: return t
+    
+    def repl(m):
+        inner = m.group(1).strip()
+        
+        # 수식/코드/URL 의심되면 건드리지 않음
+        if re.search(r"(\\[a-zA-Z]+|[$]{1,2}.*?[$]{1,2}|https?://|`[^`]+`)", inner):
+            return "{" + inner + "}"  # 그대로 보존
+        
+        # 보수 모드: 더 엄격하게 '쓸모없는 토막'만 제거
+        if EASY_CONSERVATIVE:
+            if len(inner) <= 2: return ""
+            if re.fullmatch(r"[\s.,;:~_=+\-*/\\#\[\]()|^%]+", inner): return ""
+            # 짧은 토막은 ( )로 감싸지 말고 그냥 제거
+            if len(inner.split()) <= 2 and len(re.findall(r"[A-Za-z가-힣0-9]", inner)) <= 4:
+                return ""
+            # 그 외는 아예 보존
+            return "{" + inner + "}"
+        
+        # 공격 모드(기존 동작): 의미 있으면 ( )로 변환
+        if re.fullmatch(r"[\s\d.,;:~_=+\-*/\\#\[\]()|^%]+", inner): return ""
+        if len(inner.split()) <= 3 and len(re.findall(r"[A-Za-z가-힣0-9]", inner)) <= 6: return ""
+        return f"({inner})"
+    
+    t = re.sub(r"\{+\s*([^{}]{1,200})\s*\}+", repl, t)
+    # 남은 중괄호는 깔끔히 제거(보수 모드에서는 보존한 블록도 있으니 다시 한 번 정리)
+    t = t.replace("{", "").replace("}", "")
+    return t
+
 def _strip_debug_markers(s: str) -> str:
     """CHUNK/마커 제거"""
     if not s: return s
@@ -597,7 +628,7 @@ def load_model():
     gpu_available = True
     device = "cuda"
     safe_dtype = torch.float16
-        logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
+    logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
     logger.info("==============================================")
 
     tokenizer_local = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN, trust_remote_code=True, cache_dir=CACHE_DIR)
@@ -794,13 +825,13 @@ def _translate_with_llm(text: str) -> str:
         translate_prompt = (
             "<|begin_of_text|>\n"
             "<|start_header_id|>system<|end_header_id|>\n"
-            "너는 학술 논문 전문 번역가다. 영어 문장을 정확하고 자연스러운 한국어로 번역하라.\n"
+            "너는 YOLO 객체 탐지 논문 전문 번역가다. 영어 문장을 정확하고 자연스러운 한국어로 번역하라.\n"
             "규칙:\n"
+            "- YOLO 관련 용어(YOLO, object detection, bounding box, IoU, mAP, COCO, NMS, backbone, neck, head, FPN, Darknet, ResNet 등)는 영어 그대로 두고 (한국어 풀이) 추가\n"
             "- 의미 정확, 도메인 용어 보존\n"
             "- 숫자/고유명사/기호 왜곡 금지\n"
             "- 한국어 문장부호 사용\n"
             "- 마스킹된 토큰(⟦GLOSSARY_xxx⟧)은 절대 번역하지 말고 그대로 유지\n"
-            "- 영문 전문용어는 영어 그대로 두고 (한국어 풀이) 추가\n"
             "<|eot_id|>\n"
             "<|start_header_id|>user<|end_header_id|>\n"
             f"{masked_text}\n\n[한국어 번역]\n"
@@ -903,12 +934,15 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     content_masked, math_masks = _mask_blocks(content, _MASK_MATH)
     
     sys_msg = (
-        "너는 AI 논문 텍스트를 원문 의미를 유지한 채 한국어로 쉽게 풀어쓰는 전문가다.\n"
+        "너는 YOLO(You Only Look Once) 객체 탐지 논문을 쉽게 풀어쓰는 전문가다.\n"
+        "YOLO 논문의 핵심 개념들을 정확하고 이해하기 쉽게 설명하라.\n"
+        "\n"
         "규칙:\n"
-        "- 영문 전문용어는 영어 표기 그대로 두고, 바로 뒤에 (짧은 한국어 풀이)를 1회만 붙여라. 같은 문단에서 동일 용어는 다시 풀이하지 마라.\n"
+        "- YOLO 관련 용어(YOLO, object detection, bounding box, IoU, mAP, COCO, NMS, backbone, neck, head, FPN, Darknet, ResNet 등)는 영어 그대로 두고 (한국어 풀이)를 1회만 붙여라.\n"
         "- 수식/코드/링크/토큰은 변형 금지. 입력에 ⟦MATH_i⟧, ⟦CODE_i⟧ 같은 마스크가 오면 그대로 보존하고, 출력에도 동일하게 남겨라.\n"
         "- 숫자/기호/단위/약어를 바꾸지 마라. 추측/과장은 금지.\n"
         "- 3~5 문단, 각 2~4문장. 매 문단은 연결어(먼저/다음/마지막 등)로 자연스럽게 잇는다.\n"
+        "- YOLO의 핵심 아이디어(실시간 탐지, 단일 네트워크, 격자 기반 예측)를 강조하라.\n"
         "- 불필요한 반복/군더더기 제거. \"방법/코딩방식\" 같은 보조풀이를 과도하게 넣지 마라.\n"
         "\n"
         "형식:\n"
@@ -1204,7 +1238,8 @@ async def generate_json(request: TextRequest):
         schema_copy[k]["original"] = extracted.get(k, "")
 
     instruction = (
-        "너는 과학 선생님이다. 아래 JSON 스키마의 '키/구조'를 그대로 두고 '값'만 채워라. "
+        "너는 YOLO 객체 탐지 논문을 분석하는 과학 선생님이다. 아래 JSON 스키마의 '키/구조'를 그대로 두고 '값'만 채워라. "
+        "YOLO 관련 용어는 영어 그대로 두고 (한국어 풀이)를 붙여라. "
         "외부 지식 금지. 원문에 없으면 '원문에 없음'이라고 적어라. "
         "출력은 반드시 '유효한 JSON' 하나만."
     )
