@@ -116,13 +116,55 @@ export default function Home() {
       </section>
 
       {/* 기능 소개 섹션 */}
-      <section className="features">
-        <div className="container">
-          <div className="features-badge animate-on-scroll">핵심 기능</div>
-          <h2 className="section-title animate-on-scroll">
+      <section
+        className="features"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          width: "100%",
+        }}
+      >
+        <div
+          className="container"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            width: "100%",
+          }}
+        >
+          <div
+            className="features-badge animate-on-scroll"
+            style={{ display: "block", textAlign: "center" }}
+          >
+            핵심 기능
+          </div>
+          <h2
+            className="section-title animate-on-scroll"
+            style={{
+              textAlign: "center",
+              display: "block",
+              width: "100%",
+              writingMode: "horizontal-tb",
+              direction: "ltr",
+              whiteSpace: "normal",
+              lineHeight: "1.2",
+            }}
+          >
             왜 POLO를 선택해야 할까요?
           </h2>
-          <p className="features-subtitle animate-on-scroll">
+          <p
+            className="features-subtitle animate-on-scroll"
+            style={{
+              textAlign: "center",
+              display: "block",
+              width: "100%",
+              writingMode: "horizontal-tb",
+              direction: "ltr",
+              whiteSpace: "normal",
+            }}
+          >
             복잡한 학술 논문을 누구나 이해할 수 있게 만드는 혁신적인 기능들을
             만나보세요.
           </p>
@@ -134,7 +176,8 @@ export default function Home() {
               <h3>스마트 AI 분석</h3>
               <p>
                 최신 AI 기술로 논문의 핵심 내용을 정확하게 파악하고 쉬운 언어로
-                변환합니다. 전문 용어는 자동으로 굵게 처리되고 핵심 문장은 형광펜으로 강조됩니다.
+                변환합니다. 전문 용어는 자동으로 굵게 처리되고 핵심 문장은
+                형광펜으로 강조됩니다.
               </p>
               <div className="feature-hover-effect"></div>
             </div>
@@ -165,8 +208,10 @@ export default function Home() {
                 <div className="feature-icon">🛡️</div>
               </div>
               <h3>정확성 보장</h3>
-              <p>원본 논문의 의미를 왜곡하지 않고 정확한 내용을 전달합니다. 
-              모든 전문 용어는 원어를 유지하고 괄호에 쉬운 해설을 제공합니다.</p>
+              <p>
+                원본 논문의 의미를 왜곡하지 않고 정확한 내용을 전달합니다. 모든
+                전문 용어는 원어를 유지하고 괄호에 쉬운 해설을 제공합니다.
+              </p>
               <div className="feature-hover-effect"></div>
             </div>
           </div>
@@ -174,13 +219,55 @@ export default function Home() {
       </section>
 
       {/* 사용법 섹션 */}
-      <section className="how-it-works">
-        <div className="container">
-          <div className="how-it-works-badge animate-on-scroll">사용 방법</div>
-          <h2 className="section-title animate-on-scroll">
+      <section
+        className="how-it-works"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          width: "100%",
+        }}
+      >
+        <div
+          className="container"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            width: "100%",
+          }}
+        >
+          <div
+            className="how-it-works-badge animate-on-scroll"
+            style={{ display: "block", textAlign: "center" }}
+          >
+            사용 방법
+          </div>
+          <h2
+            className="section-title animate-on-scroll"
+            style={{
+              textAlign: "center",
+              display: "block",
+              width: "100%",
+              writingMode: "horizontal-tb",
+              direction: "ltr",
+              whiteSpace: "normal",
+              lineHeight: "1.2",
+            }}
+          >
             어떻게 작동하나요?
           </h2>
-          <p className="how-it-works-subtitle animate-on-scroll">
+          <p
+            className="how-it-works-subtitle animate-on-scroll"
+            style={{
+              textAlign: "center",
+              display: "block",
+              width: "100%",
+              writingMode: "horizontal-tb",
+              direction: "ltr",
+              whiteSpace: "normal",
+            }}
+          >
             간단한 3단계로 복잡한 논문을 쉬운 설명으로 변환하세요.
           </p>
           <div className="steps">
@@ -221,12 +308,49 @@ export default function Home() {
       </section>
 
       {/* 사용자 후기 섹션 */}
-      <section className="testimonials">
-        <div className="container">
-          <h2 className="section-title animate-on-scroll">
+      <section
+        className="testimonials"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          width: "100%",
+        }}
+      >
+        <div
+          className="container"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            width: "100%",
+          }}
+        >
+          <h2
+            className="section-title animate-on-scroll"
+            style={{
+              textAlign: "center",
+              display: "block",
+              width: "100%",
+              writingMode: "horizontal-tb",
+              direction: "ltr",
+              whiteSpace: "normal",
+              lineHeight: "1.2",
+            }}
+          >
             사용자들의 생생한 후기
           </h2>
-          <p className="testimonials-subtitle animate-on-scroll">
+          <p
+            className="testimonials-subtitle animate-on-scroll"
+            style={{
+              textAlign: "center",
+              display: "block",
+              width: "100%",
+              writingMode: "horizontal-tb",
+              direction: "ltr",
+              whiteSpace: "normal",
+            }}
+          >
             POLO를 사용하고 있는 연구자들의 실제 경험을 들어보세요.
           </p>
           <div className="testimonials-container">
