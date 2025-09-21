@@ -25,7 +25,7 @@ if ROOT_ENV.exists():
 # -------------------- ENV / 기본값 --------------------
 HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
 BASE_MODEL               = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
-ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "yolo-easy-qlora" / "checkpoint-45"))
+ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "yolo-easy-qlora" / "checkpoint-200"))
 MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))  # 600 → 1200으로 복원
 EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "4"))  # 2 → 4로 증가
 EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "1800"))
@@ -2129,29 +2129,70 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
     success_rate = (success / max(1, len(sections))) * 100.0
     status_str = "ok" if (not timed_out and failed == 0) else "partial"
 
+    # easy.json 구조에 맞게 변환
+    easy_sections = []
+    for i, section in enumerate(sections):
+        result = results[i]
+        section_title = section.get("title", f"Section {i+1}")
+        
+        # 문단들을 쉬운 설명에서 추출 (간단한 분할)
+        easy_text = result.easy_text or ""
+        paragraphs = []
+        if easy_text:
+            # 문단별로 분할 (간단한 휴리스틱)
+            para_texts = [p.strip() for p in easy_text.split('\n\n') if p.strip()]
+            for j, para_text in enumerate(para_texts):
+                paragraphs.append({
+                    "easy_paragraph_id": f"easy_paragraph_{i+1}_{j+1}",
+                    "easy_paragraph_text": para_text,
+                    "easy_paragraph_order": j + 1,
+                    "easy_visualization_trigger": bool(result.image_path) and j == 0  # 첫 번째 문단에만 시각화 트리거
+                })
+        
+        # 시각화 정보
+        visualizations = []
+        if result.image_path:
+            visualizations.append({
+                "easy_viz_id": f"easy_viz_{i+1}_1",
+                "easy_viz_title": f"{section_title} 시각화",
+                "easy_viz_description": f"{section_title}에 대한 시각적 설명",
+                "easy_viz_image_path": f"/api/viz/{Path(result.image_path).name}",
+                "easy_viz_type": "diagram"
+            })
+        
+        easy_section = {
+            "easy_section_id": f"easy_section_{i+1}",
+            "easy_section_title": section_title,
+            "easy_section_type": result.section_type or section.get("section_type", "section"),
+            "easy_section_order": i + 1,
+            "easy_section_level": 1,
+            "easy_content": easy_text[:200] + "..." if len(easy_text) > 200 else easy_text,
+            "easy_paragraphs": paragraphs,
+            "easy_visualizations": visualizations
+        }
+        easy_sections.append(easy_section)
+    
+    # easy.json 구조로 변환
     easy_json = {
-        "paper_id": paper_id,
-        "status": status_str,
-        "count": len(sections),
-        "success": success,
-        "failed": failed,
-        "success_rate": round(success_rate, 2),
-        "sections": [
-            {
-                "index": i,
-                "title": sections[i].get("title"),
-                "original_content": sections[i].get("content"),
-                "korean_translation": (results[i].easy_text or ""),
-                "image_path": (results[i].image_path or ""),
-                "original_images": (results[i].original_images or []),
-                "status": "ok" if results[i].ok else f"error: {results[i].error}",
-                "section_type": results[i].section_type or sections[i].get("section_type","section"),
+        "paper_info": {
+            "paper_id": paper_id,
+            "paper_title": f"논문 {paper_id}",
+            "paper_authors": "Unknown",
+            "paper_venue": "Unknown",
+            "total_sections": len(sections)
+        },
+        "easy_sections": easy_sections,
+        "metadata": {
+            "generated_at": _get_current_datetime(),
+            "easy_model_version": "yolo-easy-qlora-checkpoint-45",
+            "total_processing_time": round((time.time() - t_batch_start), 2),
+            "visualization_triggers": sum(1 for r in results if r.image_path),
+            "total_paragraphs": sum(len(sec["easy_paragraphs"]) for sec in easy_sections),
+            "section_types": {
+                "section": len([s for s in easy_sections if s["easy_section_type"] == "section"]),
+                "subsection": len([s for s in easy_sections if s["easy_section_type"] == "subsection"])
             }
-            for i in range(len(sections))
-        ],
-        "generated_at": _get_current_datetime(),
-        "timed_out": timed_out,
-        "elapsed_ms": round((time.time() - t_batch_start) * 1000.0, 2),
+        }
     }
     (out_dir / "easy_results.json").write_text(json.dumps(easy_json, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info(f"[EASY] saved JSON: {out_dir / 'easy_results.json'}")

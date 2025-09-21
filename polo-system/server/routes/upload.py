@@ -692,7 +692,7 @@ async def preprocess_callback(body: PreprocessCallback):
                 
                 # 고정 입력/출력 경로로 강제 설정
                 server_dir = Path(__file__).resolve().parent.parent
-                fixed_tex = server_dir / "data" / "out" / "transformer" / "source" / "merged_body.tex"
+                fixed_tex = server_dir / "data" / "out" / "source" / "merged_body.tex"
                 out_dir = server_dir / "data" / "outputs"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 
@@ -800,8 +800,8 @@ async def send_to_easy(request: ModelSendRequest, bg: BackgroundTasks):
         # 전처리 결과 파일 경로 찾기
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent  # polo-system/server
-        # 고정 입력 경로: transformer/source/merged_body.tex
-        tex_path = server_dir / "data" / "out" / "transformer" / "source" / "merged_body.tex"
+        # 고정 입력 경로: out/source/merged_body.tex
+        tex_path = server_dir / "data" / "out" / "source" / "merged_body.tex"
         if not tex_path.exists():
             print(f"❌ [SERVER] merged_body.tex 파일 없음: {tex_path}")
             raise HTTPException(status_code=404, detail="merged_body.tex 파일을 찾을 수 없습니다")
@@ -1026,3 +1026,120 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
     except Exception as e:
         print(f"❌ [ERROR] Math 모델 처리 실패: {e}")
         raise HTTPException(status_code=500, detail=f"Math 모델 처리 실패: {e}")
+
+@router.get("/integrated-result/{paper_id}")
+async def get_integrated_result(paper_id: str):
+    """
+    통합 결과 조회 (Easy + Math + 시각화)
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        output_dir = server_dir / "data" / "outputs" / paper_id
+        
+        # Easy 결과 로드
+        easy_file = output_dir / "easy_outputs" / "easy_results.json"
+        easy_data = None
+        if easy_file.exists():
+            with open(easy_file, 'r', encoding='utf-8') as f:
+                easy_data = json.load(f)
+        
+        # Math 결과 로드
+        math_file = output_dir / "math_outputs" / "equations_explained.json"
+        math_data = None
+        if math_file.exists():
+            with open(math_file, 'r', encoding='utf-8') as f:
+                math_data = json.load(f)
+        
+        # 통합 데이터 생성
+        integrated_data = {
+            "paper_info": {
+                "paper_id": paper_id,
+                "paper_title": easy_data.get("paper_info", {}).get("paper_title", f"논문 {paper_id}"),
+                "paper_authors": easy_data.get("paper_info", {}).get("paper_authors", "Unknown"),
+                "paper_venue": easy_data.get("paper_info", {}).get("paper_venue", "Unknown"),
+                "total_sections": easy_data.get("paper_info", {}).get("total_sections", 0),
+                "total_equations": len(math_data.get("items", [])) if math_data else 0
+            },
+            "easy_sections": easy_data.get("easy_sections", []) if easy_data else [],
+            "math_equations": []
+        }
+        
+        # Math 데이터 변환
+        if math_data and "items" in math_data:
+            for i, item in enumerate(math_data["items"]):
+                equation = {
+                    "math_equation_id": f"math_equation_{i+1}",
+                    "math_equation_index": f"({i+1})",
+                    "math_equation_latex": item.get("equation", ""),
+                    "math_equation_explanation": item.get("explanation", ""),
+                    "math_equation_context": f"수식 {i+1}",
+                    "math_equation_section_ref": f"easy_section_{i+1}"  # 간단한 매핑
+                }
+                integrated_data["math_equations"].append(equation)
+        
+        return integrated_data
+        
+    except Exception as e:
+        print(f"❌ [ERROR] 통합 결과 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"통합 결과 조회 실패: {e}")
+
+@router.get("/integrated-result/{paper_id}/download")
+async def download_integrated_result(paper_id: str):
+    """
+    통합 결과 HTML 다운로드
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        output_dir = server_dir / "data" / "outputs" / paper_id
+        
+        # 통합 결과 HTML 생성
+        html_content = f"""
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>통합 결과 - 논문 {paper_id}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }}
+        .content {{ padding: 30px; }}
+        .section {{ margin-bottom: 30px; padding: 25px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; }}
+        .section-title {{ font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px; }}
+        .paragraph {{ margin-bottom: 15px; line-height: 1.6; }}
+        .equation {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: 'Courier New', monospace; }}
+        .visualization {{ text-align: center; margin: 20px 0; }}
+        .visualization img {{ max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI 논문 분석 결과</h1>
+            <p>논문 ID: {paper_id}</p>
+        </div>
+        <div class="content">
+            <p>이 결과는 AI가 논문을 분석하여 생성한 통합 결과입니다.</p>
+            <p>쉬운 설명, 수식 해설, 시각화가 포함되어 있습니다.</p>
+        </div>
+    </div>
+</body>
+</html>
+        """
+        
+        # HTML 파일로 저장
+        html_file = output_dir / "integrated_result.html"
+        html_file.write_text(html_content, encoding="utf-8")
+        
+        return FileResponse(
+            path=str(html_file),
+            filename=f"integrated_result_{paper_id}.html",
+            media_type="text/html"
+        )
+        
+    except Exception as e:
+        print(f"❌ [ERROR] 통합 결과 다운로드 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"통합 결과 다운로드 실패: {e}")

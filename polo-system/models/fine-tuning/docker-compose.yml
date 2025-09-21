@@ -39,7 +39,7 @@ services:
       --resume_from_checkpoint outputs/yolo-easy-qlora\checkpoint-20
       --target_modules q_proj,k_proj,v_proj,o_proj
 
-  # YOLO 논문 전용 학습 (새로 추가)
+  # YOLO 논문 전용 학습 (개선된 설정)
   yolo-train:
     build:
       context: .
@@ -64,26 +64,28 @@ services:
       --output_dir outputs/yolo-easy-qlora
       --report_to_tensorboard
       --train_fraction 1.0
-      --num_train_epochs 15
+      --num_train_epochs 200
       --save_every_steps 200
       --logging_steps 5
       --bf16
       --bnb_4bit
       --bnb_4bit_quant_type nf4
-      --per_device_train_batch_size 1
-      --gradient_accumulation_steps 4
+      --per_device_train_batch_size 2
+      --gradient_accumulation_steps 8
       --max_seq_length 1024
       --gradient_checkpointing
-      --learning_rate 2e-4
-      --warmup_ratio 0.1
+      --learning_rate 3e-5
+      --warmup_ratio 0.05
       --lora_r 16
       --lora_alpha 32
       --lora_dropout 0.05
       --target_modules q_proj,k_proj,v_proj,o_proj
-      --resume_from_checkpoint outputs/yolo-easy-qlora/checkpoint-4000
-      --early_stopping_patience 3
-      --early_stopping_threshold 0.001
-      --eval_steps 100
+      --resume_from_checkpoint outputs/yolo-easy-qlora/checkpoint-100
+      --target_loss 0.1
+      --early_stopping_patience 5
+      --early_stopping_min_delta 0.001
+      --early_stopping_min_epochs 20
+      --eval_steps 50
 
   # 기존 Easy 모델 서빙 (유지)
   easy-llm:

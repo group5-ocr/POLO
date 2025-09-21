@@ -10,6 +10,9 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
     EarlyStoppingCallback,
+    TrainerCallback,
+    TrainerState,
+    TrainerControl,
 )
 from peft import LoraConfig, PeftModel, prepare_model_for_kbit_training
 from trl import SFTTrainer, SFTConfig
@@ -22,7 +25,66 @@ if not token:
 login(token=token, add_to_git_credential=True)
 
 # =============================
-# 1) YOLO 데이터 전처리 및 프롬프트 유틸
+# 1) 커스텀 Early Stopping 콜백
+# =============================
+class CustomEarlyStoppingCallback(TrainerCallback):
+    def __init__(self, 
+                 target_loss: float = 0.1,
+                 patience: int = 8,
+                 min_delta: float = 0.001,
+                 min_epochs: int = 20):
+        self.target_loss = target_loss
+        self.patience = patience
+        self.min_delta = min_delta
+        self.min_epochs = min_epochs
+        self.best_loss = float('inf')
+        self.wait_count = 0
+        self.epoch_count = 0
+        
+    def on_log(self, args, state: TrainerState, control: TrainerControl, logs=None, **kwargs):
+        if logs is None:
+            return
+            
+        current_loss = logs.get('train_loss', None)
+        if current_loss is None:
+            return
+            
+        self.epoch_count += 1
+        
+        # 최소 에포크 수 확인
+        if self.epoch_count < self.min_epochs:
+            print(f"🔄 [Early Stopping] 최소 에포크 수 미달 ({self.epoch_count}/{self.min_epochs}) - 계속 학습")
+            return
+            
+        # 목표 손실값 달성 확인
+        if current_loss <= self.target_loss:
+            print(f"🎯 [Early Stopping] 목표 손실값 달성! 현재: {current_loss:.4f} <= 목표: {self.target_loss}")
+            control.should_training_stop = True
+            return
+            
+        # 개선 확인
+        if current_loss < self.best_loss - self.min_delta:
+            self.best_loss = current_loss
+            self.wait_count = 0
+            print(f"✅ [Early Stopping] 손실값 개선: {current_loss:.4f} (이전 최고: {self.best_loss:.4f})")
+        else:
+            self.wait_count += 1
+            print(f"⏳ [Early Stopping] 개선 없음 ({self.wait_count}/{self.patience}) - 현재: {current_loss:.4f}, 최고: {self.best_loss:.4f}")
+            
+        # Patience 초과 시 중단
+        if self.wait_count >= self.patience:
+            print(f"🛑 [Early Stopping] Patience 초과! 학습 중단 - {self.wait_count}번 연속 개선 없음")
+            control.should_training_stop = True
+            
+    def on_epoch_end(self, args, state: TrainerState, control: TrainerControl, **kwargs):
+        train_loss = state.log_history[-1].get('train_loss', 'N/A')
+        if isinstance(train_loss, (int, float)):
+            print(f"📊 [Epoch {self.epoch_count}] 현재 손실: {train_loss:.4f}")
+        else:
+            print(f"📊 [Epoch {self.epoch_count}] 현재 손실: {train_loss}")
+
+# =============================
+# 2) YOLO 데이터 전처리 및 프롬프트 유틸
 # =============================
 SYS_PROMPT = (
     "너는 AI 논문 텍스트를 원문 의미를 유지한 채 한국어로 쉽게 풀어쓰는 전문가다.\n"
@@ -361,17 +423,32 @@ def train(args):
             print(f"[경고] 체크포인트를 찾을 수 없음: {args.resume_from_checkpoint}")
             print("[체크포인트] 처음부터 학습을 시작합니다.")
 
-    # Early Stopping 콜백 생성 (eval_dataset이 있을 때만)
+    # 커스텀 Early Stopping 콜백 생성
     callbacks = []
+    
+    # 커스텀 Early Stopping 콜백 (항상 활성화)
+    custom_early_stopping = CustomEarlyStoppingCallback(
+        target_loss=args.target_loss,
+        patience=args.early_stopping_patience,
+        min_delta=args.early_stopping_min_delta,
+        min_epochs=args.early_stopping_min_epochs
+    )
+    callbacks.append(custom_early_stopping)
+    
+    # 기존 Early Stopping 콜백 (eval_dataset이 있을 때만)
     if eval_dataset is not None:
         early_stopping_callback = EarlyStoppingCallback(
             early_stopping_patience=args.early_stopping_patience,
-            early_stopping_threshold=args.early_stopping_threshold,
+            early_stopping_threshold=args.early_stopping_min_delta,
         )
         callbacks.append(early_stopping_callback)
-        print(f"[Early Stopping] 활성화됨 (patience={args.early_stopping_patience})")
-    else:
-        print(f"[Early Stopping] 비활성화됨 (validation 데이터 없음)")
+        print(f"[Early Stopping] 표준 콜백 활성화됨 (patience={args.early_stopping_patience})")
+    
+    print(f"🎯 [Custom Early Stopping] 활성화됨")
+    print(f"   - 목표 손실값: {args.target_loss}")
+    print(f"   - Patience: {args.early_stopping_patience}")
+    print(f"   - 최소 에포크: {args.early_stopping_min_epochs}")
+    print(f"   - 최소 변화량: {args.early_stopping_min_delta}")
     
     # 트레이너 생성
     trainer = SFTTrainer(
@@ -450,11 +527,11 @@ def build_parser():
     p.add_argument("--save_total_limit", type=int, default=3)
     p.add_argument("--report_to_tensorboard", action="store_true")
 
-    # 학습 하이퍼파라미터
-    p.add_argument("--num_train_epochs", type=float, default=15.0)
-    p.add_argument("--per_device_train_batch_size", type=int, default=1)
-    p.add_argument("--gradient_accumulation_steps", type=int, default=4)
-    p.add_argument("--learning_rate", type=float, default=2e-4)
+    # 학습 하이퍼파라미터 (개선된 설정)
+    p.add_argument("--num_train_epochs", type=float, default=100.0)  # 더 많은 에포크
+    p.add_argument("--per_device_train_batch_size", type=int, default=2)  # 배치 크기 증가
+    p.add_argument("--gradient_accumulation_steps", type=int, default=8)  # 그래디언트 누적 증가
+    p.add_argument("--learning_rate", type=float, default=5e-5)  # 학습률 감소
     p.add_argument("--lr_scheduler_type", type=str, default="cosine")
     p.add_argument("--warmup_ratio", type=float, default=0.1)
     p.add_argument("--max_seq_length", type=int, default=1024)
@@ -462,10 +539,12 @@ def build_parser():
     p.add_argument("--train_fraction", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=42)
     
-    # Early Stopping 설정
-    p.add_argument("--early_stopping_patience", type=int, default=3, help="Number of evaluations with no improvement after which training will be stopped.")
-    p.add_argument("--early_stopping_threshold", type=float, default=0.001, help="Minimum change in the monitored quantity to qualify as an improvement.")
-    p.add_argument("--eval_steps", type=int, default=100, help="Run evaluation every N steps.")
+    # 커스텀 Early Stopping 설정
+    p.add_argument("--target_loss", type=float, default=0.1, help="목표 손실값 (이 값에 도달하면 학습 중단)")
+    p.add_argument("--early_stopping_patience", type=int, default=5, help="개선 없이 기다릴 에포크 수")
+    p.add_argument("--early_stopping_min_delta", type=float, default=0.001, help="개선으로 인정할 최소 변화량")
+    p.add_argument("--early_stopping_min_epochs", type=int, default=10, help="최소 학습 에포크 수")
+    p.add_argument("--eval_steps", type=int, default=50, help="평가 주기 (더 자주)")
 
     # 4bit/정밀도
     p.add_argument("--bnb_4bit", action="store_true")
@@ -476,10 +555,10 @@ def build_parser():
 
     # 재개/타깃/LoRA
     p.add_argument("--resume_from_checkpoint", type=str, default=None)
-    p.add_argument("--lora_r", type=int, default=16)
-    p.add_argument("--lora_alpha", type=int, default=32)
+    p.add_argument("--lora_r", type=int, default=32)  # LoRA rank 증가
+    p.add_argument("--lora_alpha", type=int, default=64)  # LoRA alpha 증가
     p.add_argument("--lora_dropout", type=float, default=0.05)
-    p.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj,o_proj")
+    p.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj")  # 더 많은 모듈 타겟팅
 
     # 병합 옵션
     p.add_argument("--merge_adapters", action="store_true")
