@@ -5535,6 +5535,38 @@ body,
     transform: rotate(90deg);
     margin: 10px 0;
   }
+
+  /* 사용자 후기 섹션 태블릿 최적화 */
+  .testimonials-container {
+    padding: 0 20px;
+    width: 100%;
+  }
+
+  .testimonials-slider {
+    width: 100%;
+  }
+
+  .testimonials-track {
+    width: 100%;
+  }
+
+  .testimonials-slide {
+    gap: 20px;
+    width: 100%;
+  }
+
+  .testimonial-card {
+    padding: 22px 18px;
+    width: 100%;
+  }
+
+  .testimonial-card h4 {
+    font-size: 1.1rem;
+  }
+
+  .testimonial-card p {
+    font-size: 0.9rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -5595,12 +5627,15 @@ body,
     font-size: 2.2rem;
     line-height: 1.2;
     margin-bottom: 24px;
+    text-align: center;
   }
 
   .hero-description {
     font-size: 1rem;
     line-height: 1.6;
     margin-bottom: 32px;
+    text-align: center;
+    padding: 0 10px;
   }
 
   .hero-buttons {
@@ -5649,20 +5684,36 @@ body,
   .section-title {
     font-size: 2rem;
     margin-bottom: 12px;
+    text-align: center;
+    padding: 0 10px;
   }
 
   .features-subtitle {
     font-size: 1rem;
     margin-bottom: 40px;
+    text-align: center;
+    padding: 0 10px;
   }
 
   .features-grid {
     grid-template-columns: 1fr;
     gap: 20px;
+    padding: 0 10px;
   }
 
   .feature-card {
     padding: 24px 20px;
+    text-align: center;
+  }
+
+  .feature-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 12px;
+  }
+
+  .feature-card p {
+    font-size: 0.95rem;
+    line-height: 1.5;
   }
 
   .feature-icon {
@@ -5688,12 +5739,24 @@ body,
     flex-direction: column;
     gap: 20px;
     align-items: center;
+    padding: 0 10px;
   }
 
   .step {
     max-width: 100%;
     padding: 24px 20px;
     width: 100%;
+    text-align: center;
+  }
+
+  .step h3 {
+    font-size: 1.2rem;
+    margin-bottom: 8px;
+  }
+
+  .step p {
+    font-size: 0.95rem;
+    line-height: 1.5;
   }
 
   .step-arrow {
@@ -5724,28 +5787,90 @@ body,
   .testimonials-subtitle {
     font-size: 1rem;
     margin-bottom: 40px;
+    text-align: center;
+    padding: 0 10px;
+  }
+
+  .testimonials-container {
+    padding: 0 10px;
+    width: 100%;
+  }
+
+  .testimonials-slider {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .testimonials-track {
+    width: 100%;
   }
 
   .testimonials-slide {
     flex-direction: column;
     gap: 20px;
+    padding: 0;
+    width: 100%;
+    min-height: auto;
   }
 
   .testimonial-card {
     flex: none;
     padding: 24px 20px;
+    text-align: center;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+
+  .testimonial-card h4 {
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+
+  .testimonial-card p {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .testimonial-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 12px;
+  }
+
+  .testimonial-info {
+    margin-bottom: 8px;
+  }
+
+  .testimonial-quote {
+    font-size: 2rem;
+    margin-top: 8px;
+  }
+
+  .testimonial-text {
+    text-align: center;
+    font-size: 0.9rem;
+    line-height: 1.5;
   }
 
   .testimonials-controls {
     gap: 16px;
     flex-wrap: wrap;
     justify-content: center;
+    margin-top: 24px;
+    padding: 0 10px;
   }
 
   .testimonial-btn {
     width: 40px;
     height: 40px;
     font-size: 1.2rem;
+  }
+
+  .testimonial-dots {
+    gap: 8px;
+    margin-top: 16px;
   }
 
   .testimonial-dot {
@@ -6274,12 +6399,16 @@ body,
     font-size: 1.8rem;
     line-height: 1.1;
     margin-bottom: 20px;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .hero-description {
     font-size: 0.9rem;
     line-height: 1.5;
     margin-bottom: 28px;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .hero-cta-btn {
@@ -6295,14 +6424,19 @@ body,
   /* 기능 섹션 초소형 화면 최적화 */
   .section-title {
     font-size: 1.6rem;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .features-subtitle {
     font-size: 0.9rem;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .feature-card {
     padding: 20px 16px;
+    text-align: center;
   }
 
   .feature-icon {
@@ -6339,8 +6473,62 @@ body,
   }
 
   /* 사용자 후기 섹션 초소형 화면 최적화 */
+  .testimonials-container {
+    padding: 0 5px;
+    width: 100%;
+  }
+
+  .testimonials-slider {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .testimonials-track {
+    width: 100%;
+  }
+
+  .testimonials-slide {
+    width: 100%;
+    min-height: auto;
+  }
+
   .testimonial-card {
     padding: 20px 16px;
+    text-align: center;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .testimonial-card h4 {
+    font-size: 1rem;
+    margin-bottom: 4px;
+  }
+
+  .testimonial-card p {
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+
+  .testimonial-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 10px;
+  }
+
+  .testimonial-info {
+    margin-bottom: 6px;
+  }
+
+  .testimonial-quote {
+    font-size: 1.8rem;
+    margin-top: 6px;
+  }
+
+  .testimonial-text {
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.4;
   }
 
   .testimonial-btn {
