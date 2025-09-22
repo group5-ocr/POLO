@@ -19,6 +19,82 @@ from services import arxiv_client, preprocess_client
 
 router = APIRouter()
 
+# === TeX 섹션 파싱/매핑 유틸 ===
+SECTION_PATTERNS = [
+    (re.compile(r"^\\section\{(?P<title>.+?)\}"), "section"),
+    (re.compile(r"^\\subsection\{(?P<title>.+?)\}"), "subsection"),
+    (re.compile(r"^\\subsubsection\{(?P<title>.+?)\}"), "subsubsection"),
+]
+
+def _normalize_title(t: str) -> str:
+    if not t:
+        return ""
+    t = unicodedata.normalize("NFKC", t)
+    t = re.sub(r"\\\w+", "", t)  # TeX commands 제거
+    t = re.sub(r"[^\w\s]", "", t)
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+def _build_tex_section_ranges(tex_path: Path) -> list[dict]:
+    ranges: list[dict] = []
+    try:
+        lines = tex_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return ranges
+    for idx, raw in enumerate(lines, start=1):
+        for rx, typ in SECTION_PATTERNS:
+            m = rx.match(raw.strip())
+            if m:
+                title = m.group("title")
+                ranges.append({
+                    "title": _normalize_title(title),
+                    "type": typ,
+                    "start_line": idx,
+                    "end_line": None,
+                })
+                break
+    # end lines
+    if not ranges:
+        return ranges
+    for i in range(len(ranges) - 1):
+        ranges[i]["end_line"] = ranges[i+1]["start_line"] - 1
+    ranges[-1]["end_line"] = len(lines)
+    return ranges
+
+def _map_easy_sections_to_tex(easy_data: dict, tex_ranges: list[dict]) -> dict[str, dict]:
+    """Return mapping: easy_section_id -> tex_range dict with start/end."""
+    mapped: dict[str, dict] = {}
+    if not easy_data:
+        return mapped
+    used = set()
+    for section in easy_data.get("easy_sections", []):
+        sid = section.get("easy_section_id")
+        title = _normalize_title(section.get("easy_section_title", ""))
+        level = section.get("easy_section_level", 1)
+        typ = "section" if level == 1 else "subsection"
+        # exact match by title+type
+        best = None
+        for i, r in enumerate(tex_ranges):
+            if i in used:
+                continue
+            if r["type"] == typ and (_normalize_title(r.get("title")) == title or title in _normalize_title(r.get("title"))):
+                best = (i, r)
+                break
+        # fallback by order
+        if best is None:
+            for i, r in enumerate(tex_ranges):
+                if i in used:
+                    continue
+                if (typ == r["type"]):
+                    best = (i, r)
+                    break
+        if best:
+            used.add(best[0])
+            mapped[sid] = {
+                "start_line": best[1]["start_line"],
+                "end_line": best[1]["end_line"],
+            }
+    return mapped
+
 # === Viz 헬퍼 함수들 ===
 def _should_create_visualization(text: str) -> bool:
     """
@@ -102,7 +178,7 @@ async def _generate_paragraph_visualization(
             if response.status_code == 200:
                 result = response.json()
                 if result.get("success"):
-                    # 이미지 원본 경로
+                    # 이미지 원본 경로 또는 base64
                     src_path_str = result.get("image_path", "")
                     if src_path_str:
                         src_path = Path(src_path_str)
@@ -115,13 +191,18 @@ async def _generate_paragraph_visualization(
                             try:
                                 if src_path.exists():
                                     shutil.copy2(src_path, dest_path)
+                                else:
+                                    # viz/charts 폴더에서 대체 소스 시도
+                                    charts_candidate = (Path(__file__).resolve().parent.parent.parent / "viz" / "charts" / src_path.name)
+                                    if charts_candidate.exists():
+                                        shutil.copy2(charts_candidate, dest_path)
                             except Exception as ce:
                                 print(f"⚠️ [VIZ] 원본 이미지 복사 실패(무시): {ce}")
                             # outputs/{paper_id} 기준 상대 경로로 저장
                             rel_path = Path("viz") / section_id / paragraph_id / dest_path.name
                             return {
                                 "success": True,
-                                "image_path": str(rel_path),
+                                "image_path": str(rel_path).replace("\\", "/"),
                                 "viz_type": "auto_generated",
                                 "created_at": datetime.now().isoformat()
                             }
@@ -131,10 +212,30 @@ async def _generate_paragraph_visualization(
                             fallback_rel = Path("viz") / section_id / paragraph_id / (src_path.name or f"{unique_id}.png")
                             return {
                                 "success": True,
-                                "image_path": str(fallback_rel),
+                                "image_path": str(fallback_rel).replace("\\", "/"),
                                 "viz_type": "auto_generated",
                                 "created_at": datetime.now().isoformat()
                             }
+                    # base64 이미지가 제공되는 경우 저장
+                    b64 = result.get("image_base64") or result.get("image_bytes")
+                    if b64:
+                        try:
+                            import base64
+                            img_bytes = base64.b64decode(b64)
+                            dest_dir = output_dir / "viz" / section_id / paragraph_id
+                            dest_dir.mkdir(parents=True, exist_ok=True)
+                            dest_path = dest_dir / f"{unique_id}.png"
+                            with open(dest_path, "wb") as wf:
+                                wf.write(img_bytes)
+                            rel_path = Path("viz") / section_id / paragraph_id / dest_path.name
+                            return {
+                                "success": True,
+                                "image_path": str(rel_path).replace("\\", "/"),
+                                "viz_type": "auto_generated",
+                                "created_at": datetime.now().isoformat()
+                            }
+                        except Exception as e:
+                            print(f"⚠️ [VIZ] base64 이미지 저장 실패: {e}")
             
             return None
             
@@ -1377,6 +1478,21 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
                 shutil.copy2(easy_json_path, target_easy_path)
                 print(f"✅ [PIPELINE] Easy 결과 파일 복사: {easy_json_path} → {target_easy_path}")
             
+            # 섹션 개수 제한(최대 16개) - 캐시 결과가 17개인 경우 트림
+            try:
+                with open(target_easy_path, 'r', encoding='utf-8') as f:
+                    _easy = json.load(f)
+                sections = _easy.get("easy_sections", [])
+                if isinstance(sections, list) and len(sections) > 16:
+                    _easy["easy_sections"] = sections[:16]
+                    if isinstance(_easy.get("paper_info"), dict):
+                        _easy["paper_info"]["total_sections"] = 16
+                    with open(target_easy_path, 'w', encoding='utf-8') as f:
+                        json.dump(_easy, f, ensure_ascii=False, indent=2)
+                    print(f"✂️ [PIPELINE] Easy 섹션을 16개로 트림: 기존 {len(sections)} → 16")
+            except Exception as e:
+                print(f"⚠️ [PIPELINE] Easy 섹션 트림 실패(무시): {e}")
+
             print(f"✅ [PIPELINE] Easy 모델 완료")
         
         # 2단계: Viz 모델 실행 (easy_results.json 기반)
@@ -1388,7 +1504,7 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
         with open(easy_json_path, 'r', encoding='utf-8') as f:
             easy_data = json.load(f)
         
-        # Viz 처리
+        # Viz 처리 (중복 방지: 기존 visualization이 있으면 스킵)
         updated_sections = []
         for section in easy_data.get("easy_sections", []):
             updated_paragraphs = []
@@ -1396,6 +1512,18 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
                 paragraph_text = paragraph.get("easy_paragraph_text", "")
                 needs_visualization = _should_create_visualization(paragraph_text)
                 
+                # 이미 시각화가 있고 파일도 존재하면 스킵
+                existing = paragraph.get("visualization")
+                if existing:
+                    try:
+                        existing_path = existing.get("image_path")
+                        if existing_path:
+                            candidate = (output_dir / existing_path).resolve()
+                            if candidate.exists():
+                                needs_visualization = False
+                    except Exception:
+                        pass
+
                 if needs_visualization:
                     try:
                         viz_result = await _generate_paragraph_visualization(
@@ -1615,7 +1743,7 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
                     integrated_paragraphs.append(equation_paragraph)
                     appended_ids.add(equation.get("math_equation_id"))
 
-            # 섹션 참조만 가진(문단 참조가 아닌) 수식은 섹션 말미에 한 번만 추가
+            # 섹션 참조만 가진(문단 참조가 아닌) 수식은 섹션 내 첫 문단 뒤에 1회만 추가(가독성)
             for equation in section_equations:
                 ref = str(equation.get("math_equation_section_ref", ""))
                 if ref != section_id:
@@ -1637,7 +1765,11 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
                     },
                     "paragraph_type": "math_equation"
                 }
-                integrated_paragraphs.append(equation_paragraph)
+                # 첫 문단 뒤 삽입
+                if integrated_paragraphs:
+                    integrated_paragraphs.insert(1, equation_paragraph)
+                else:
+                    integrated_paragraphs.append(equation_paragraph)
                 appended_ids.add(equation.get("math_equation_id"))
             
             # 통합된 섹션 생성
@@ -2015,6 +2147,15 @@ async def get_integrated_result(paper_id: str):
         server_dir = current_file.parent.parent
         output_dir = server_dir / "data" / "outputs" / paper_id
         
+        # 0) 이미 생성된 통합 결과 파일이 있으면 그대로 반환 (파이프라인 산출물 우선)
+        integrated_path = output_dir / "integrated_result.json"
+        if integrated_path.exists():
+            try:
+                with open(integrated_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️ [INTEGRATED] 기존 통합 결과 로드 실패, 재구성 시도: {e}")
+
         # Easy 결과 로드 (실제 경로 확인됨)
         easy_data = None
         easy_error = None
@@ -2030,13 +2171,17 @@ async def get_integrated_result(paper_id: str):
         except Exception as e:
             easy_error = f"Easy 결과 로드 실패: {str(e)}"
         
-        # Math 결과 로드
+        # Math 결과 로드 (우선순위: math_results.json > math_outputs/equations_explained.json)
         math_data = None
         math_error = None
         try:
-            math_file = output_dir / "math_outputs" / "equations_explained.json"
-            if math_file.exists():
-                with open(math_file, 'r', encoding='utf-8') as f:
+            math_results_path = output_dir / "math_results.json"
+            math_items_path = output_dir / "math_outputs" / "equations_explained.json"
+            if math_results_path.exists():
+                with open(math_results_path, 'r', encoding='utf-8') as f:
+                    math_data = json.load(f)
+            elif math_items_path.exists():
+                with open(math_items_path, 'r', encoding='utf-8') as f:
                     math_data = json.load(f)
             else:
                 math_error = "Math 결과 파일이 없습니다"
@@ -2098,6 +2243,9 @@ async def get_integrated_result(paper_id: str):
                         integrated_data["math_equations"].append(equation)
             except Exception as e:
                 integrated_data["processing_logs"].append(f"Math 데이터 변환 실패: {str(e)}")
+        elif math_data and "math_equations" in math_data:
+            # 이미 서버 형식으로 변환된 math_results.json인 경우 그대로 삽입
+            integrated_data["math_equations"] = math_data.get("math_equations", [])
         else:
             integrated_data["processing_logs"].append("Math 데이터가 없거나 형식이 올바르지 않습니다")
         

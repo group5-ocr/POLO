@@ -97,6 +97,35 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const mathJaxRef = useRef<HTMLDivElement>(null);
 
+  // MathJax 동적 로드
+  useEffect(() => {
+    const win = window as any;
+    if (win.MathJax) return; // 이미 로드됨
+    // 설정 스크립트
+    const config = document.createElement("script");
+    config.type = "text/javascript";
+    config.text = `
+      window.MathJax = {
+        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
+        svg: { fontCache: 'global' }
+      };
+    `;
+    document.head.appendChild(config);
+    // 라이브러리 스크립트
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js";
+    script.async = true;
+    script.onload = () => {
+      if ((window as any).MathJax && typeof (window as any).MathJax.typeset === 'function') {
+        (window as any).MathJax.typeset();
+      }
+    };
+    document.head.appendChild(script);
+    return () => {
+      // 스크립트는 제거하지 않음 (전역 캐시)
+    };
+  }, []);
+
   useEffect(() => {
     if (!data && !location.state?.data) {
       loadIntegratedData();
@@ -381,14 +410,12 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         <div className={headerClass}>
           {React.createElement(
             titleTag as any,
-            { className: "section-title" },
+            { className: "section-title", style: { margin: 0 } },
             <>
               <span className="section-order">
-                {isSubsection
-                  ? `${section.easy_section_order}.`
-                  : section.easy_section_order}
+                {section.easy_section_order}
               </span>
-              <span>{section.easy_section_title}</span>
+              <span style={{ marginLeft: 8 }}>{section.easy_section_title}</span>
             </>
           )}
         </div>
