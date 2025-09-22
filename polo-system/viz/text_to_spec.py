@@ -910,7 +910,10 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
     # 개념/예시 도식들
-    spec += build_concept_specs(text, spec, mentions, numeric_cids, concept_idx=cidx)
+    try:
+        spec += build_concept_specs(text, spec, mentions, numeric_cids, concept_idx=cidx)
+    except Exception as e:
+        print(f"[WARN] build_concept_specs skipped: {e}")
 
     # 학습곡선/ROC/PR 등 curve_generic — 실제 수치가 여러 개 있을 때만
     # 더미/임퓨트 금지

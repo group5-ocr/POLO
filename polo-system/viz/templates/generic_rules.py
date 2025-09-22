@@ -8,6 +8,15 @@ from typing import List, Dict, Any
 def _label(en, ko):
     return {"en": en, "ko": ko}
 
+# 규칙 파일 가드
+def _safe_wh(img_wh, default=(800, 600)):
+    try:
+        if isinstance(img_wh, (list, tuple)) and len(img_wh) >= 2:
+            return int(img_wh[0]), int(img_wh[1])
+    except Exception:
+        pass
+    return default
+
 # RNG (예시 도식 일관성용)
 def _stable_seed(text: str, salt: str = "") -> int:
     h = hashlib.sha256((salt + "|" + (text or "")).encode("utf-8")).hexdigest()
@@ -234,7 +243,7 @@ def build_concept_specs(text: str, spec: list,
             else:
                 left = (7, 7)  # 마지막 안전 디폴트(텍스트에 아무 단서 없을 때만)
 
-        right = (int(img_wh[0]), int(img_wh[1]))  # 픽셀 레벨 그리드
+        right = _safe_wh(img_wh, default=(800, 600))  # 픽셀 레벨 그리드
 
         inputs = {
             "title":  _label("Cell→Pixel scale", "셀 → 픽셀 스케일"),
