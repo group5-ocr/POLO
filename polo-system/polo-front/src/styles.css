@@ -1887,6 +1887,10 @@ body,
 .features {
   padding: 80px 0;
   background: #fafafa;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: 100% !important;
 }
 
 /* 기능 배지 */
@@ -1912,7 +1916,7 @@ body,
 }
 
 .section-title {
-  text-align: center;
+  text-align: center !important;
   font-size: 2.5rem;
   font-weight: 700;
   color: #374151;
@@ -1920,10 +1924,21 @@ body,
   opacity: 0;
   transform: translateY(30px);
   transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block !important;
+  width: 100% !important;
+  white-space: normal !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  unicode-bidi: normal !important;
+  text-orientation: mixed !important;
+  line-height: 1.2 !important;
+  height: auto !important;
+  min-height: auto !important;
+  max-height: none !important;
 }
 
 .features-subtitle {
-  text-align: center;
+  text-align: center !important;
   font-size: 1.1rem;
   color: #6b7280;
   margin-bottom: 48px;
@@ -1933,6 +1948,12 @@ body,
   opacity: 0;
   transform: translateY(30px);
   transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block !important;
+  width: 100% !important;
+  white-space: normal !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  line-height: 1.5 !important;
 }
 
 .features-subtitle.animate-in {
@@ -2061,6 +2082,10 @@ body,
 .how-it-works {
   padding: 80px 0;
   background: #ffffff;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: 100% !important;
 }
 
 /* 사용법 배지 */
@@ -2086,7 +2111,7 @@ body,
 }
 
 .how-it-works-subtitle {
-  text-align: center;
+  text-align: center !important;
   font-size: 1.1rem;
   color: #6b7280;
   margin-bottom: 48px;
@@ -2096,6 +2121,12 @@ body,
   opacity: 0;
   transform: translateY(30px);
   transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block !important;
+  width: 100% !important;
+  white-space: normal !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  line-height: 1.5 !important;
 }
 
 .how-it-works-subtitle.animate-in {
@@ -2113,11 +2144,11 @@ body,
   margin: 0 auto;
 }
 
-.step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
+.how-it-works .step {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
   max-width: 300px;
   background: #fafafa;
   padding: 32px 24px;
@@ -2129,6 +2160,10 @@ body,
   position: relative;
   border: 1px solid #f3f4f6;
   flex: 1;
+  width: auto !important;
+  height: auto !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
 }
 
 .step.animate-in {
@@ -2214,17 +2249,25 @@ body,
   box-shadow: 0 12px 30px rgba(102, 126, 234, 0.4);
 }
 
-.step-content h3 {
+.how-it-works .step-content h3 {
   font-size: 1.25rem;
   font-weight: 600;
   color: #374151;
   margin-bottom: 12px;
+  text-align: center !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  white-space: normal !important;
 }
 
-.step-content p {
+.how-it-works .step-content p {
   color: #6b7280;
   font-size: 0.95rem;
   line-height: 1.6;
+  text-align: center !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  white-space: normal !important;
 }
 
 .step-arrow {
@@ -2251,10 +2294,14 @@ body,
 .testimonials {
   padding: 80px 0;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: 100% !important;
 }
 
 .testimonials-subtitle {
-  text-align: center;
+  text-align: center !important;
   font-size: 1.1rem;
   color: #6b7280;
   margin-bottom: 48px;
@@ -2264,6 +2311,12 @@ body,
   opacity: 0;
   transform: translateY(30px);
   transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block !important;
+  width: 100% !important;
+  white-space: normal !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  line-height: 1.5 !important;
 }
 
 .testimonials-subtitle.animate-in {
@@ -4156,6 +4209,11 @@ body,
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
+.step-number.completed {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
 .step-content {
   flex: 1;
 }
@@ -5477,6 +5535,38 @@ body,
     transform: rotate(90deg);
     margin: 10px 0;
   }
+
+  /* 사용자 후기 섹션 태블릿 최적화 */
+  .testimonials-container {
+    padding: 0 20px;
+    width: 100%;
+  }
+
+  .testimonials-slider {
+    width: 100%;
+  }
+
+  .testimonials-track {
+    width: 100%;
+  }
+
+  .testimonials-slide {
+    gap: 20px;
+    width: 100%;
+  }
+
+  .testimonial-card {
+    padding: 22px 18px;
+    width: 100%;
+  }
+
+  .testimonial-card h4 {
+    font-size: 1.1rem;
+  }
+
+  .testimonial-card p {
+    font-size: 0.9rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -5537,12 +5627,15 @@ body,
     font-size: 2.2rem;
     line-height: 1.2;
     margin-bottom: 24px;
+    text-align: center;
   }
 
   .hero-description {
     font-size: 1rem;
     line-height: 1.6;
     margin-bottom: 32px;
+    text-align: center;
+    padding: 0 10px;
   }
 
   .hero-buttons {
@@ -5591,20 +5684,36 @@ body,
   .section-title {
     font-size: 2rem;
     margin-bottom: 12px;
+    text-align: center;
+    padding: 0 10px;
   }
 
   .features-subtitle {
     font-size: 1rem;
     margin-bottom: 40px;
+    text-align: center;
+    padding: 0 10px;
   }
 
   .features-grid {
     grid-template-columns: 1fr;
     gap: 20px;
+    padding: 0 10px;
   }
 
   .feature-card {
     padding: 24px 20px;
+    text-align: center;
+  }
+
+  .feature-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 12px;
+  }
+
+  .feature-card p {
+    font-size: 0.95rem;
+    line-height: 1.5;
   }
 
   .feature-icon {
@@ -5630,12 +5739,24 @@ body,
     flex-direction: column;
     gap: 20px;
     align-items: center;
+    padding: 0 10px;
   }
 
   .step {
     max-width: 100%;
     padding: 24px 20px;
     width: 100%;
+    text-align: center;
+  }
+
+  .step h3 {
+    font-size: 1.2rem;
+    margin-bottom: 8px;
+  }
+
+  .step p {
+    font-size: 0.95rem;
+    line-height: 1.5;
   }
 
   .step-arrow {
@@ -5666,28 +5787,90 @@ body,
   .testimonials-subtitle {
     font-size: 1rem;
     margin-bottom: 40px;
+    text-align: center;
+    padding: 0 10px;
+  }
+
+  .testimonials-container {
+    padding: 0 10px;
+    width: 100%;
+  }
+
+  .testimonials-slider {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .testimonials-track {
+    width: 100%;
   }
 
   .testimonials-slide {
     flex-direction: column;
     gap: 20px;
+    padding: 0;
+    width: 100%;
+    min-height: auto;
   }
 
   .testimonial-card {
     flex: none;
     padding: 24px 20px;
+    text-align: center;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+
+  .testimonial-card h4 {
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+
+  .testimonial-card p {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .testimonial-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 12px;
+  }
+
+  .testimonial-info {
+    margin-bottom: 8px;
+  }
+
+  .testimonial-quote {
+    font-size: 2rem;
+    margin-top: 8px;
+  }
+
+  .testimonial-text {
+    text-align: center;
+    font-size: 0.9rem;
+    line-height: 1.5;
   }
 
   .testimonials-controls {
     gap: 16px;
     flex-wrap: wrap;
     justify-content: center;
+    margin-top: 24px;
+    padding: 0 10px;
   }
 
   .testimonial-btn {
     width: 40px;
     height: 40px;
     font-size: 1.2rem;
+  }
+
+  .testimonial-dots {
+    gap: 8px;
+    margin-top: 16px;
   }
 
   .testimonial-dot {
@@ -6216,12 +6399,16 @@ body,
     font-size: 1.8rem;
     line-height: 1.1;
     margin-bottom: 20px;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .hero-description {
     font-size: 0.9rem;
     line-height: 1.5;
     margin-bottom: 28px;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .hero-cta-btn {
@@ -6237,14 +6424,19 @@ body,
   /* 기능 섹션 초소형 화면 최적화 */
   .section-title {
     font-size: 1.6rem;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .features-subtitle {
     font-size: 0.9rem;
+    text-align: center;
+    padding: 0 5px;
   }
 
   .feature-card {
     padding: 20px 16px;
+    text-align: center;
   }
 
   .feature-icon {
@@ -6281,8 +6473,62 @@ body,
   }
 
   /* 사용자 후기 섹션 초소형 화면 최적화 */
+  .testimonials-container {
+    padding: 0 5px;
+    width: 100%;
+  }
+
+  .testimonials-slider {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .testimonials-track {
+    width: 100%;
+  }
+
+  .testimonials-slide {
+    width: 100%;
+    min-height: auto;
+  }
+
   .testimonial-card {
     padding: 20px 16px;
+    text-align: center;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .testimonial-card h4 {
+    font-size: 1rem;
+    margin-bottom: 4px;
+  }
+
+  .testimonial-card p {
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+
+  .testimonial-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 10px;
+  }
+
+  .testimonial-info {
+    margin-bottom: 6px;
+  }
+
+  .testimonial-quote {
+    font-size: 1.8rem;
+    margin-top: 6px;
+  }
+
+  .testimonial-text {
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.4;
   }
 
   .testimonial-btn {

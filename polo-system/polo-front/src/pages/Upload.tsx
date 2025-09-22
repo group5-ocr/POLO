@@ -49,47 +49,19 @@ export default function Upload() {
   // Math 모델 관련 상태 추가
   const [isLoadingMath, setIsLoadingMath] = useState(false);
   const [mathReady, setMathReady] = useState(false);
-  
+
   // 통합 처리 관련 상태
   const [allProcessingComplete, setAllProcessingComplete] = useState(false);
   const [integratedData, setIntegratedData] = useState<any>(null);
   const [mathProgress, setMathProgress] = useState(0);
   const [mathResults, setMathResults] = useState<any>(null);
 
-  // 선택된 기능들 상태 관리
-  const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(
-    new Set()
-  );
+  // 통합 처리 상태 관리
   const [isProcessing, setIsProcessing] = useState(false);
 
   // 모델 생성 중인지 확인하는 함수
   const isModelProcessing = () => {
     return isLoadingEasy || isLoadingMath || isProcessing;
-  };
-
-  // 기능 선택/해제 함수
-  const toggleFeature = (featureId: string) => {
-    // 모델 생성 중에는 기능 선택 불가
-    if (isModelProcessing()) {
-      return;
-    }
-
-    setSelectedFeatures((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(featureId)) {
-        newSet.delete(featureId);
-      } else {
-        newSet.add(featureId);
-      }
-      return newSet;
-    });
-  };
-
-  // 선택된 기능들 처리 함수 (통합 처리로 대체됨)
-  // 이 함수는 더 이상 사용되지 않으며, handleIntegratedProcessing으로 대체되었습니다.
-  const handleProcessSelectedFeatures = async () => {
-    // 통합 처리 함수로 리다이렉트
-    await handleIntegratedProcessing();
   };
 
   // 진행률 업데이트 함수
@@ -1003,11 +975,15 @@ export default function Upload() {
 
     while (Date.now() - start < maxWaitMs) {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/results/${paperId}/ready`);
+        const response = await fetch(
+          `${
+            import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+          }/api/results/${paperId}/ready`
+        );
         if (response.ok) {
           const data = await response.json();
           pollCount++;
-          
+
           if (data.status === "ready" && data.ok) {
             console.log("✅ [통합] Easy 결과 준비 완료");
             setEasyReady(true);
@@ -1018,9 +994,9 @@ export default function Upload() {
         console.log(`[통합 Easy 폴링] ${pollCount}회차 실패:`, error);
       }
 
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-    
+
     throw new Error("Easy 모델 처리 타임아웃");
   };
 
@@ -1049,9 +1025,9 @@ export default function Upload() {
         console.log(`[통합 Math 폴링] ${pollCount}회차 실패:`, error);
       }
 
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-    
+
     console.warn("⚠️ [통합] Math 모델 처리 타임아웃, 계속 진행");
   };
 
@@ -1059,11 +1035,11 @@ export default function Upload() {
   const openResultPreview = () => {
     if (integratedData) {
       // Result.tsx로 데이터와 함께 이동
-      navigate('/result', { 
-        state: { 
+      navigate("/result", {
+        state: {
           data: integratedData,
-          paperId: result?.doc_id 
-        } 
+          paperId: result?.doc_id,
+        },
       });
     } else {
       alert("통합 데이터가 준비되지 않았습니다.");
@@ -1077,8 +1053,10 @@ export default function Upload() {
 
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      const response = await fetch(`${apiBase}/api/integrated-result/${paperId}/download`);
-      
+      const response = await fetch(
+        `${apiBase}/api/integrated-result/${paperId}/download`
+      );
+
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -1237,8 +1215,28 @@ export default function Upload() {
                 {!isModelProcessing() && (
                   <div className="result-top">
                     <div className="result-header">
-                      <h3>원하는 기능을 선택하세요</h3>
-                      <p></p>
+                      <h3>AI 분석 준비 완료</h3>
+                      <p>AI가 논문을 종합적으로 분석할 준비가 되었습니다</p>
+                    </div>
+
+                    <div className="step-item">
+                      <div className="step-number completed">✓</div>
+                      <div className="step-content">
+                        <div className="step-title">PDF 업로드 완료</div>
+                        <div className="step-desc">
+                          논문이 성공적으로 업로드되었습니다
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="step-item">
+                      <div className="step-number">2</div>
+                      <div className="step-content">
+                        <div className="step-title">AI 분석 시작</div>
+                        <div className="step-desc">
+                          아래 버튼을 클릭하여 통합 분석을 시작하세요
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1399,155 +1397,48 @@ export default function Upload() {
                     </button>
 
                     <button
-                      onClick={() => toggleFeature("easy")}
-                      className={`upload-guide-feature-button ${
-                        selectedFeatures.has("easy") ? "selected" : ""
-                      }`}
-                      style={{
-                        background: selectedFeatures.has("easy")
-                          ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
-                          : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                        border: selectedFeatures.has("easy")
-                          ? "2px solid #4caf50"
-                          : "none",
-                        borderRadius: "12px",
-                        padding: "20px",
-                        cursor: "pointer",
-                        transition: "all 0.3s ease",
-                        boxShadow: selectedFeatures.has("easy")
-                          ? "0 6px 20px rgba(76, 175, 80, 0.4)"
-                          : "0 4px 15px rgba(102, 126, 234, 0.3)",
-                        width: "100%",
-                      }}
-                      onMouseOver={(e) => {
-                        if (!selectedFeatures.has("easy")) {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(102, 126, 234, 0.4)";
-                        }
-                      }}
-                      onMouseOut={(e) => {
-                        if (!selectedFeatures.has("easy")) {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(102, 126, 234, 0.3)";
-                        }
-                      }}
-                    >
-                      <div className="upload-guide-feature-icon">
-                        {selectedFeatures.has("easy") ? "✅" : "🤖"}
-                      </div>
-                      <div className="upload-guide-feature-title">
-                        쉬운 논문 생성
-                      </div>
-                      <div className="upload-guide-feature-desc">
-                        중학생도 이해할 수 있는 쉬운 설명
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => toggleFeature("math")}
-                      className={`upload-guide-feature-button ${
-                        selectedFeatures.has("math") ? "selected" : ""
-                      }`}
-                      style={{
-                        background: selectedFeatures.has("math")
-                          ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
-                          : "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-                        border: selectedFeatures.has("math")
-                          ? "2px solid #4caf50"
-                          : "none",
-                        borderRadius: "12px",
-                        padding: "20px",
-                        cursor: "pointer",
-                        transition: "all 0.3s ease",
-                        boxShadow: selectedFeatures.has("math")
-                          ? "0 6px 20px rgba(76, 175, 80, 0.4)"
-                          : "0 4px 15px rgba(25, 118, 210, 0.3)",
-                        width: "100%",
-                      }}
-                      onMouseOver={(e) => {
-                        if (!selectedFeatures.has("math")) {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(25, 118, 210, 0.4)";
-                        }
-                      }}
-                      onMouseOut={(e) => {
-                        if (!selectedFeatures.has("math")) {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(25, 118, 210, 0.3)";
-                        }
-                      }}
-                      title="수학 모델로 수식 해설 생성"
-                    >
-                      <div className="upload-guide-feature-icon">
-                        {selectedFeatures.has("math") ? "✅" : "🔢"}
-                      </div>
-                      <div className="upload-guide-feature-title">
-                        수학 모델
-                      </div>
-                      <div className="upload-guide-feature-desc">
-                        수식 해설 및 상세 설명
-                      </div>
-                    </button>
-                  </div>
-                )}
-
-                {/* 통합 처리 버튼 - 모든 기능을 한 번에 실행 */}
-                {!isModelProcessing() && selectedFeatures.size > 0 && (
-                  <div className="feature-actions">
-                    <button
                       onClick={handleIntegratedProcessing}
-                      disabled={isProcessing}
-                      className="integrated-process-button"
+                      className="step-item integrated-analysis-button"
                       style={{
                         background:
                           "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                        border: "none",
-                        borderRadius: "12px",
-                        padding: "20px 32px",
-                        fontSize: "18px",
-                        fontWeight: "700",
                         color: "white",
-                        cursor: isProcessing ? "not-allowed" : "pointer",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
                         transition: "all 0.3s ease",
-                        boxShadow: "0 6px 20px rgba(102, 126, 234, 0.4)",
-                        width: "100%",
-                        marginTop: "20px",
-                        opacity: isProcessing ? 0.7 : 1,
-                        position: "relative",
-                        overflow: "hidden",
+                        boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
+                        padding: "20px",
+                        marginBottom: "20px",
+                        minHeight: "auto",
                       }}
                       onMouseOver={(e) => {
-                        if (!isProcessing) {
-                          e.currentTarget.style.transform = "translateY(-3px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 8px 25px rgba(102, 126, 234, 0.5)";
-                        }
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                        e.currentTarget.style.boxShadow =
+                          "0 6px 20px rgba(102, 126, 234, 0.4)";
                       }}
                       onMouseOut={(e) => {
-                        if (!isProcessing) {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(102, 126, 234, 0.4)";
-                        }
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow =
+                          "0 4px 15px rgba(102, 126, 234, 0.3)";
                       }}
+                      title="AI가 논문을 종합적으로 분석합니다"
                     >
-                      {isProcessing ? (
-                        <>
-                          <span className="spinner"></span>
-                          AI가 논문을 분석하고 있습니다... ({progress}%)
-                        </>
-                      ) : (
-                        <>
-                          🚀 AI 논문 분석 시작하기
-                          <div style={{ fontSize: "12px", marginTop: "4px", opacity: 0.9 }}>
-                            쉬운 설명 + 수식 해설 + 시각화를 한 번에 생성합니다
-                          </div>
-                        </>
-                      )}
+                      <div
+                        className="step-number"
+                        style={{
+                          background: "rgba(255, 255, 255, 0.2)",
+                          color: "white",
+                          fontSize: "1rem",
+                        }}
+                      >
+                        🚀
+                      </div>
+                      <div className="step-content">
+                        <div className="step-title" style={{ color: "white" }}>
+                          통합 분석 시작
+                        </div>
+                      </div>
                     </button>
                   </div>
                 )}
@@ -1614,7 +1505,8 @@ export default function Upload() {
                             gap: "10px",
                           }}
                           onMouseOver={(e) => {
-                            e.currentTarget.style.transform = "translateY(-3px)";
+                            e.currentTarget.style.transform =
+                              "translateY(-3px)";
                             e.currentTarget.style.boxShadow =
                               "0 8px 25px rgba(102, 126, 234, 0.5)";
                           }}
@@ -1645,7 +1537,8 @@ export default function Upload() {
                             gap: "10px",
                           }}
                           onMouseOver={(e) => {
-                            e.currentTarget.style.transform = "translateY(-3px)";
+                            e.currentTarget.style.transform =
+                              "translateY(-3px)";
                             e.currentTarget.style.boxShadow =
                               "0 8px 25px rgba(76, 175, 80, 0.5)";
                           }}
@@ -1818,8 +1711,10 @@ export default function Upload() {
                 <div className="step-item">
                   <div className="step-number">2</div>
                   <div className="step-content">
-                    <div className="step-title">기능 선택</div>
-                    <div className="step-desc">원하는 AI 기능을 선택하세요</div>
+                    <div className="step-title">AI 분석 실행</div>
+                    <div className="step-desc">
+                      AI가 논문을 종합적으로 분석합니다
+                    </div>
                   </div>
                 </div>
 
