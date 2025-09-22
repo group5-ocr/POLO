@@ -88,6 +88,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   const [activeVizApi, setActiveVizApi] = useState<{ [key: string]: boolean }>({});
   const [activeEquation, setActiveEquation] = useState<string | null>(null);
   const [loadingVizApi, setLoadingVizApi] = useState<{ [key: string]: boolean }>({});
+  const [isDownloading, setIsDownloading] = useState(false);
   const mathJaxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

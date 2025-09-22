@@ -608,8 +608,7 @@ export default function Upload() {
       console.log(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
       console.log(`[convert] 업로드 결과:`, uploadResult);
       
-      // 자동으로 Easy 기능 선택 (사용자 편의성)
-      setSelectedFeatures(new Set(["easy"]));
+       // 자동으로 Easy 기능 선택 (사용자 편의성)
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
@@ -800,8 +799,7 @@ export default function Upload() {
           console.log("🔢 [2단계] Math 모델 자동 실행 시작...");
           updateProgress(50);
           
-          // Math 기능 자동 선택
-          setSelectedFeatures(prev => new Set([...prev, "math"]));
+           // Math 모델 자동 실행
           
           // Math 모델 실행
           try {
@@ -868,35 +866,33 @@ export default function Upload() {
       console.log("✅ [2단계] Viz 모델 완료 - 문단별 시각화 생성됨");
       updateProgress(70);
 
-      // 3단계: Math 모델 처리 (수식 해설 생성)
-      if (selectedFeatures.has("math")) {
-        console.log("🔢 [3단계] Math 모델 처리 시작...");
-        updateProgress(75);
-        
-        const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paper_id: paperId }),
-        });
+       // 3단계: Math 모델 처리 (수식 해설 생성)
+       console.log("🔢 [3단계] Math 모델 처리 시작...");
+       updateProgress(75);
+       
+       const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ paper_id: paperId }),
+       });
 
-        if (mathResponse.ok) {
-          console.log("✅ [3단계] Math 모델 전송 성공");
-          updateProgress(85);
-          
-          // Math 결과 폴링
-          try {
-            await pollForMathResults(paperId || '');
-            updateProgress(95);
-            console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
-          } catch (error) {
-            console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
-            updateProgress(95);
-          }
-        } else {
-          console.warn("⚠️ [3단계] Math 모델 처리 실패, 계속 진행");
-          updateProgress(95);
-        }
-      }
+       if (mathResponse.ok) {
+         console.log("✅ [3단계] Math 모델 전송 성공");
+         updateProgress(85);
+         
+         // Math 결과 폴링
+         try {
+           await pollForMathResults(paperId || '');
+           updateProgress(95);
+           console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
+         } catch (error) {
+           console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
+           updateProgress(95);
+         }
+       } else {
+         console.warn("⚠️ [3단계] Math 모델 처리 실패, 계속 진행");
+         updateProgress(95);
+       }
 
       // 4단계: 통합 데이터 생성 (Easy + Viz + Math 결과 통합)
       console.log("🔗 [4단계] 통합 데이터 생성 중...");
@@ -1346,55 +1342,9 @@ export default function Upload() {
                   </div>
                 )}
 
-                {/* 기능 버튼들 - 모델 생성 중이 아닐 때만 표시 */}
-                {!isModelProcessing() && !allProcessingComplete && (
-                  <div className="result-content">
-                    <button
-                      onClick={() => toggleFeature("overview")}
-                      className={`upload-guide-feature-button ${
-                        selectedFeatures.has("overview") ? "selected" : ""
-                      }`}
-                      style={{
-                        background: selectedFeatures.has("overview")
-                          ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
-                          : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                        border: selectedFeatures.has("overview")
-                          ? "2px solid #4caf50"
-                          : "none",
-                        borderRadius: "12px",
-                        padding: "20px",
-                        cursor: "pointer",
-                        transition: "all 0.3s ease",
-                        boxShadow: selectedFeatures.has("overview")
-                          ? "0 6px 20px rgba(76, 175, 80, 0.4)"
-                          : "0 4px 15px rgba(102, 126, 234, 0.3)",
-                        width: "100%",
-                      }}
-                      onMouseOver={(e) => {
-                        if (!selectedFeatures.has("overview")) {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(102, 126, 234, 0.4)";
-                        }
-                      }}
-                      onMouseOut={(e) => {
-                        if (!selectedFeatures.has("overview")) {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow =
-                            "0 4px 15px rgba(102, 126, 234, 0.3)";
-                        }
-                      }}
-                    >
-                      <div className="upload-guide-feature-icon">
-                        {selectedFeatures.has("overview") ? "✅" : "👁️"}
-                      </div>
-                      <div className="upload-guide-feature-title">
-                        한눈에 논문
-                      </div>
-                      <div className="upload-guide-feature-desc">
-                        논문의 핵심 내용을 한눈에 파악
-                      </div>
-                    </button>
+                 {/* 통합 분석 버튼 - 모델 생성 중이 아닐 때만 표시 */}
+                 {!isModelProcessing() && !allProcessingComplete && (
+                   <div className="result-content">
 
                     <button
                       onClick={handleIntegratedProcessing}

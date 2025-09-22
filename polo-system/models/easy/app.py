@@ -634,9 +634,11 @@ _CODE_URL_PATTERNS = [
 ]
 # -------------------- Text Utils --------------------
 def _pick_attn_impl() -> str:
-    # GPU만 허용 (CPU 우회 금지)
+    # CPU에서는 eager 사용, GPU에서는 flash_attn 시도
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA GPU가 필요합니다. CUDA_VISIBLE_DEVICES 설정을 확인하세요.")
+        logger.info("⚠️ CPU 모드 → eager attention 사용")
+        return "eager"
+    
     # Windows/드라이버 이슈 회피: eager 우선
     try:
         import flash_attn  # noqa: F401
@@ -909,12 +911,15 @@ def load_model():
     logger.info(f"🔄 모델 로딩 시작: {BASE_MODEL}")
     logger.info(f"    EASY_ADAPTER_DIR = {ADAPTER_DIR}")
     logger.info(f"    HF_HOME          = {os.getenv('HF_HOME')}")
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA GPU가 필요합니다. torch.cuda.is_available() == False")
-    gpu_available = True
-    device = "cuda"
-    safe_dtype = torch.float16
-    logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
+    gpu_available = torch.cuda.is_available()
+    if gpu_available:
+        device = "cuda"
+        safe_dtype = torch.float16
+        logger.info(f"✅ GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        device = "cpu"
+        safe_dtype = torch.float32
+        logger.info("⚠️ GPU 없음, CPU 모드로 실행")
     logger.info("==============================================")
 
     tokenizer_local = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN, trust_remote_code=True, cache_dir=CACHE_DIR)
@@ -922,8 +927,9 @@ def load_model():
         tokenizer_local.pad_token = tokenizer_local.eos_token
 
     attn_impl = _pick_attn_impl()
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+    if gpu_available:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     try:
         base = AutoModelForCausalLM.from_pretrained(
