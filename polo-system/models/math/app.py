@@ -716,83 +716,199 @@ def translate_json_payload(in_json_path: str, out_json_path: str, target_lang="k
 # === 메인 파이프라인 ===
 MAX_EXPLAINS = 40
 
-def run_pipeline(input_tex_path: str) -> Dict:
-    p = Path(input_tex_path)
-    if not p.exists():
-        raise FileNotFoundError(f"Cannot find TeX file: {input_tex_path}")
-    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
+def map_equation_to_section(equation_line: int, easy_sections: List[Dict]) -> str:
+    """
+    수식의 라인 번호를 기반으로 해당하는 Easy 섹션 ID를 찾습니다.
+    """
+    if not easy_sections:
+        return "easy_section_unknown"
+    
+    # Easy 섹션들을 순서대로 정렬
+    sorted_sections = sorted(easy_sections, key=lambda x: x.get("easy_section_order", 0))
+    
+    # 수식이 속할 가능성이 높은 섹션 찾기
+    for section in sorted_sections:
+        # 섹션 순서를 기반으로 대략적인 라인 범위 추정
+        section_order = section.get("easy_section_order", 0)
+        # YOLO 논문의 경우 섹션당 평균 50-100라인 정도로 추정
+        estimated_start = (section_order - 1) * 80 + 50  # Abstract는 50라인부터 시작
+        estimated_end = section_order * 80 + 50
+        
+        if estimated_start <= equation_line <= estimated_end:
+            return section.get("easy_section_id", f"easy_section_{section_order}")
+    
+    # 기본값: 첫 번째 섹션
+    return sorted_sections[0].get("easy_section_id", "easy_section_1")
 
-    src = p.read_text(encoding="utf-8", errors="ignore")
-    offsets = make_line_offsets(src); pos_to_line = build_pos_to_line(offsets)
-    equations_all = extract_equations(src, pos_to_line)
-    equations_advanced = [e for e in equations_all if is_advanced(e["body"])]
-    print(f"총 수식: {len(equations_all)}", flush=True)
-    print(f"중학생 수준 이상: {len(equations_advanced)} / {len(equations_all)}", flush=True)
-
-    # 논문 매크로 파싱
-    macro_defs = extract_macro_definitions(src)
-
-    head, mid, tail = take_slices(src)
-    overview_prompt = textwrap.dedent(f"""
-    You will be given three slices of a LaTeX document (head / middle / tail).
-    Please produce a concise English overview with:
-    - One short paragraph describing the core topic and objective of the paper.
-    - A few bullet points listing the main sections or ideas (if discernible).
-    - Focus on how mathematical notation and symbols are used to support the overall flow.
-
-    [HEAD]
-    {head}
-
-    [MIDDLE]
-    {mid}
-
-    [TAIL]
-    {tail}
-    """).strip()
-    doc_overview = chat_overview(overview_prompt)
-
-    explanations: List[Dict] = []
-    target_items = equations_advanced[:MAX_EXPLAINS]
-    for idx, item in enumerate(target_items, start=1):
-        print(f"[{idx}/{len(target_items)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
-        paper_ctx = build_paper_context(item, src, macro_defs)
-        raw_exp = explain_equation_with_llm(item["body"], paper_ctx)
-        raw_exp = ensure_conclusion(raw_exp, item["body"], paper_ctx)
-        exp = sanitize_explanation(raw_exp, item["body"])
-        explanations.append({
-            "index": idx, "line_start": item["line_start"], "line_end": item["line_end"],
-            "kind": item["kind"], "env": item["env"],
-            "equation": item["body"], "explanation": exp
-        })
-
-    json_path = os.path.join(OUT_DIR, "equations_explained.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({"overview": doc_overview, "items": explanations}, f, ensure_ascii=False, indent=2)
-    print(f"저장된 JSON: {json_path}", flush=True)
-
-    report_tex_path = os.path.join(OUT_DIR, "yolo_math_report.tex")
-    report_tex = build_report(doc_overview, explanations)
-    Path(report_tex_path).write_text(report_tex, encoding="utf-8")
-    print(f"저장된 TeX: {report_tex_path}", flush=True)
-
-    json_ko_path = os.path.join(OUT_DIR, "equations_explained.ko.json")
-    tex_ko_path  = os.path.join(OUT_DIR, "yolo_math_report.ko.tex")
+def run_pipeline(input_tex_path: str, easy_results: Dict = None) -> Dict:
+    error_info = {"error_count": 0, "warnings": [], "errors": []}
+    
     try:
-        translate_json_payload(json_path, json_ko_path, target_lang="ko")
+        p = Path(input_tex_path)
+        if not p.exists():
+            error_info["errors"].append(f"TeX 파일을 찾을 수 없습니다: {input_tex_path}")
+            error_info["error_count"] += 1
+            return {
+                "overview": "수식 분석을 위한 TeX 파일을 찾을 수 없습니다.",
+                "items": [],
+                "metadata": {
+                    "processing_status": "error",
+                    "error_count": error_info["error_count"],
+                    "warnings": error_info["warnings"],
+                    "errors": error_info["errors"]
+                }
+            }
+        
+        Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
+        src = p.read_text(encoding="utf-8", errors="ignore")
+        offsets = make_line_offsets(src); pos_to_line = build_pos_to_line(offsets)
+        equations_all = extract_equations(src, pos_to_line)
+        equations_advanced = [e for e in equations_all if is_advanced(e["body"])]
+        print(f"총 수식: {len(equations_all)}", flush=True)
+        print(f"중학생 수준 이상: {len(equations_advanced)} / {len(equations_all)}", flush=True)
     except Exception as e:
-        print("[Translate JSON Error]", e, file=sys.stderr)
-    try:
-        translate_tex_file(report_tex_path, tex_ko_path, target_lang="ko")
-    except Exception as e:
-        print("[Translate TeX Error]", e, file=sys.stderr)
+        error_info["errors"].append(f"파일 읽기 실패: {str(e)}")
+        error_info["error_count"] += 1
+        return {
+            "overview": "수식 분석 중 파일 읽기 오류가 발생했습니다.",
+            "items": [],
+            "metadata": {
+                "processing_status": "error",
+                "error_count": error_info["error_count"],
+                "warnings": error_info["warnings"],
+                "errors": error_info["errors"]
+            }
+        }
 
+    try:
+        # 논문 매크로 파싱
+        macro_defs = extract_macro_definitions(src)
+
+        head, mid, tail = take_slices(src)
+        overview_prompt = textwrap.dedent(f"""
+        You will be given three slices of a LaTeX document (head / middle / tail).
+        Please produce a concise English overview with:
+        - One short paragraph describing the core topic and objective of the paper.
+        - A few bullet points listing the main sections or ideas (if discernible).
+        - Focus on how mathematical notation and symbols are used to support the overall flow.
+
+        [HEAD]
+        {head}
+
+        [MIDDLE]
+        {mid}
+
+        [TAIL]
+        {tail}
+        """).strip()
+        doc_overview = chat_overview(overview_prompt)
+
+        explanations: List[Dict] = []
+        target_items = equations_advanced[:MAX_EXPLAINS]
+        
+        # Easy 결과에서 섹션 정보 추출
+        easy_sections = []
+        if easy_results and "easy_sections" in easy_results:
+            easy_sections = easy_results["easy_sections"]
+            print(f"📊 [MATH] Easy 섹션 정보 로드: {len(easy_sections)}개 섹션")
+        
+        for idx, item in enumerate(target_items, start=1):
+            try:
+                print(f"[{idx}/{len(target_items)}] 라인 {item['line_start']}–{item['line_end']}", flush=True)
+                paper_ctx = build_paper_context(item, src, macro_defs)
+                raw_exp = explain_equation_with_llm(item["body"], paper_ctx)
+                raw_exp = ensure_conclusion(raw_exp, item["body"], paper_ctx)
+                exp = sanitize_explanation(raw_exp, item["body"])
+                
+                # Easy 섹션과 매핑
+                math_equation_section_ref = map_equation_to_section(item["line_start"], easy_sections)
+                
+                explanations.append({
+                    "index": idx, "line_start": item["line_start"], "line_end": item["line_end"],
+                    "kind": item["kind"], "env": item["env"],
+                    "equation": item["body"], "explanation": exp,
+                    "math_equation_section_ref": math_equation_section_ref
+                })
+            except Exception as e:
+                error_info["errors"].append(f"수식 {idx} 처리 실패: {str(e)}")
+                error_info["error_count"] += 1
+                
+                # 에러가 발생해도 섹션 매핑은 시도
+                math_equation_section_ref = map_equation_to_section(item["line_start"], easy_sections)
+                
+                explanations.append({
+                    "index": idx, "line_start": item["line_start"], "line_end": item["line_end"],
+                    "kind": item["kind"], "env": item["env"],
+                    "equation": item["body"], "explanation": f"수식 처리 중 오류 발생: {str(e)}",
+                    "math_equation_section_ref": math_equation_section_ref
+                })
+
+        json_path = os.path.join(OUT_DIR, "equations_explained.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "overview": doc_overview, 
+                "items": explanations,
+                "metadata": {
+                    "processing_status": "success" if error_info["error_count"] == 0 else "partial",
+                    "error_count": error_info["error_count"],
+                    "warnings": error_info["warnings"],
+                    "errors": error_info["errors"]
+                }
+            }, f, ensure_ascii=False, indent=2)
+        print(f"저장된 JSON: {json_path}", flush=True)
+
+        report_tex_path = os.path.join(OUT_DIR, "yolo_math_report.tex")
+        report_tex = build_report(doc_overview, explanations)
+        Path(report_tex_path).write_text(report_tex, encoding="utf-8")
+        print(f"저장된 TeX: {report_tex_path}", flush=True)
+
+        json_ko_path = os.path.join(OUT_DIR, "equations_explained.ko.json")
+        tex_ko_path  = os.path.join(OUT_DIR, "yolo_math_report.ko.tex")
+        try:
+            translate_json_payload(json_path, json_ko_path, target_lang="ko")
+        except Exception as e:
+            error_info["warnings"].append(f"JSON 번역 실패: {str(e)}")
+            print("[Translate JSON Error]", e, file=sys.stderr)
+        try:
+            translate_tex_file(report_tex_path, tex_ko_path, target_lang="ko")
+        except Exception as e:
+            error_info["warnings"].append(f"TeX 번역 실패: {str(e)}")
+            print("[Translate TeX Error]", e, file=sys.stderr)
+            
+        return {
+            "overview": doc_overview,
+            "math_equations": explanations,  # items -> math_equations로 변경
+            "items": explanations,  # 기존 호환성 유지
+            "metadata": {
+                "processing_status": "success" if error_info["error_count"] == 0 else "partial",
+                "error_count": error_info["error_count"],
+                "warnings": error_info["warnings"],
+                "errors": error_info["errors"]
+            }
+        }
+    except Exception as e:
+        error_info["errors"].append(f"수식 분석 처리 실패: {str(e)}")
+        error_info["error_count"] += 1
+        return {
+            "overview": "수식 분석 중 오류가 발생했습니다.",
+            "items": [],
+            "metadata": {
+                "processing_status": "error",
+                "error_count": error_info["error_count"],
+                "warnings": error_info["warnings"],
+                "errors": error_info["errors"]
+            }
+        }
+
+    # 이 부분은 더 이상 사용되지 않음 (위에서 return됨)
     return {
-        "input": str(p),
-        "counts": {"총 수식": len(equations_all), "중학생 수준 이상": len(equations_advanced)},
-        "outputs": {
-            "json": json_path, "report_tex": report_tex_path,
-            "json_ko": json_ko_path, "report_tex_ko": tex_ko_path,
-            "out_dir": OUT_DIR
+        "overview": "수식 분석 완료",
+        "items": [],
+        "metadata": {
+            "processing_status": "success",
+            "error_count": 0,
+            "warnings": [],
+            "errors": []
         }
     }
 
@@ -1171,6 +1287,11 @@ async def root():
 class MathRequest(BaseModel):
     path: str
 
+class MathWithEasyRequest(BaseModel):
+    path: str
+    easy_results: dict = None
+    paper_id: str = None
+
 @app.get("/health")
 async def health():
     return {
@@ -1218,6 +1339,39 @@ async def math_get(file_path: str):
 async def math_post(req: MathRequest):
     try:
         return run_pipeline(req.path)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {e}")
+
+@app.post("/math-with-easy")
+async def math_with_easy_post(req: MathWithEasyRequest):
+    """
+    Easy 결과를 기반으로 Math 모델 실행
+    """
+    try:
+        print(f"🔢 [MATH] Easy 결과 기반 수식 해설 시작: paper_id={req.paper_id}")
+        
+        # Easy 결과가 있으면 수식이 포함된 섹션들 우선 처리
+        if req.easy_results and "easy_sections" in req.easy_results:
+            print(f"📊 [MATH] Easy 섹션 수: {len(req.easy_results['easy_sections'])}")
+            # Easy 결과에서 수식이 포함된 섹션들 추출하여 우선 처리
+            # (현재는 기존 방식 유지하되, Easy 결과 정보 활용)
+        
+        # 기존 파이프라인 실행 (Easy 결과 전달)
+        result = run_pipeline(req.path, req.easy_results)
+        
+        # Easy 결과와 통합하여 반환
+        if req.easy_results:
+            result["easy_integration"] = {
+                "paper_id": req.paper_id,
+                "easy_sections_count": len(req.easy_results.get("easy_sections", [])),
+                "integration_status": "success"
+            }
+            print(f"✅ [MATH] Easy 결과 통합 완료")
+        
+        return result
+        
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

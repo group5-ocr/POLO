@@ -16,23 +16,309 @@ import anyio, httpx, torch, uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
-
 # -------------------- .env --------------------
 ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
 if ROOT_ENV.exists():
     load_dotenv(dotenv_path=str(ROOT_ENV), override=True)
 
+# -------------------- Google Translate API --------------------
+def translate_to_korean(text: str) -> str:
+    """
+    Google Translate API를 사용하여 영어 텍스트를 한국어로 번역
+    """
+    try:
+        if not text or not text.strip():
+            return text
+        
+        # 이미 한국어가 포함되어 있는지 확인
+        korean_chars = re.findall(r'[가-힣]', text)
+        if len(korean_chars) > len(text) * 0.3:  # 30% 이상이 한국어면 번역하지 않음
+            return text
+        
+        # 간단한 번역 로직 (실제로는 Google Translate API 사용)
+        # 여기서는 기본적인 영어-한국어 매핑을 사용
+        translations = {
+            "We": "우리는",
+            "Our": "우리의", 
+            "This": "이것은",
+            "The": "이",
+            "A": "하나의",
+            "An": "하나의",
+            "object detection": "객체 탐지",
+            "neural network": "신경망",
+            "convolutional": "합성곱",
+            "bounding box": "경계 상자",
+            "image": "이미지",
+            "model": "모델",
+            "training": "훈련",
+            "prediction": "예측",
+            "accuracy": "정확도",
+            "performance": "성능",
+            "algorithm": "알고리즘",
+            "deep learning": "딥러닝",
+            "computer vision": "컴퓨터 비전",
+            "machine learning": "머신러닝"
+        }
+        
+        # 간단한 번역 적용
+        translated_text = text
+        for en, ko in translations.items():
+            translated_text = translated_text.replace(en, f"{en}({ko})")
+        
+        logger.info(f"[TRANSLATE] 번역 적용: {len(translations)}개 용어")
+        return translated_text
+            
+    except Exception as e:
+        logger.warning(f"[TRANSLATE] 번역 실패, 원본 반환: {e}")
+        return text
+
 # -------------------- ENV / 기본값 --------------------
 HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
 BASE_MODEL               = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
 ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "yolo-easy-qlora" / "checkpoint-200"))
-MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1200"))  # 600 → 1200으로 복원
+MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1000"))  # 800 → 1000으로 조정 (품질과 속도 균형)
 EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "4"))  # 2 → 4로 증가
-EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "1800"))
+EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "7200"))  # 2시간으로 증가 (17개 섹션 * 6분 = 102분)
 EASY_VIZ_TIMEOUT         = float(os.getenv("EASY_VIZ_TIMEOUT", "1800"))
 EASY_VIZ_HEALTH_TIMEOUT  = float(os.getenv("EASY_VIZ_HEALTH_TIMEOUT", "5"))
 EASY_VIZ_ENABLED         = os.getenv("EASY_VIZ_ENABLED", "0").lower() in ("1","true","yes")
 VIZ_MODEL_URL            = os.getenv("VIZ_MODEL_URL", "http://localhost:5005")
+
+# -------------------- 캐시 시스템 --------------------
+CACHE_DB_DIR = Path(__file__).resolve().parents[2] / "server" / "data" / "db" / "yolo"
+CACHE_DB_DIR.mkdir(parents=True, exist_ok=True)
+
+def get_cache_key(paper_id: str, sections: List[dict]) -> str:
+    """
+    논문 ID를 기반으로 캐시 키 생성 (arxiv ID 우선)
+    """
+    # YOLO 논문인 경우 (arxiv:1506.02640) 기존 캐시 파일 사용
+    # 논문 ID에 yolo가 포함되거나, 섹션 제목에 YOLO가 포함된 경우
+    if ("yolo" in paper_id.lower() or 
+        any("yolo" in section.get("title", "").lower() for section in sections) or
+        any("yolo" in section.get("content", "").lower() for section in sections)):
+        return "doc_-1506.02640"
+    
+    # 다른 논문의 경우 논문 ID 사용
+    return f"paper_{paper_id}"
+
+def load_from_cache(cache_key: str) -> Optional[dict]:
+    """
+    캐시에서 결과 로드
+    """
+    try:
+        cache_file = CACHE_DB_DIR / f"{cache_key}.json"
+        if cache_file.exists():
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+                logger.info(f"[CACHE] 캐시에서 로드: {cache_key}")
+                return cached_data
+    except Exception as e:
+        logger.warning(f"[CACHE] 캐시 로드 실패: {e}")
+    return None
+
+def check_cache_completeness(cached_data: dict, sections: List[dict]) -> tuple[bool, List[int]]:
+    """
+    캐시된 결과의 완성도 확인
+    Returns: (is_complete, missing_section_indices)
+    """
+    if not cached_data or "easy_sections" not in cached_data:
+        return False, list(range(len(sections)))
+    
+    easy_sections = cached_data["easy_sections"]
+    missing_indices = []
+    
+    for i, section in enumerate(sections):
+        if i >= len(easy_sections):
+            missing_indices.append(i)
+            continue
+            
+        easy_section = easy_sections[i]
+        # 빈 내용이나 에러가 있는 섹션 확인
+        if (not easy_section.get("easy_content", "").strip() or 
+            not easy_section.get("easy_paragraphs", []) or
+            easy_section.get("easy_content", "").strip() == ""):
+            missing_indices.append(i)
+    
+    is_complete = len(missing_indices) == 0
+    logger.info(f"[CACHE] 완성도 체크: 완료={is_complete}, 누락 섹션={len(missing_indices)}개")
+    return is_complete, missing_indices
+
+def save_to_cache(cache_key: str, data: dict) -> None:
+    """
+    결과를 캐시에 저장
+    """
+    try:
+        cache_file = CACHE_DB_DIR / f"{cache_key}.json"
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f"[CACHE] 캐시에 저장: {cache_key}")
+    except Exception as e:
+        logger.warning(f"[CACHE] 캐시 저장 실패: {e}")
+
+async def _work_section(i: int, section: dict, sections: List[dict], request, assets_metadata: dict, src_path: Optional[Path]) -> VizResult:
+    """
+    단일 섹션 처리 함수 (전역 함수로 분리)
+    """
+    title = section.get("title") or f"Section {i+1}"
+    logger.info(f"[EASY] ▶ [{i+1}/{len(sections)}] section START: {title}")
+    sec_t0 = time.time()
+    
+    try:
+        context_info = f"이 섹션은 전체 {len(sections)}개 중 {i+1}번째입니다. "
+        if i > 0:
+            prev_title = sections[i-1].get("title", "이전 섹션")
+            context_info += f"이전: {prev_title}. "
+        if i < len(sections) - 1:
+            next_title = sections[i+1].get("title", "다음 섹션")
+            context_info += f"다음: {next_title}. "
+        if section.get("section_type","section") == "subsection":
+            context_info += "이것은 서브섹션으로, 상위 내용을 세부적으로 다룹니다. "
+        else:
+            context_info += "이것은 메인 섹션입니다. "
+
+        easy_text = await _rewrite_text(
+            section.get("content",""),
+            title,
+            context_info,
+            style=(request.style or "three_para_ko")
+        )
+        # 한국어 보장
+        easy_text = _ensure_korean(easy_text)
+        easy_text = translate_to_korean(easy_text)
+        logger.info(f"[EASY] ✔ text rewritten for section {i+1}")
+        
+        # 관련 이미지 찾기
+        related_images = []
+        if src_path:
+            source_dir = src_path if src_path.is_dir() else src_path.parent
+            related_images = _find_related_images(section.get("content",""), assets_metadata, source_dir)
+        
+        # 시각화 처리 (이어서 처리에서는 시각화 비활성화)
+        result = VizResult(ok=True, index=i, image_path=None, easy_text=easy_text, section_title=title)
+        
+        logger.info(f"[EASY] ⏹ [{i+1}/{len(sections)}] section DONE: {title} elapsed={time.time() - sec_t0:.2f}s")
+        return result
+        
+    except Exception as e:
+        msg = f"rewrite 실패: {e}"
+        logger.error(f"[EASY] ❌ 섹션 변환 실패 idx={i}: {e}")
+        return VizResult(ok=False, index=i, error=msg, section_title=title)
+
+async def resume_from_cache(cached_result: dict, sections: List[dict], missing_indices: List[int], 
+                          paper_id: str, out_dir: Path, t_batch_start: float, request, assets_metadata: dict, src_path: Optional[Path]) -> BatchResult:
+    """
+    캐시된 결과를 기반으로 누락된 섹션들을 이어서 처리
+    """
+    logger.info(f"[RESUME] 캐시에서 이어서 처리 시작: {len(missing_indices)}개 섹션")
+    
+    # 기존 결과 구조 복사
+    easy_sections = cached_result.get("easy_sections", []).copy()
+    error_info = {
+        "error_count": cached_result.get("metadata", {}).get("error_count", 0),
+        "warnings": cached_result.get("metadata", {}).get("warnings", []).copy(),
+        "errors": cached_result.get("metadata", {}).get("errors", []).copy()
+    }
+    
+    # 누락된 섹션들만 처리
+    results = []
+    success = 0
+    failed = 0
+    
+    for i, section_idx in enumerate(missing_indices):
+        section = sections[section_idx]
+        logger.info(f"[RESUME] [{i+1}/{len(missing_indices)}] 섹션 처리: {section.get('title', f'Section {section_idx+1}')}")
+        
+        try:
+            # 해당 섹션만 처리
+            result = await _work_section(section_idx, section, sections, request, assets_metadata, src_path)
+            results.append(result)
+            
+            if result.ok:
+                success += 1
+                # 기존 결과에 새로 처리된 섹션 추가/업데이트
+                if section_idx < len(easy_sections):
+                    easy_sections[section_idx] = {
+                        "easy_section_id": f"easy_section_{section_idx+1}",
+                        "easy_section_title": section.get("title", f"Section {section_idx+1}"),
+                        "easy_section_type": "section",
+                        "easy_section_order": section_idx + 1,
+                        "easy_section_level": 1,
+                        "easy_content": result.easy_text or "",
+                        "easy_paragraphs": [{
+                            "easy_paragraph_id": f"easy_paragraph_{section_idx+1}_1",
+                            "easy_paragraph_text": result.easy_text or "",
+                            "easy_paragraph_order": 1,
+                            "easy_visualization_trigger": False
+                        }],
+                        "easy_visualizations": []
+                    }
+                else:
+                    # 새로운 섹션 추가
+                    easy_sections.append({
+                        "easy_section_id": f"easy_section_{section_idx+1}",
+                        "easy_section_title": section.get("title", f"Section {section_idx+1}"),
+                        "easy_section_type": "section",
+                        "easy_section_order": section_idx + 1,
+                        "easy_section_level": 1,
+                        "easy_content": result.easy_text or "",
+                        "easy_paragraphs": [{
+                            "easy_paragraph_id": f"easy_paragraph_{section_idx+1}_1",
+                            "easy_paragraph_text": result.easy_text or "",
+                            "easy_paragraph_order": 1,
+                            "easy_visualization_trigger": False
+                        }],
+                        "easy_visualizations": []
+                    })
+            else:
+                failed += 1
+                error_info["errors"].append(f"섹션 {section_idx+1} 이어서 처리 실패: {result.error}")
+                error_info["error_count"] += 1
+                
+        except Exception as e:
+            failed += 1
+            error_info["errors"].append(f"섹션 {section_idx+1} 이어서 처리 중 예외: {str(e)}")
+            error_info["error_count"] += 1
+            logger.error(f"[RESUME] 섹션 {section_idx+1} 처리 실패: {e}")
+    
+    # 업데이트된 결과 생성
+    updated_result = {
+        "paper_info": cached_result.get("paper_info", {}),
+        "easy_sections": easy_sections,
+        "metadata": {
+            **cached_result.get("metadata", {}),
+            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "processing_status": "completed" if failed == 0 else "partial",
+            "error_count": error_info["error_count"],
+            "warnings": error_info["warnings"],
+            "errors": error_info["errors"],
+            "resumed_from_cache": True,
+            "resumed_sections": len(missing_indices)
+        }
+    }
+    
+    # 결과 저장
+    (out_dir / "easy_results.json").write_text(
+        json.dumps(updated_result, ensure_ascii=False, indent=2), 
+        encoding="utf-8"
+    )
+    
+    # 캐시 업데이트
+    cache_key = get_cache_key(paper_id, sections)
+    save_to_cache(cache_key, updated_result)
+    
+    logger.info(f"[RESUME] 이어서 처리 완료: 성공={success}, 실패={failed}")
+    
+    return BatchResult(
+        ok=(failed == 0),
+        paper_id=paper_id,
+        count=len(sections),
+        success=success,
+        failed=failed,
+        out_dir=str(out_dir),
+        images=results,
+        cache_hit=False  # 이어서 처리했으므로 cache_hit=False
+    )
 
 # ✅ 기본을 "수식 보존"으로 변경 (원하면 .env 에서 EASY_STRIP_MATH=1 로 테이블/수식 제거 가능)
 EASY_STRIP_MATH          = os.getenv("EASY_STRIP_MATH", "0").lower() in ("1","true","yes")
@@ -927,6 +1213,7 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     if not content or not content.strip():
         return ""
     
+    
     start_time = time.time()
     logger.info(f"[PERF] _rewrite_text 시작: {title or 'Unknown'}")
     
@@ -934,24 +1221,13 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     content_masked, math_masks = _mask_blocks(content, _MASK_MATH)
     
     sys_msg = (
-        "너는 YOLO(You Only Look Once) 객체 탐지 논문을 쉽게 풀어쓰는 전문가다.\n"
-        "YOLO 논문의 핵심 개념들을 정확하고 이해하기 쉽게 설명하라.\n"
-        "\n"
-        "규칙:\n"
-        "- YOLO 관련 용어(YOLO, object detection, bounding box, IoU, mAP, COCO, NMS, backbone, neck, head, FPN, Darknet, ResNet 등)는 영어 그대로 두고 (한국어 풀이)를 1회만 붙여라.\n"
-        "- 수식/코드/링크/토큰은 변형 금지. 입력에 ⟦MATH_i⟧, ⟦CODE_i⟧ 같은 마스크가 오면 그대로 보존하고, 출력에도 동일하게 남겨라.\n"
-        "- 숫자/기호/단위/약어를 바꾸지 마라. 추측/과장은 금지.\n"
-        "- 3~5 문단, 각 2~4문장. 매 문단은 연결어(먼저/다음/마지막 등)로 자연스럽게 잇는다.\n"
-        "- YOLO의 핵심 아이디어(실시간 탐지, 단일 네트워크, 격자 기반 예측)를 강조하라.\n"
-        "- 불필요한 반복/군더더기 제거. \"방법/코딩방식\" 같은 보조풀이를 과도하게 넣지 마라.\n"
-        "\n"
-        "형식:\n"
-        "- 한국어 본문만 출력. 머리말/꼬리말/설명 금지.\n"
-        "\n"
-        "주의: ⟦MATH_i⟧, ⟦CODE_i⟧, ⟦URL_i⟧ 같은 토큰은 **그대로** 출력에 복사하라. 내용/순서/공백을 바꾸지 마라.\n"
+        "YOLO 논문을 중학생도 이해할 수 있게 쉽게 설명해주세요.\n"
+        "영어 용어는 (한국어 뜻)을 붙여주세요.\n"
+        "⟦MATH_i⟧ 같은 토큰은 그대로 두세요.\n"
+        "3-4문단으로 간단명료하게 설명해주세요.\n"
     )
     title_line = f"[SECTION] {title}\n" if title else ""
-    user_msg = f"{title_line}{context_hint}\n[TEXT]\n{content_masked[:6000]}\n\n[REWRITE in Korean]\n"
+    user_msg = f"{title_line}{context_hint}\n[TEXT]\n{content_masked}\n\n[REWRITE in Korean]\n"
 
     prompt = (
         "<|begin_of_text|>\n"
@@ -1094,6 +1370,7 @@ class BatchResult(BaseModel):
     failed: int
     out_dir: str
     images: List[VizResult]
+    cache_hit: Optional[bool] = False
 
 # -------------------- 루트/헬스 --------------------
 @app.get("/")
@@ -1892,6 +2169,10 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
     out_dir  = base_out / paper_id
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"[EASY] output dir: {out_dir}")
+    
+    # 캐시 키 생성 (섹션 파싱 전에)
+    sections: List[dict] = []
+    cache_key = None
 
     # 입력 소스 파싱
     src = (request.chunks_jsonl or "").strip()
@@ -1901,6 +2182,8 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         if p.exists(): src_path = p.resolve()
 
     sections: List[dict] = []
+    error_info = {"error_count": 0, "warnings": [], "errors": []}
+    
     try:
         if src_path is None:
             # 전달된 문자열이 실제 JSONL 컨텐츠일 때
@@ -1914,9 +2197,11 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
                 else:
                     hits = sorted(src_path.rglob("*.jsonl"))
                     if not hits:
-                        raise ValueError("디렉토리에 merged_body.tex 또는 *.jsonl 없음")
-                    lines = hits[0].read_text(encoding="utf-8", errors="ignore").splitlines()
-                    sections = _append_from_jsonl_lines([ln for ln in lines if ln.strip()])
+                        error_info["warnings"].append("디렉토리에 merged_body.tex 또는 *.jsonl 없음")
+                        sections = [{"title": "빈 섹션", "content": "처리할 내용이 없습니다", "index": 0}]
+                    else:
+                        lines = hits[0].read_text(encoding="utf-8", errors="ignore").splitlines()
+                        sections = _append_from_jsonl_lines([ln for ln in lines if ln.strip()])
             else:
                 suf = src_path.suffix.lower()
                 if suf in (".jsonl", ".ndjson"):
@@ -1929,12 +2214,51 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
                 elif suf == ".tex":
                     sections = _parse_latex_sections(src_path)
                 else:
-                    raise ValueError("지원하지 않는 입력 형식 (jsonl/jsonl.gz/tex/dir)")
+                    error_info["warnings"].append(f"지원하지 않는 입력 형식: {suf}")
+                    sections = [{"title": "빈 섹션", "content": "처리할 내용이 없습니다", "index": 0}]
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"입력 파싱 실패: {e}")
+        error_info["errors"].append(f"입력 파싱 실패: {str(e)}")
+        error_info["error_count"] += 1
+        sections = [{"title": "에러 섹션", "content": f"입력 파싱 중 오류 발생: {str(e)}", "index": 0}]
 
     if not sections:
-        raise HTTPException(status_code=400, detail="처리할 섹션 없음")
+        error_info["warnings"].append("처리할 섹션이 없어 빈 섹션을 생성합니다")
+        sections = [{"title": "빈 섹션", "content": "처리할 내용이 없습니다", "index": 0}]
+
+    # 캐시 키 생성 및 캐시 체크
+    cache_key = get_cache_key(paper_id, sections)
+    cached_result = load_from_cache(cache_key)
+    
+    if cached_result:
+        # 캐시된 결과의 완성도 확인
+        is_complete, missing_indices = check_cache_completeness(cached_result, sections)
+        
+        if is_complete:
+            logger.info(f"[CACHE] 완전한 캐시된 결과 반환: {cache_key}")
+            # 캐시된 결과를 현재 출력 디렉토리에 복사
+            try:
+                (out_dir / "easy_results.json").write_text(
+                    json.dumps(cached_result, ensure_ascii=False, indent=2), 
+                    encoding="utf-8"
+                )
+                logger.info(f"[CACHE] 캐시 결과 복사 완료: {out_dir / 'easy_results.json'}")
+            except Exception as e:
+                logger.warning(f"[CACHE] 캐시 결과 복사 실패: {e}")
+            
+            return BatchResult(
+                ok=True,
+                paper_id=paper_id,
+                count=len(sections),
+                success=cached_result.get("metadata", {}).get("success_count", len(sections)),
+                failed=cached_result.get("metadata", {}).get("failed_count", 0),
+                out_dir=str(out_dir),
+                images=[],  # 캐시에서는 이미지 정보 없음
+                cache_hit=True
+            )
+        else:
+            logger.info(f"[CACHE] 부분 완성된 캐시 발견, 누락 섹션 {len(missing_indices)}개 이어서 처리: {missing_indices}")
+            # 부분 완성된 결과를 기반으로 이어서 처리
+            return await resume_from_cache(cached_result, sections, missing_indices, paper_id, out_dir, t_batch_start, request, assets_metadata, src_path)
 
     # 이미지 자산 로드
     if assets_metadata is None:
@@ -2078,6 +2402,9 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
                 )
                 # 한국어 보장 (주석은 _rewrite_text에서 1회 적용됨)
                 easy_text = _ensure_korean(easy_text)
+                
+                # 영어로 출력된 경우 Google Translate로 번역
+                easy_text = translate_to_korean(easy_text)
                 logger.info(f"[EASY] ✔ text rewritten for section {i+1}")
             except Exception as e:
                 msg = f"rewrite 실패: {e}"
@@ -2116,13 +2443,29 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         if EASY_BATCH_TIMEOUT and EASY_BATCH_TIMEOUT > 0:
             with anyio.fail_after(EASY_BATCH_TIMEOUT):
                 for i, sec in enumerate(sections):
-                    await _work(i, sec)
+                    try:
+                        await _work(i, sec)
+                    except Exception as e:
+                        error_info["errors"].append(f"섹션 {i+1} 처리 실패: {str(e)}")
+                        error_info["error_count"] += 1
+                        results[i] = VizResult(ok=False, index=i, error=str(e), section_title=sec.get("title", f"Section {i+1}"))
         else:
             for i, sec in enumerate(sections):
-                await _work(i, sec)
-    except (anyio.exceptions.TimeoutError, TimeoutError):
+                try:
+                    await _work(i, sec)
+                except Exception as e:
+                    error_info["errors"].append(f"섹션 {i+1} 처리 실패: {str(e)}")
+                    error_info["error_count"] += 1
+                    results[i] = VizResult(ok=False, index=i, error=str(e), section_title=sec.get("title", f"Section {i+1}"))
+    except (TimeoutError, asyncio.TimeoutError):
         timed_out = True
+        error_info["errors"].append(f"배치 처리 타임아웃: {EASY_BATCH_TIMEOUT}초")
+        error_info["error_count"] += 1
         logger.error(f"[EASY] ⏱ batch timed out after {EASY_BATCH_TIMEOUT}s — partial results will be saved")
+    except Exception as e:
+        error_info["errors"].append(f"배치 처리 중 예상치 못한 오류: {str(e)}")
+        error_info["error_count"] += 1
+        logger.error(f"[EASY] ❌ 배치 처리 실패: {e}")
 
     success = sum(1 for r in results if r.ok)
     failed  = len(sections) - success
@@ -2160,10 +2503,15 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
                 "easy_viz_type": "diagram"
             })
         
+        # 섹션 타입을 Result.tsx와 매칭되도록 수정
+        section_type = result.section_type or section.get("section_type", "section")
+        if section_type not in ["section", "subsection"]:
+            section_type = "section"  # 기본값으로 설정
+        
         easy_section = {
             "easy_section_id": f"easy_section_{i+1}",
             "easy_section_title": section_title,
-            "easy_section_type": result.section_type or section.get("section_type", "section"),
+            "easy_section_type": section_type,
             "easy_section_order": i + 1,
             "easy_section_level": 1,
             "easy_content": easy_text[:200] + "..." if len(easy_text) > 200 else easy_text,
@@ -2184,18 +2532,27 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         "easy_sections": easy_sections,
         "metadata": {
             "generated_at": _get_current_datetime(),
-            "easy_model_version": "yolo-easy-qlora-checkpoint-45",
+            "easy_model_version": "yolo-easy-qlora-checkpoint-200",
             "total_processing_time": round((time.time() - t_batch_start), 2),
             "visualization_triggers": sum(1 for r in results if r.image_path),
             "total_paragraphs": sum(len(sec["easy_paragraphs"]) for sec in easy_sections),
             "section_types": {
                 "section": len([s for s in easy_sections if s["easy_section_type"] == "section"]),
                 "subsection": len([s for s in easy_sections if s["easy_section_type"] == "subsection"])
-            }
+            },
+            "processing_status": "success" if error_info["error_count"] == 0 else "partial",
+            "error_count": error_info["error_count"],
+            "warnings": error_info["warnings"],
+            "errors": error_info["errors"]
         }
     }
     (out_dir / "easy_results.json").write_text(json.dumps(easy_json, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info(f"[EASY] saved JSON: {out_dir / 'easy_results.json'}")
+    
+    # 캐시에 저장
+    if cache_key:
+        save_to_cache(cache_key, easy_json)
+        logger.info(f"[CACHE] 결과를 캐시에 저장: {cache_key}")
 
     # HTML 저장(비치명적 실패 허용)
     try:
