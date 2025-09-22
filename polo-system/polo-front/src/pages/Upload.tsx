@@ -1296,7 +1296,19 @@ export default function Upload() {
           </div>
 
           {/* 오른쪽: 안내 또는 결과 영역 */}
-          <div className="upload-right">
+          <div
+            className={`upload-right ${
+              progress >= 100
+                ? "progress-100"
+                : progress >= 75
+                ? "progress-75"
+                : progress >= 50
+                ? "progress-50"
+                : progress >= 25
+                ? "progress-25"
+                : ""
+            }`}
+          >
             {result || selectedFile ? (
               <div className="upload-right-content">
                 {!isModelProcessing() && (
@@ -1369,7 +1381,15 @@ export default function Upload() {
 
                       <div className="loading-messages">
                         {progress >= 10 && (
-                          <div className="message-item">
+                          <div
+                            className={`message-item ${
+                              progress >= 30
+                                ? "completed"
+                                : progress >= 10 && progress < 30
+                                ? "current"
+                                : ""
+                            }`}
+                          >
                             <span className="material-icons">lightbulb</span>
                             <span>
                               중학생도 이해할 수 있는 쉬운 설명을 생성하고
@@ -1378,13 +1398,29 @@ export default function Upload() {
                           </div>
                         )}
                         {progress >= 30 && (
-                          <div className="message-item">
+                          <div
+                            className={`message-item ${
+                              progress >= 50
+                                ? "completed"
+                                : progress >= 30 && progress < 50
+                                ? "current"
+                                : ""
+                            }`}
+                          >
                             <span className="material-icons">palette</span>
                             <span>문단별 시각화 이미지를 생성하고 있어요</span>
                           </div>
                         )}
                         {progress >= 50 && (
-                          <div className="message-item">
+                          <div
+                            className={`message-item ${
+                              progress >= 75
+                                ? "completed"
+                                : progress >= 50 && progress < 75
+                                ? "current"
+                                : ""
+                            }`}
+                          >
                             <span className="material-icons">calculate</span>
                             <span>
                               수식 분석 및 상세한 해설을 작성하고 있어요
@@ -1392,13 +1428,25 @@ export default function Upload() {
                           </div>
                         )}
                         {progress >= 75 && (
-                          <div className="message-item">
+                          <div
+                            className={`message-item ${
+                              progress >= 95
+                                ? "completed"
+                                : progress >= 75 && progress < 95
+                                ? "current"
+                                : ""
+                            }`}
+                          >
                             <span className="material-icons">auto_awesome</span>
                             <span>고급 시각화 이미지를 생성하고 있어요</span>
                           </div>
                         )}
                         {progress >= 95 && (
-                          <div className="message-item">
+                          <div
+                            className={`message-item ${
+                              progress >= 100 ? "completed" : "current"
+                            }`}
+                          >
                             <span className="material-icons">analytics</span>
                             <span>
                               통합 결과를 정리하고 최종 검토를 진행하고 있어요
