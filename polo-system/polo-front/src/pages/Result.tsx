@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import "./Result.css";
 
 interface PaperInfo {
@@ -38,7 +39,7 @@ interface EasyVisualization {
   easy_viz_title: string;
   easy_viz_description?: string;
   easy_viz_image_path?: string;
-  easy_viz_type: 'chart' | 'diagram' | 'graph' | 'table';
+  easy_viz_type: "chart" | "diagram" | "graph" | "table";
 }
 
 interface VizApiResult {
@@ -46,8 +47,8 @@ interface VizApiResult {
   viz_api_title: string;
   viz_api_description?: string;
   viz_api_image_url?: string;
-  viz_api_type: 'section_visualization';
-  viz_api_status: 'success' | 'error' | 'loading';
+  viz_api_type: "section_visualization";
+  viz_api_status: "success" | "error" | "loading";
   viz_api_error?: string;
 }
 
@@ -79,23 +80,33 @@ interface ResultProps {
 }
 
 const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
+  const location = useLocation();
   const [integratedData, setIntegratedData] = useState<IntegratedData | null>(
-    data || null
+    data || location.state?.data || null
   );
-  const [loading, setLoading] = useState(!data);
+  const [loading, setLoading] = useState(!data && !location.state?.data);
   const [error, setError] = useState<string | null>(null);
   const [activeViz, setActiveViz] = useState<{ [key: string]: boolean }>({});
-  const [activeVizApi, setActiveVizApi] = useState<{ [key: string]: boolean }>({});
+  const [activeVizApi, setActiveVizApi] = useState<{ [key: string]: boolean }>(
+    {}
+  );
   const [activeEquation, setActiveEquation] = useState<string | null>(null);
-  const [loadingVizApi, setLoadingVizApi] = useState<{ [key: string]: boolean }>({});
+  const [loadingVizApi, setLoadingVizApi] = useState<{
+    [key: string]: boolean;
+  }>({});
   const [isDownloading, setIsDownloading] = useState(false);
   const mathJaxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!data) {
+    if (!data && !location.state?.data) {
       loadIntegratedData();
+    } else if (location.state?.data) {
+      console.log(
+        "✅ [Result] location.state에서 통합 데이터 받음:",
+        location.state.data
+      );
     }
-  }, [data]);
+  }, [data, location.state?.data]);
 
   useEffect(() => {
     if (integratedData) {
@@ -107,18 +118,22 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     try {
       setLoading(true);
       // URL에서 paper_id 추출 (경로 파라미터에서)
-      const pathParts = window.location.pathname.split('/');
+      const pathParts = window.location.pathname.split("/");
       const paper_id = pathParts[pathParts.length - 1];
-      
+
       console.log(`[Result] paper_id: ${paper_id}`);
-      
+
       // 통합 결과 API 호출
       const response = await fetch(`/api/integrated-result/${paper_id}`);
       if (!response.ok) {
-        console.warn(`[Result] 통합 결과 API 실패: ${response.status}, Easy 결과만 로드 시도`);
-        
+        console.warn(
+          `[Result] 통합 결과 API 실패: ${response.status}, Easy 결과만 로드 시도`
+        );
+
         // 통합 결과 실패 시 Easy 결과만 로드
-        const easyResponse = await fetch(`/api/results/${paper_id}/easy_results.json`);
+        const easyResponse = await fetch(
+          `/api/results/${paper_id}/easy_results.json`
+        );
         if (easyResponse.ok) {
           const easyData = await easyResponse.json();
           const partialData = {
@@ -128,26 +143,26 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               paper_authors: "Unknown",
               paper_venue: "Unknown",
               total_sections: easyData.easy_sections?.length || 0,
-              total_equations: 0
+              total_equations: 0,
             },
             easy_sections: easyData.easy_sections || [],
             math_equations: [],
             model_errors: {
               easy_model_error: undefined,
               math_model_error: "Math 모델이 아직 처리되지 않았습니다",
-              viz_api_error: "Viz API가 아직 처리되지 않았습니다"
+              viz_api_error: "Viz API가 아직 처리되지 않았습니다",
             },
             processing_logs: [
               "✅ Easy 모델 완료 - 중학생도 이해할 수 있는 쉬운 설명 생성됨",
               "⏳ Math 모델 처리 중 - 수식 분석 및 상세 해설 생성 중",
-              "⏳ Viz API 처리 중 - 섹션별 시각화 이미지 생성 중"
-            ]
+              "⏳ Viz API 처리 중 - 섹션별 시각화 이미지 생성 중",
+            ],
           };
           setIntegratedData(partialData);
           console.log("✅ [Result] Easy 결과만 로드 완료");
           return;
         }
-        
+
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const result = await response.json();
@@ -155,10 +170,10 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
       console.log("✅ [Result] 통합 결과 로드 완료");
     } catch (err) {
       console.error("❌ [Result] 데이터 로드 실패:", err);
-      setError(err instanceof Error ? err.message : '데이터 로드 실패');
-      
+      setError(err instanceof Error ? err.message : "데이터 로드 실패");
+
       // 에러 시에도 기본 데이터 표시
-      const pathParts = window.location.pathname.split('/');
+      const pathParts = window.location.pathname.split("/");
       const paper_id = pathParts[pathParts.length - 1];
       const fallbackData = {
         paper_info: {
@@ -167,16 +182,16 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
           paper_authors: "Unknown",
           paper_venue: "Unknown",
           total_sections: 0,
-          total_equations: 0
+          total_equations: 0,
         },
         easy_sections: [],
         math_equations: [],
         model_errors: {
           easy_model_error: "Easy 모델 처리 실패",
           math_model_error: "Math 모델 처리 실패",
-          viz_api_error: "Viz API 처리 실패"
+          viz_api_error: "Viz API 처리 실패",
         },
-        processing_logs: ["모든 모델 처리 실패", "데이터를 불러올 수 없습니다"]
+        processing_logs: ["모든 모델 처리 실패", "데이터를 불러올 수 없습니다"],
       };
       setIntegratedData(fallbackData);
     } finally {
@@ -195,34 +210,38 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
   const toggleVisualization = (sectionId: string, paragraphId: string) => {
     const key = `${sectionId}-${paragraphId}`;
-    setActiveViz(prev => ({
+    setActiveViz((prev) => ({
       ...prev,
-      [key]: !prev[key]
+      [key]: !prev[key],
     }));
   };
 
   const toggleVizApi = (sectionId: string) => {
-    setActiveVizApi(prev => ({
+    setActiveVizApi((prev) => ({
       ...prev,
-      [sectionId]: !prev[sectionId]
+      [sectionId]: !prev[sectionId],
     }));
   };
 
   const toggleEquation = (equationId: string) => {
-    setActiveEquation(prev => prev === equationId ? null : equationId);
+    setActiveEquation((prev) => (prev === equationId ? null : equationId));
   };
 
   // Viz API 호출 함수 (임시)
-  const callVizApi = async (sectionId: string, sectionTitle: string, sectionContent: string) => {
+  const callVizApi = async (
+    sectionId: string,
+    sectionTitle: string,
+    sectionContent: string
+  ) => {
     const key = sectionId;
-    setLoadingVizApi(prev => ({ ...prev, [key]: true }));
-    
+    setLoadingVizApi((prev) => ({ ...prev, [key]: true }));
+
     try {
       // 임시 Viz API 호출 (실제 API 엔드포인트로 교체 필요)
-      const response = await fetch('/api/viz-api/generate', {
-        method: 'POST',
+      const response = await fetch("/api/viz-api/generate", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           section_id: sectionId,
@@ -236,16 +255,16 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
       }
 
       const vizResult: VizApiResult = await response.json();
-      
+
       // 결과를 integratedData에 업데이트
-      setIntegratedData(prev => {
+      setIntegratedData((prev) => {
         if (!prev) return prev;
-        
-        const updatedSections = prev.easy_sections.map(section => {
+
+        const updatedSections = prev.easy_sections.map((section) => {
           if (section.easy_section_id === sectionId) {
             return {
               ...section,
-              viz_api_result: vizResult
+              viz_api_result: vizResult,
             };
           }
           return section;
@@ -253,31 +272,31 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
         return {
           ...prev,
-          easy_sections: updatedSections
+          easy_sections: updatedSections,
         };
       });
-
     } catch (error) {
-      console.error('Viz API 호출 오류:', error);
-      
+      console.error("Viz API 호출 오류:", error);
+
       // 에러 상태로 Viz API 결과 설정
       const errorResult: VizApiResult = {
         viz_api_id: `${sectionId}_error`,
         viz_api_title: `${sectionTitle} 시각화`,
-        viz_api_description: '시각화 생성 중 오류가 발생했습니다.',
-        viz_api_type: 'section_visualization',
-        viz_api_status: 'error',
-        viz_api_error: error instanceof Error ? error.message : '알 수 없는 오류'
+        viz_api_description: "시각화 생성 중 오류가 발생했습니다.",
+        viz_api_type: "section_visualization",
+        viz_api_status: "error",
+        viz_api_error:
+          error instanceof Error ? error.message : "알 수 없는 오류",
       };
 
-      setIntegratedData(prev => {
+      setIntegratedData((prev) => {
         if (!prev) return prev;
-        
-        const updatedSections = prev.easy_sections.map(section => {
+
+        const updatedSections = prev.easy_sections.map((section) => {
           if (section.easy_section_id === sectionId) {
             return {
               ...section,
-              viz_api_result: errorResult
+              viz_api_result: errorResult,
             };
           }
           return section;
@@ -285,11 +304,11 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
         return {
           ...prev,
-          easy_sections: updatedSections
+          easy_sections: updatedSections,
         };
       });
     } finally {
-      setLoadingVizApi(prev => ({ ...prev, [key]: false }));
+      setLoadingVizApi((prev) => ({ ...prev, [key]: false }));
     }
   };
 
@@ -378,7 +397,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
             </span>
             <span>{section.easy_section_title}</span>
           </div>
-          
+
           {/* Viz API 버튼 (섹션에만 표시) */}
           {!isSubsection && (
             <div className="section-actions">
@@ -387,7 +406,11 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                 onClick={() => {
                   if (!section.viz_api_result) {
                     // 첫 호출 시 Viz API 호출
-                    callVizApi(section.easy_section_id, section.easy_section_title, section.easy_content);
+                    callVizApi(
+                      section.easy_section_id,
+                      section.easy_section_title,
+                      section.easy_content
+                    );
                   }
                   toggleVizApi(section.easy_section_id);
                 }}
@@ -400,7 +423,10 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                   </>
                 ) : (
                   <>
-                    🎨 {activeVizApi[section.easy_section_id] ? '시각화 숨기기' : '시각화 보기'}
+                    🎨{" "}
+                    {activeVizApi[section.easy_section_id]
+                      ? "시각화 숨기기"
+                      : "시각화 보기"}
                   </>
                 )}
               </button>
@@ -473,45 +499,54 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         </div>
 
         {/* Viz API 결과 표시 영역 */}
-        {!isSubsection && activeVizApi[section.easy_section_id] && section.viz_api_result && (
-          <div className="viz-api-container">
-            <div className="viz-api-header">
-              <h4>🎨 {section.viz_api_result.viz_api_title}</h4>
-              {section.viz_api_result.viz_api_description && (
-                <p className="viz-api-description">{section.viz_api_result.viz_api_description}</p>
+        {!isSubsection &&
+          activeVizApi[section.easy_section_id] &&
+          section.viz_api_result && (
+            <div className="viz-api-container">
+              <div className="viz-api-header">
+                <h4>🎨 {section.viz_api_result.viz_api_title}</h4>
+                {section.viz_api_result.viz_api_description && (
+                  <p className="viz-api-description">
+                    {section.viz_api_result.viz_api_description}
+                  </p>
+                )}
+              </div>
+
+              {section.viz_api_result.viz_api_status === "success" &&
+                section.viz_api_result.viz_api_image_url && (
+                  <div className="viz-api-image-container">
+                    <img
+                      src={section.viz_api_result.viz_api_image_url}
+                      alt={section.viz_api_result.viz_api_title}
+                      className="viz-api-image"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = "none";
+                        const fallback = document.createElement("div");
+                        fallback.className = "viz-api-fallback";
+                        fallback.textContent = "이미지를 불러올 수 없습니다";
+                        fallback.style.cssText =
+                          "padding: 40px; text-align: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; color: #6c757d;";
+                        target.parentNode?.appendChild(fallback);
+                      }}
+                    />
+                  </div>
+                )}
+
+              {section.viz_api_result.viz_api_status === "error" && (
+                <div className="viz-api-error">
+                  <div className="error-icon">⚠️</div>
+                  <div className="error-message">
+                    <strong>시각화 생성 실패</strong>
+                    <p>
+                      {section.viz_api_result.viz_api_error ||
+                        "알 수 없는 오류가 발생했습니다."}
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
-            
-            {section.viz_api_result.viz_api_status === 'success' && section.viz_api_result.viz_api_image_url && (
-              <div className="viz-api-image-container">
-                <img
-                  src={section.viz_api_result.viz_api_image_url}
-                  alt={section.viz_api_result.viz_api_title}
-                  className="viz-api-image"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const fallback = document.createElement('div');
-                    fallback.className = 'viz-api-fallback';
-                    fallback.textContent = '이미지를 불러올 수 없습니다';
-                    fallback.style.cssText = 'padding: 40px; text-align: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; color: #6c757d;';
-                    target.parentNode?.appendChild(fallback);
-                  }}
-                />
-              </div>
-            )}
-            
-            {section.viz_api_result.viz_api_status === 'error' && (
-              <div className="viz-api-error">
-                <div className="error-icon">⚠️</div>
-                <div className="error-message">
-                  <strong>시각화 생성 실패</strong>
-                  <p>{section.viz_api_result.viz_api_error || '알 수 없는 오류가 발생했습니다.'}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+          )}
 
         {/* Subsection들 렌더링 */}
         {section.easy_subsections && section.easy_subsections.length > 0 && (
@@ -526,12 +561,15 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         {integratedData?.math_equations && (
           <div className="math-equations">
             {integratedData.math_equations
-              .filter(eq => {
+              .filter((eq) => {
                 // easy_section_id와 math_equation_section_ref 매핑
                 // Math 모델에서 생성된 수식들을 해당 섹션에 맞게 필터링
-                return eq.math_equation_section_ref === section.easy_section_id ||
-                       eq.math_equation_section_ref === `section_${section.easy_section_order}` ||
-                       eq.math_equation_section_ref === section.easy_section_title;
+                return (
+                  eq.math_equation_section_ref === section.easy_section_id ||
+                  eq.math_equation_section_ref ===
+                    `section_${section.easy_section_order}` ||
+                  eq.math_equation_section_ref === section.easy_section_title
+                );
               })
               .map((equation) => (
                 <div key={equation.math_equation_id} className="equation-item">
@@ -551,12 +589,16 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                         : "설명 보기"}
                     </button>
                   </div>
-                  
-                  <div 
-                    className={`equation ${activeEquation === equation.math_equation_id ? 'equation-active' : ''}`}
+
+                  <div
+                    className={`equation ${
+                      activeEquation === equation.math_equation_id
+                        ? "equation-active"
+                        : ""
+                    }`}
                     ref={mathJaxRef}
                     onClick={() => toggleEquation(equation.math_equation_id)}
-                    style={{ cursor: 'pointer' }}
+                    style={{ cursor: "pointer" }}
                     title="수식을 클릭하면 설명을 볼 수 있습니다"
                   >
                     {`$$${equation.math_equation_latex}$$`}
@@ -568,7 +610,14 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                         <span className="explanation-icon">💡</span>
                         <span className="explanation-title">수식 설명</span>
                       </div>
-                      <div className="explanation-content" dangerouslySetInnerHTML={{ __html: formatText(equation.math_equation_explanation) }} />
+                      <div
+                        className="explanation-content"
+                        dangerouslySetInnerHTML={{
+                          __html: formatText(
+                            equation.math_equation_explanation
+                          ),
+                        }}
+                      />
                     </div>
                   )}
                 </div>
@@ -875,17 +924,20 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               <h4>모델별 오류 정보:</h4>
               {integratedData.model_errors.easy_model_error && (
                 <div className="model-error-item">
-                  <strong>Easy 모델:</strong> {integratedData.model_errors.easy_model_error}
+                  <strong>Easy 모델:</strong>{" "}
+                  {integratedData.model_errors.easy_model_error}
                 </div>
               )}
               {integratedData.model_errors.math_model_error && (
                 <div className="model-error-item">
-                  <strong>Math 모델:</strong> {integratedData.model_errors.math_model_error}
+                  <strong>Math 모델:</strong>{" "}
+                  {integratedData.model_errors.math_model_error}
                 </div>
               )}
               {integratedData.model_errors.viz_api_error && (
                 <div className="model-error-item">
-                  <strong>Viz API:</strong> {integratedData.model_errors.viz_api_error}
+                  <strong>Viz API:</strong>{" "}
+                  {integratedData.model_errors.viz_api_error}
                 </div>
               )}
             </div>
@@ -969,7 +1021,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                   </div>
                 </div>
               )}
-              
+
               {integratedData.model_errors.math_model_error ? (
                 <div className="status-item error">
                   <span className="status-icon">❌</span>
@@ -987,7 +1039,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                   </div>
                 </div>
               )}
-              
+
               {integratedData.model_errors.viz_api_error ? (
                 <div className="status-item error">
                   <span className="status-icon">❌</span>
@@ -1010,19 +1062,22 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         )}
 
         {/* 처리 로그 표시 */}
-        {integratedData?.processing_logs && integratedData.processing_logs.length > 0 && (
-          <div className="processing-logs">
-            <h3>처리 로그</h3>
-            <div className="logs-container">
-              {integratedData.processing_logs.map((log, index) => (
-                <div key={index} className="log-item">
-                  <span className="log-time">{new Date().toLocaleTimeString()}</span>
-                  <span className="log-message">{log}</span>
-                </div>
-              ))}
+        {integratedData?.processing_logs &&
+          integratedData.processing_logs.length > 0 && (
+            <div className="processing-logs">
+              <h3>처리 로그</h3>
+              <div className="logs-container">
+                {integratedData.processing_logs.map((log, index) => (
+                  <div key={index} className="log-item">
+                    <span className="log-time">
+                      {new Date().toLocaleTimeString()}
+                    </span>
+                    <span className="log-message">{log}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         <footer className="paper-footer">
           <p>AI 통합 분석 시스템 | YOLOv1 논문 분석 결과</p>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import './Upload.css';
+import "./Upload.css";
 
 interface UploadResult {
   filename: string;
@@ -207,7 +207,7 @@ export default function Upload() {
               } else if (j.status === "ready" && j.ok) {
                 console.log(`[Easy 폴링] 완료: 결과 파일 생성됨`);
                 ready = true;
-                
+
                 // Easy 모델 완료 시 즉시 Result로 이동
                 console.log("✅ [Easy 완료] Result.tsx로 이동");
                 navigate(`/result/${finalPaperId}`);
@@ -607,8 +607,8 @@ export default function Upload() {
       setResult(uploadResult);
       console.log(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
       console.log(`[convert] 업로드 결과:`, uploadResult);
-      
-       // 자동으로 Easy 기능 선택 (사용자 편의성)
+
+      // 자동으로 Easy 기능 선택 (사용자 편의성)
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
@@ -683,7 +683,7 @@ export default function Upload() {
     setSelectedFile(file);
     setError(null);
     setResult(null);
-    
+
     // 파일 선택 후 자동으로 업로드 실행
     console.log("🔄 [AUTO] 파일 선택됨, 자동 업로드 시작...");
     uploadFile(file);
@@ -758,7 +758,7 @@ export default function Upload() {
     }
   };
 
-  // 통합 처리 함수 - Easy → Viz → Math 순서로 실행
+  // 통합 처리 함수 - Easy+Viz 병렬 → Math → Viz API 순서로 실행
   const handleIntegratedProcessing = async () => {
     const paperId = result?.doc_id;
     if (!paperId) {
@@ -774,123 +774,205 @@ export default function Upload() {
 
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      
-      // 1단계: Easy 모델 처리 (섹션별 쉬운 설명 생성)
-      console.log("🚀 [1단계] Easy 모델 처리 시작...");
-      updateProgress(10);
-      
-      const easyResponse = await fetch(`${apiBase}/api/upload/send-to-easy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paper_id: paperId }),
-      });
 
-      if (easyResponse.ok) {
+      // 1단계: Easy 모델과 Viz 모델 병렬 처리
+      console.log("🚀 [1단계] Easy 모델과 Viz 모델 병렬 처리 시작...");
+      updateProgress(10);
+
+      // Easy 모델과 Viz 모델을 동시에 실행
+      const [easyResponse, vizResponse] = await Promise.allSettled([
+        fetch(`${apiBase}/api/upload/send-to-easy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paper_id: paperId }),
+        }),
+        fetch(`${apiBase}/api/upload/send-to-viz`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paper_id: paperId }),
+        }),
+      ]);
+
+      // Easy 모델 결과 처리
+      if (easyResponse.status === "fulfilled" && easyResponse.value.ok) {
         console.log("✅ [1단계] Easy 모델 전송 성공");
         updateProgress(20);
-        
-        // Easy 결과 폴링 (섹션별 쉬운 설명 완료까지 대기)
+
         try {
           await pollForEasyResults(paperId);
-          updateProgress(40);
+          updateProgress(30);
           console.log("✅ [1단계] Easy 모델 완료 - 섹션별 쉬운 설명 생성됨");
-          
-          // 2단계: Viz API 처리 (Easy 결과의 각 섹션에 시각화 생성)
-          console.log("🎨 [2단계] Viz API 처리 시작...");
-          updateProgress(50);
-          
-          try {
-            // Easy 결과를 가져와서 각 섹션의 easy_content를 Viz API에 전달
-            const easyDataResponse = await fetch(`${apiBase}/api/results/${paperId}/easy_results.json`);
-            if (easyDataResponse.ok) {
-              const easyData = await easyDataResponse.json();
-              console.log("✅ [2단계] Easy 결과 로드 완료, Viz API 호출 시작");
-              
-              // 각 섹션에 대해 Viz API 호출
-              for (const section of easyData.easy_sections || []) {
-                try {
-                  await callVizApiForSection(section.easy_section_id, section.easy_section_title, section.easy_content);
-                } catch (error) {
-                  console.warn(`⚠️ [2단계] 섹션 ${section.easy_section_title} Viz API 실패, 계속 진행:`, error);
-                }
-              }
-              console.log("✅ [2단계] Viz API 처리 완료");
-            } else {
-              console.warn("⚠️ [2단계] Easy 결과 로드 실패, Viz API 건너뜀");
-            }
-          } catch (error) {
-            console.warn("⚠️ [2단계] Viz API 처리 실패, 계속 진행:", error);
-          }
-          
-          updateProgress(60);
-          
-          // 3단계: Math 모델 처리 (수식 해설 생성)
-          console.log("🔢 [3단계] Math 모델 처리 시작...");
-          updateProgress(70);
-          
-          try {
-            const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ paper_id: paperId }),
-            });
-
-            if (mathResponse.ok) {
-              console.log("✅ [3단계] Math 모델 전송 성공");
-              updateProgress(80);
-              
-              // Math 결과 폴링
-              try {
-                await pollForMathResults(paperId || '');
-                updateProgress(90);
-                console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
-              } catch (error) {
-                console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
-                updateProgress(90);
-              }
-            } else {
-              const errorText = await mathResponse.text();
-              console.warn("⚠️ [3단계] Math 모델 처리 실패:", errorText);
-              updateProgress(90);
-            }
-          } catch (error) {
-            console.warn("⚠️ [3단계] Math 모델 실행 실패:", error);
-            updateProgress(90);
-          }
-          
-          // 모든 처리 완료 후 처리 완료 상태로 설정
-          console.log("✅ [Easy + Viz + Math 완료] 모든 처리 완료");
-          setIsProcessing(false);
-          setAllProcessingComplete(true);
-          updateProgress(100);
-          return;
         } catch (error) {
           console.warn("⚠️ [1단계] Easy 모델 폴링 실패, 계속 진행:", error);
-          updateProgress(40);
-          // Easy 모델 실패해도 처리 완료 상태로 설정
-          setIsProcessing(false);
-          setAllProcessingComplete(true);
-          updateProgress(100);
-          return;
+          updateProgress(30);
         }
       } else {
         console.warn("⚠️ [1단계] Easy 모델 처리 실패, 계속 진행");
-        updateProgress(40);
-        // Easy 모델 실패해도 처리 완료 상태로 설정
-        setIsProcessing(false);
-        setAllProcessingComplete(true);
-        updateProgress(100);
-        return;
+        updateProgress(30);
       }
 
-      // Easy 모델 실패 시에도 처리 완료 상태로 설정
-      console.log("⚠️ [1단계] Easy 모델 처리 실패, 기본 처리 완료");
-      updateProgress(40);
-      setIsProcessing(false);
-      setAllProcessingComplete(true);
-      updateProgress(100);
-      return;
+      // Viz 모델 결과 처리
+      if (vizResponse.status === "fulfilled" && vizResponse.value.ok) {
+        console.log("✅ [1단계] Viz 모델 전송 성공");
 
+        try {
+          await pollForVizResults(paperId);
+          updateProgress(40);
+          console.log("✅ [1단계] Viz 모델 완료 - 문단별 시각화 생성됨");
+        } catch (error) {
+          console.warn("⚠️ [1단계] Viz 모델 폴링 실패, 계속 진행:", error);
+          updateProgress(40);
+        }
+      } else {
+        console.warn("⚠️ [1단계] Viz 모델 처리 실패, 계속 진행");
+        updateProgress(40);
+      }
+
+      // 2단계: Math 모델 처리 (수식 해설 생성)
+      console.log("🔢 [2단계] Math 모델 처리 시작...");
+      updateProgress(50);
+
+      try {
+        const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paper_id: paperId }),
+        });
+
+        if (mathResponse.ok) {
+          console.log("✅ [2단계] Math 모델 전송 성공");
+          updateProgress(60);
+
+          // Math 결과 폴링
+          try {
+            await pollForMathResults(paperId || "");
+            updateProgress(75);
+            console.log("✅ [2단계] Math 모델 완료 - 수식 해설 생성됨");
+          } catch (error) {
+            console.warn("⚠️ [2단계] Math 모델 폴링 실패, 계속 진행:", error);
+            updateProgress(70);
+          }
+        } else {
+          console.warn("⚠️ [2단계] Math 모델 처리 실패, 계속 진행");
+          updateProgress(70);
+        }
+      } catch (error) {
+        console.warn("⚠️ [2단계] Math 모델 실행 실패, 계속 진행:", error);
+        updateProgress(70);
+      }
+
+      // 3단계: Viz API 모델 처리 (고급 시각화 생성)
+      console.log("🎨 [3단계] Viz API 모델 처리 시작...");
+      updateProgress(75);
+
+      try {
+        const vizApiResponse = await fetch(
+          `${apiBase}/api/upload/send-to-viz-api`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paper_id: paperId }),
+          }
+        );
+
+        if (vizApiResponse.ok) {
+          console.log("✅ [3단계] Viz API 모델 전송 성공");
+          updateProgress(80);
+
+          // Viz API 결과 폴링
+          try {
+            await pollForVizApiResults(paperId);
+            updateProgress(90);
+            console.log("✅ [3단계] Viz API 모델 완료 - 고급 시각화 생성됨");
+          } catch (error) {
+            console.warn(
+              "⚠️ [3단계] Viz API 모델 폴링 실패, 계속 진행:",
+              error
+            );
+            updateProgress(85);
+          }
+        } else {
+          console.warn("⚠️ [3단계] Viz API 모델 처리 실패, 계속 진행");
+          updateProgress(85);
+        }
+      } catch (error) {
+        console.warn("⚠️ [3단계] Viz API 모델 실행 실패, 계속 진행:", error);
+        updateProgress(85);
+      }
+
+      // 4단계: 통합 데이터 생성 (Easy + Viz + Math + Viz API 결과 통합)
+      console.log("🔗 [4단계] 통합 데이터 생성 중...");
+      updateProgress(90);
+
+      try {
+        const integratedResponse = await fetch(
+          `${apiBase}/api/integrated-result/${paperId}`
+        );
+        if (integratedResponse.ok) {
+          const integratedResult = await integratedResponse.json();
+          setIntegratedData(integratedResult);
+          console.log("✅ [5단계] 통합 데이터 생성 완료");
+        } else {
+          console.warn(
+            "⚠️ [5단계] 통합 데이터 생성 실패, 기본 데이터로 계속 진행"
+          );
+          // 기본 데이터 생성
+          setIntegratedData({
+            paper_info: {
+              paper_id: paperId,
+              paper_title: `논문 ${paperId}`,
+              paper_authors: "Unknown",
+              paper_venue: "Unknown",
+              total_sections: 0,
+              total_equations: 0,
+            },
+            easy_sections: [],
+            math_equations: [],
+            model_errors: {
+              easy_model_error: "통합 데이터 생성 실패",
+              math_model_error: null,
+              viz_api_error: null,
+            },
+            processing_logs: ["통합 데이터 생성 중 오류 발생"],
+          });
+        }
+      } catch (error) {
+        console.warn(
+          "⚠️ [5단계] 통합 데이터 생성 중 오류, 기본 데이터로 계속 진행:",
+          error
+        );
+        // 기본 데이터 생성
+        setIntegratedData({
+          paper_info: {
+            paper_id: paperId,
+            paper_title: `논문 ${paperId}`,
+            paper_authors: "Unknown",
+            paper_venue: "Unknown",
+            total_sections: 0,
+            total_equations: 0,
+          },
+          easy_sections: [],
+          math_equations: [],
+          model_errors: {
+            easy_model_error: "통합 데이터 생성 중 오류 발생",
+            math_model_error: null,
+            viz_api_error: null,
+          },
+          processing_logs: [`통합 데이터 생성 중 오류 발생: ${error}`],
+        });
+      }
+
+      updateProgress(100);
+      setAllProcessingComplete(true);
+      console.log(
+        "🎉 [완료] Easy+Viz 병렬 → Math → Viz API 순서로 모든 처리 완료!"
+      );
+
+      // 모든 처리가 완료되면 Result.tsx로 자동 이동
+      setTimeout(() => {
+        console.log("🚀 [자동 이동] Result.tsx로 이동 중...");
+        openResultPreview();
+      }, 2000); // 2초 후 자동 이동
     } catch (error) {
       console.error("❌ [통합] 처리 중 오류:", error);
       alert("통합 처리 중 오류가 발생했습니다: " + error);
@@ -934,6 +1016,40 @@ export default function Upload() {
     throw new Error("Easy 모델 처리 타임아웃");
   };
 
+  // Viz 결과 폴링
+  const pollForVizResults = async (paperId: string) => {
+    const maxWaitMs = 15 * 60 * 1000; // 15분
+    const intervalMs = 5000; // 5초
+    const start = Date.now();
+    let pollCount = 0;
+
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        // Viz 결과 파일 존재 여부 확인
+        const response = await fetch(
+          `${
+            import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+          }/api/results/${paperId}/viz_results.json`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          pollCount++;
+
+          if (data && data.viz_results && data.viz_results.length > 0) {
+            console.log("✅ [통합] Viz 결과 준비 완료");
+            return;
+          }
+        }
+      } catch (error) {
+        console.log(`[통합 Viz 폴링] ${pollCount}회차 실패:`, error);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    console.warn("⚠️ [통합] Viz 모델 처리 타임아웃, 계속 진행");
+  };
+
   // Math 결과 폴링
   const pollForMathResults = async (paperId: string) => {
     const maxWaitMs = 15 * 60 * 1000; // 15분
@@ -944,11 +1060,15 @@ export default function Upload() {
     while (Date.now() - start < maxWaitMs) {
       try {
         // Math 결과 파일 존재 여부 확인
-        const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/results/${paperId}/math_results.json`);
+        const response = await fetch(
+          `${
+            import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+          }/api/results/${paperId}/math_results.json`
+        );
         if (response.ok) {
           const data = await response.json();
           pollCount++;
-          
+
           if (data && data.math_equations && data.math_equations.length > 0) {
             console.log("✅ [통합] Math 결과 준비 완료");
             setMathReady(true);
@@ -965,46 +1085,56 @@ export default function Upload() {
     console.warn("⚠️ [통합] Math 모델 처리 타임아웃, 계속 진행");
   };
 
-  // Viz API 호출 함수 (섹션별)
-  const callVizApiForSection = async (sectionId: string, sectionTitle: string, sectionContent: string) => {
-    try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      const response = await fetch(`${apiBase}/api/viz-api/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          section_id: sectionId,
-          section_title: sectionTitle,
-          section_content: sectionContent,
-        }),
-      });
+  // Viz API 결과 폴링
+  const pollForVizApiResults = async (paperId: string) => {
+    const maxWaitMs = 15 * 60 * 1000; // 15분
+    const intervalMs = 5000; // 5초
+    const start = Date.now();
+    let pollCount = 0;
 
-      if (!response.ok) {
-        throw new Error(`Viz API 호출 실패: ${response.status}`);
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        // Viz API 결과 파일 존재 여부 확인
+        const response = await fetch(
+          `${
+            import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+          }/api/results/${paperId}/viz_api_results.json`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          pollCount++;
+
+          if (data && data.viz_api_results && data.viz_api_results.length > 0) {
+            console.log("✅ [통합] Viz API 결과 준비 완료");
+            return;
+          }
+        }
+      } catch (error) {
+        console.log(`[통합 Viz API 폴링] ${pollCount}회차 실패:`, error);
       }
 
-      const vizResult = await response.json();
-      console.log(`✅ [Viz API] 섹션 ${sectionTitle} 시각화 생성 완료`);
-      return vizResult;
-    } catch (error) {
-      console.warn(`⚠️ [Viz API] 섹션 ${sectionTitle} 시각화 생성 실패:`, error);
-      throw error;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
+
+    console.warn("⚠️ [통합] Viz API 모델 처리 타임아웃, 계속 진행");
   };
 
   // Result.tsx 미리보기 열기
   const openResultPreview = () => {
     if (integratedData) {
       // Result.tsx로 데이터와 함께 이동
-      navigate("/result", {
+      console.log(
+        "🚀 [데이터 전달] Result.tsx로 통합 데이터 전달:",
+        integratedData
+      );
+      navigate(`/result/${result?.doc_id}`, {
         state: {
           data: integratedData,
           paperId: result?.doc_id,
         },
       });
     } else {
+      console.warn("⚠️ [데이터 없음] 통합 데이터가 준비되지 않았습니다.");
       alert("통합 데이터가 준비되지 않았습니다.");
     }
   };
@@ -1166,15 +1296,21 @@ export default function Upload() {
           </div>
 
           {/* 오른쪽: 안내 또는 결과 영역 */}
-          <div className="upload-right">
-            {(result || selectedFile) ? (
-              <div
-                className={`result-container ${
-                  isLoadingEasy || isLoadingMath || easyReady || mathReady
-                    ? "has-content"
-                    : "buttons-only"
-                }`}
-              >
+          <div
+            className={`upload-right ${
+              progress >= 100
+                ? "progress-100"
+                : progress >= 75
+                ? "progress-75"
+                : progress >= 50
+                ? "progress-50"
+                : progress >= 25
+                ? "progress-25"
+                : ""
+            }`}
+          >
+            {result || selectedFile ? (
+              <div className="upload-right-content">
                 {!isModelProcessing() && (
                   <div className="result-top">
                     <div className="result-header">
@@ -1209,23 +1345,32 @@ export default function Upload() {
                   <div className="model-loading-container">
                     {/* 간소화된 로딩 UI */}
                     <div className="simple-loading-box">
+                      {/* 파티클 효과 */}
+                      <div className="particle-container">
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                      </div>
+
                       <div className="loading-header">
                         <div className="loading-spinner">
                           <div className="spinner"></div>
                         </div>
-                        <h2>AI 논문 분석 진행 중</h2>
+                        <h2>AI 논문 분석 중</h2>
                       </div>
-                      
+
                       <div className="progress-container">
                         <div className="progress-bar">
                           <div
                             className="progress-fill"
                             style={{
                               width: `${progress}%`,
-                              background: "linear-gradient(90deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
-                              transition: "width 0.5s ease-in-out",
-                              borderRadius: "25px",
-                              boxShadow: "0 4px 15px rgba(255, 107, 107, 0.4)",
                             }}
                           ></div>
                         </div>
@@ -1233,30 +1378,79 @@ export default function Upload() {
                           {progressPhase || "AI가 논문을 분석하고 있습니다..."}
                         </div>
                       </div>
-                      
+
                       <div className="loading-messages">
                         {progress >= 10 && (
-                          <div className="message-item">
-                            <span className="material-icons">psychology</span>
-                            <span>중학생도 이해할 수 있는 쉬운 설명을 생성하고 있습니다</span>
+                          <div
+                            className={`message-item ${
+                              progress >= 30
+                                ? "completed"
+                                : progress >= 10 && progress < 30
+                                ? "current"
+                                : ""
+                            }`}
+                          >
+                            <span className="material-icons">lightbulb</span>
+                            <span>
+                              중학생도 이해할 수 있는 쉬운 설명을 생성하고
+                              있어요
+                            </span>
                           </div>
                         )}
-                        {progress >= 40 && (
-                          <div className="message-item">
+                        {progress >= 30 && (
+                          <div
+                            className={`message-item ${
+                              progress >= 50
+                                ? "completed"
+                                : progress >= 30 && progress < 50
+                                ? "current"
+                                : ""
+                            }`}
+                          >
+                            <span className="material-icons">palette</span>
+                            <span>문단별 시각화 이미지를 생성하고 있어요</span>
+                          </div>
+                        )}
+                        {progress >= 50 && (
+                          <div
+                            className={`message-item ${
+                              progress >= 75
+                                ? "completed"
+                                : progress >= 50 && progress < 75
+                                ? "current"
+                                : ""
+                            }`}
+                          >
                             <span className="material-icons">calculate</span>
-                            <span>수식 분석 및 상세한 해설을 작성하고 있습니다</span>
+                            <span>
+                              수식 분석 및 상세한 해설을 작성하고 있어요
+                            </span>
                           </div>
                         )}
-                        {progress >= 70 && (
-                          <div className="message-item">
+                        {progress >= 75 && (
+                          <div
+                            className={`message-item ${
+                              progress >= 95
+                                ? "completed"
+                                : progress >= 75 && progress < 95
+                                ? "current"
+                                : ""
+                            }`}
+                          >
                             <span className="material-icons">auto_awesome</span>
-                            <span>섹션별 시각화 이미지를 생성하고 있습니다</span>
+                            <span>고급 시각화 이미지를 생성하고 있어요</span>
                           </div>
                         )}
-                        {progress >= 90 && (
-                          <div className="message-item">
+                        {progress >= 95 && (
+                          <div
+                            className={`message-item ${
+                              progress >= 100 ? "completed" : "current"
+                            }`}
+                          >
                             <span className="material-icons">analytics</span>
-                            <span>통합 결과를 정리하고 최종 검토를 진행하고 있습니다</span>
+                            <span>
+                              통합 결과를 정리하고 최종 검토를 진행하고 있어요
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1268,54 +1462,74 @@ export default function Upload() {
                 {allProcessingComplete && !isModelProcessing() && (
                   <div className="result-content">
                     <div className="processing-complete">
+                      {/* 축하 파티클 효과 */}
+                      <div className="celebration-particles">
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                      </div>
+
                       <div className="complete-icon">
                         <span className="material-icons">check_circle</span>
                       </div>
                       <h2>AI 논문 분석 완료!</h2>
-                      <p>Easy 모델과 Math 모델의 결과를 확인해보세요.</p>
-                       <button
-                         onClick={() => {
-                           const paperId = result?.doc_id;
-                           if (paperId) {
-                             navigate(`/result/${paperId}`);
-                           } else {
-                             alert("논문 ID를 찾을 수 없습니다.");
-                           }
-                         }}
+                      <p>
+                        Easy, Viz, Math, Viz API 모델의 통합 결과를
+                        확인해보세요.
+                      </p>
+                      <button
+                        onClick={() => {
+                          const pathParts = window.location.pathname.split("/");
+                          const paperId = pathParts[pathParts.length - 1];
+                          navigate(`/result/${paperId}`);
+                        }}
                         className="view-results-button"
                         style={{
-                          background: "linear-gradient(135deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
+                          background:
+                            "linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%)",
                           color: "white",
                           border: "none",
-                          borderRadius: "12px",
+                          borderRadius: "15px",
                           padding: "20px 40px",
                           fontSize: "1.2rem",
                           fontWeight: "600",
                           cursor: "pointer",
                           transition: "all 0.3s ease",
-                          boxShadow: "0 6px 20px rgba(255, 107, 107, 0.4)",
+                          boxShadow: "0 6px 20px rgba(245, 158, 11, 0.4)",
                           marginTop: "20px",
                         }}
                         onMouseOver={(e) => {
                           e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow = "0 8px 25px rgba(255, 107, 107, 0.6)";
+                          e.currentTarget.style.boxShadow =
+                            "0 8px 25px rgba(245, 158, 11, 0.6)";
                         }}
                         onMouseOut={(e) => {
                           e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow = "0 6px 20px rgba(255, 107, 107, 0.4)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(245, 158, 11, 0.4)";
                         }}
                       >
-                        <span className="material-icons" style={{ marginRight: "10px" }}>visibility</span>
+                        <span
+                          className="material-icons"
+                          style={{ marginRight: "10px" }}
+                        >
+                          visibility
+                        </span>
                         결과 보기
                       </button>
                     </div>
                   </div>
                 )}
 
-                 {/* 통합 분석 버튼 - 모델 생성 중이 아닐 때만 표시 */}
-                 {!isModelProcessing() && !allProcessingComplete && (
-                   <div className="result-content">
-
+                {/* 통합 분석 버튼 - 모델 생성 중이 아닐 때만 표시 */}
+                {!isModelProcessing() && !allProcessingComplete && (
+                  <div
+                    className="result-content"
+                    style={{ display: "flex", justifyContent: "center" }}
+                  >
                     <button
                       onClick={handleIntegratedProcessing}
                       className="step-item integrated-analysis-button"
@@ -1325,7 +1539,7 @@ export default function Upload() {
                         color: "white",
                         border: "none",
                         cursor: "pointer",
-                        textAlign: "left",
+                        textAlign: "center",
                         transition: "all 0.3s ease",
                         boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
                         padding: "20px",

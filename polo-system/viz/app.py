@@ -233,6 +233,16 @@ class VizResponse(BaseModel):
     image_path: str
     success: bool
 
+class GenerateVisualizationsRequest(BaseModel):
+    paper_id: str
+    easy_results: Dict[str, Any]
+    output_dir: str
+
+class GenerateVisualizationsResponse(BaseModel):
+    paper_id: str
+    viz_results: List[Dict[str, Any]]
+    success: bool
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "viz"}
@@ -283,6 +293,94 @@ async def generate_viz(request: VizRequest):
         )
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"시각화 생성 실패: {str(e)}")
+
+@app.post("/generate-visualizations", response_model=GenerateVisualizationsResponse)
+async def generate_visualizations(request: GenerateVisualizationsRequest):
+    """
+    Easy 결과를 받아서 시각화 이미지들을 생성합니다.
+    """
+    try:
+        # 그래머 로드 보장
+        _ensure_grammars_loaded()
+        
+        paper_id = request.paper_id
+        easy_results = request.easy_results
+        output_dir = request.output_dir
+        
+        print(f"🎨 [VIZ] 시각화 생성 시작: paper_id={paper_id}")
+        
+        # Easy 결과에서 섹션들 추출
+        easy_sections = easy_results.get("easy_sections", [])
+        if not easy_sections:
+            print(f"⚠️ [VIZ] Easy 섹션이 없습니다")
+            return GenerateVisualizationsResponse(
+                paper_id=paper_id,
+                viz_results=[],
+                success=True
+            )
+        
+        viz_results = []
+        
+        # 각 섹션에 대해 시각화 생성
+        for i, section in enumerate(easy_sections):
+            try:
+                # 섹션의 텍스트 추출
+                section_text = section.get("easy_text", "")
+                if not section_text:
+                    print(f"⚠️ [VIZ] 섹션 {i+1}에 텍스트가 없습니다")
+                    continue
+                
+                print(f"🎨 [VIZ] 섹션 {i+1} 시각화 생성 중...")
+                
+                # 텍스트에서 스펙 자동 생성
+                from text_to_spec import auto_build_spec_from_text
+                spec = auto_build_spec_from_text(section_text)
+                
+                if not spec:
+                    print(f"⚠️ [VIZ] 섹션 {i+1}에서 스펙을 생성할 수 없습니다")
+                    continue
+                
+                # 출력 디렉토리 설정
+                section_outdir = Path(output_dir) / f"section_{i+1}"
+                section_outdir.mkdir(parents=True, exist_ok=True)
+                
+                # 렌더링 실행
+                outputs = render_from_spec(
+                    spec, 
+                    str(section_outdir), 
+                    target_lang="ko", 
+                    bilingual="missing",
+                    clear_outdir=True
+                )
+                
+                # 결과 저장
+                for j, output in enumerate(outputs):
+                    viz_result = {
+                        "section_index": i + 1,
+                        "image_index": j + 1,
+                        "image_path": output["path"],
+                        "image_type": output["type"],
+                        "section_id": section.get("easy_section_id", f"section_{i+1}"),
+                        "section_title": section.get("easy_section_title", f"섹션 {i+1}")
+                    }
+                    viz_results.append(viz_result)
+                    print(f"✅ [VIZ] 섹션 {i+1} 이미지 {j+1} 생성 완료: {output['path']}")
+                
+            except Exception as e:
+                print(f"❌ [VIZ] 섹션 {i+1} 시각화 생성 실패: {e}")
+                continue
+        
+        print(f"✅ [VIZ] 시각화 생성 완료: {len(viz_results)}개 이미지")
+        
+        return GenerateVisualizationsResponse(
+            paper_id=paper_id,
+            viz_results=viz_results,
+            success=True
+        )
+        
+    except Exception as e:
+        print(f"❌ [VIZ] 시각화 생성 실패: {e}")
         raise HTTPException(status_code=500, detail=f"시각화 생성 실패: {str(e)}")
 
 if __name__ == "__main__":
