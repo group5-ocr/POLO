@@ -62,6 +62,14 @@ export default function Home() {
     <>
       {/* 히어로 섹션 */}
       <section className="hero">
+        {/* 추가 장식 요소들 */}
+        <div className="hero-decorations">
+          <div className="hero-decoration"></div>
+          <div className="hero-decoration"></div>
+          <div className="hero-decoration"></div>
+          <div className="hero-decoration"></div>
+        </div>
+
         <div className={`hero-content ${isVisible ? "animate-in" : ""}`}>
           <div className="hero-badge">
             <span className="hero-badge-icon">⭐</span>
@@ -126,7 +134,7 @@ export default function Home() {
               <h3>스마트 AI 분석</h3>
               <p>
                 최신 AI 기술로 논문의 핵심 내용을 정확하게 파악하고 쉬운 언어로
-                변환합니다.
+                변환합니다. 전문 용어는 자동으로 굵게 처리되고 핵심 문장은 형광펜으로 강조됩니다.
               </p>
               <div className="feature-hover-effect"></div>
             </div>
@@ -144,9 +152,11 @@ export default function Home() {
               <div className="feature-icon-wrapper">
                 <div className="feature-icon">📊</div>
               </div>
-              <h3>수학 설명서</h3>
+              <h3>시각화 & 수학 설명</h3>
               <p>
                 어려운 수식과 알고리즘을 시각적으로 보여주고 쉽게 설명합니다.
+                복잡한 수식은 자동으로 제거하고 핵심 개념만 텍스트로 설명하며,
+                각 섹션마다 이해를 돕는 시각화 이미지를 자동 생성합니다.
               </p>
               <div className="feature-hover-effect"></div>
             </div>
@@ -155,7 +165,8 @@ export default function Home() {
                 <div className="feature-icon">🛡️</div>
               </div>
               <h3>정확성 보장</h3>
-              <p>원본 논문의 의미를 왜곡하지 않고 정확한 내용을 전달합니다.</p>
+              <p>원본 논문의 의미를 왜곡하지 않고 정확한 내용을 전달합니다. 
+              모든 전문 용어는 원어를 유지하고 괄호에 쉬운 해설을 제공합니다.</p>
               <div className="feature-hover-effect"></div>
             </div>
           </div>

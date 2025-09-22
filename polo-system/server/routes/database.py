@@ -15,10 +15,9 @@ router = APIRouter()
 
 # ==== 스키마 ====
 class UserCreate(BaseModel):
-    username: str
+    nickname: str
     email: EmailStr
     password: str
-    nickname: Optional[str] = None
     job: Optional[str] = None
 
 class UserLogin(BaseModel):
@@ -70,7 +69,7 @@ async def create_user(user_data: UserCreate):
             new_user = User(
                 email=user_data.email,
                 password=hashed_password,
-                nickname=user_data.nickname or user_data.username,
+                nickname=user_data.nickname,
                 job=user_data.job
             )
             

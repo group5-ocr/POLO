@@ -1,25 +1,70 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Upload from "./pages/Upload";
+import Result from "./pages/Result";
 
 function AppContent() {
   const location = useLocation();
   const { user, logout } = useAuth();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location]);
 
+  // 모바일 메뉴 토글
+  const toggleMobileMenu = () => {
+    setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
+
+  // 메뉴 클릭 시 자동으로 닫기
+  const closeMobileMenu = () => {
+    setIsMobileMenuOpen(false);
+  };
+
+  // 배경 클릭 시 메뉴 닫기
+  const handleMobileMenuBackdrop = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      closeMobileMenu();
+    }
+  };
+
+  // ESC 키로 메뉴 닫기
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isMobileMenuOpen) {
+        closeMobileMenu();
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isMobileMenuOpen]);
+
+  // 모바일 메뉴 열릴 때 body 스크롤 방지
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+
+    // 컴포넌트 언마운트 시 스크롤 복원
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [isMobileMenuOpen]);
+
   return (
     <div className="app-root">
       <header className="header">
-        <div className="header-inner small">
+        <div className="header-inner">
           <div className="brand-wrap">
-            <Link to="/" className="brand-link">
+            <Link to="/" className="brand-link" onClick={closeMobileMenu}>
               <img
                 className="brand-logo-main"
                 src="/img/head_logo.png"
@@ -41,7 +86,9 @@ function AppContent() {
           <div className="brand-center">
             <span className="brand-text">A!POLO</span>
           </div>
-          <nav className="nav-auth">
+
+          {/* 데스크톱 네비게이션 */}
+          <nav className="nav-auth desktop-nav">
             {user ? (
               <>
                 <span className="user-greeting">
@@ -62,6 +109,72 @@ function AppContent() {
               </>
             )}
           </nav>
+
+          {/* 모바일 햄버거 메뉴 버튼 */}
+          <button
+            className="mobile-menu-toggle"
+            onClick={toggleMobileMenu}
+            aria-label="메뉴 열기/닫기"
+          >
+            <span className={`hamburger ${isMobileMenuOpen ? "active" : ""}`}>
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+          </button>
+        </div>
+
+        {/* 모바일 메뉴 */}
+        <div
+          className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}
+          onClick={handleMobileMenuBackdrop}
+        >
+          <div className="mobile-menu-content">
+            {user ? (
+              <>
+                <div className="mobile-user-info">
+                  <span className="mobile-user-greeting">
+                    안녕하세요! {user.nickname}님
+                  </span>
+                </div>
+                <div className="mobile-menu-actions">
+                  <Link
+                    className="mobile-menu-link"
+                    to="/upload"
+                    onClick={closeMobileMenu}
+                  >
+                    논문 변환하기
+                  </Link>
+                  <button
+                    className="mobile-menu-button logout"
+                    onClick={() => {
+                      logout();
+                      closeMobileMenu();
+                    }}
+                  >
+                    로그아웃
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="mobile-menu-actions">
+                <Link
+                  className="mobile-menu-link"
+                  to="/login"
+                  onClick={closeMobileMenu}
+                >
+                  로그인
+                </Link>
+                <Link
+                  className="mobile-menu-button primary"
+                  to="/signup"
+                  onClick={closeMobileMenu}
+                >
+                  회원가입
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -70,6 +183,7 @@ function AppContent() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/result" element={<Result />} />
       </Routes>
 
       <footer className="footer">

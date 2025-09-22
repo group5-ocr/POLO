@@ -18,9 +18,17 @@ uvicorn app:app --port 5004
 
 # 호출
 
+- json, tex 받고 html로 보기
+  http://127.0.0.1:5004/html/C:/POLO/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/html/C:/POLO/POLO/polo-system/models/math/main.tex
+
+- html만 보기
+  http://127.0.0.1:5004/html-live/C:/POLO/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/html-live/C:/POLO/POLO/polo-system/models/math/main.tex
+
 - 수식만 세기
-  http://127.0.0.1:5004/count/C:/POLO/polo-system/models/math/yolo.tex
-  http://127.0.0.1:5004/count/C:\POLO\polo-system\models\math\iclr2022_conference.tex
+  http://127.0.0.1:5004/count/C:/POLO/POLO/polo-system/models/math/yolo.tex
+  http://127.0.0.1:5004/count/C:\POLO\POLO\polo-system\models\math\iclr2022_conference.tex
 
 - JSON/tex 파일 받기
   http://127.0.0.1:5004/math/C:/POLO/POLO/polo-system/models/math/yolo.tex
@@ -42,6 +50,28 @@ uvicorn app:app --port 5004
   }
 
 이렇게 나오면 성공!
+
+# 훤용
+
+주석 확인할 것
+OUT_DIR
+
+OUT_DIR = "C:/POLO/polo-system/models/math/\_build"
+
+# OUT_DIR = "C:/POLO/POLO/polo-system/models/math/\_build"
+
+SERVICE_ACCOUNT_PATH
+
+SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+
+# SERVICE_ACCOUNT_PATH = Path(r"C:\POLO\POLO\polo-system\models\math\stone-booking-466716-n6-f6fff7380e05.json")
+
+DeepcodeLetter
+http://127.0.0.1:5004/html/C:/POLO/polo-system/models/math/DeepcodeLetter.tex
+http://127.0.0.1:5004/count/C:/POLO/polo-system/models/math/yolo.tex
+http://127.0.0.1:5004/math/C:/POLO/polo-system/models/math/yolo.tex
+http://127.0.0.1:5004/html-live/C:/POLO/polo-system/models/math/yolo.tex
+http://127.0.0.1:5004/html-live/C:/POLO/polo-system/models/math/main.tex
 
 ---
 

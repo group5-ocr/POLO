@@ -293,15 +293,54 @@ cd polo-front && npm run dev
 
 ## 🔧 설정 및 커스터마이징
 
+### 데이터베이스 설정
+
+POLO는 PostgreSQL과 SQLite를 모두 지원합니다. PostgreSQL이 설정되지 않으면 자동으로 SQLite를 사용합니다.
+
+#### PostgreSQL 사용 (권장)
+```bash
+# .env 파일에 PostgreSQL 설정 추가
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=polo_db
+POSTGRES_USER=your_username
+POSTGRES_PASSWORD=your_password
+```
+
+PostgreSQL 데이터베이스 생성:
+```sql
+-- PostgreSQL에서 데이터베이스 생성
+CREATE DATABASE polo_db;
+CREATE USER polo_user WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE polo_db TO polo_user;
+```
+
+#### SQLite 사용 (기본값)
+PostgreSQL 환경변수가 설정되지 않으면 자동으로 SQLite를 사용합니다:
+```bash
+# SQLite 파일 위치 (선택사항)
+LOCAL_DB_PATH=./data/local/polo.db
+```
+
+#### 데이터베이스 연결 테스트
+```bash
+# 서버 디렉토리에서 실행
+cd server
+python test_db_connection.py
+```
+
 ### 환경 변수 설정
 ```bash
 # .env 파일 예시
-# 데이터베이스
+# 데이터베이스 (PostgreSQL - 선택사항)
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=polo
-POSTGRES_USER=user
-POSTGRES_PASSWORD=password
+POSTGRES_DB=polo_db
+POSTGRES_USER=your_username
+POSTGRES_PASSWORD=your_password
+
+# 데이터베이스 (SQLite - 기본값)
+LOCAL_DB_PATH=./data/local/polo.db
 
 # AI 모델 설정
 EASY_BASE_MODEL=meta-llama/Llama-3.2-3B-Instruct

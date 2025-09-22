@@ -1,0 +1,489 @@
+/* YOLOv1 논문 통합 분석 결과 스타일시트 */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
+  color: #333;
+  background-color: #f8f9fa;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  gap: 30px;
+}
+
+/* 목차 스타일 */
+.table-of-contents {
+  width: 250px;
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  height: fit-content;
+  position: sticky;
+  top: 20px;
+  flex-shrink: 0;
+}
+
+.table-of-contents h3 {
+  color: #1f2937;
+  font-size: 1.2em;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #f59e0b;
+}
+
+.table-of-contents ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.table-of-contents li {
+  margin-bottom: 8px;
+}
+
+.table-of-contents a {
+  display: block;
+  padding: 8px 12px;
+  color: #374151;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  font-size: 0.9em;
+}
+
+.table-of-contents a:hover {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.table-of-contents a.active {
+  background: #f59e0b;
+  color: white;
+}
+
+/* 메인 콘텐츠 */
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 헤더 스타일 */
+.paper-header {
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+  color: white;
+  padding: 30px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.paper-header h1 {
+  font-size: 2.5em;
+  margin-bottom: 20px;
+  text-align: center;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.paper-info {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 20px;
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.paper-info p {
+  margin-bottom: 8px;
+  font-size: 1.1em;
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 500;
+}
+
+.paper-info strong {
+  color: #ffd700;
+  font-weight: 700;
+}
+
+/* 로딩 스타일 */
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* 에러 스타일 */
+.error {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #f5c6cb;
+  margin: 20px 0;
+}
+
+/* 통합 논문 스타일 */
+.integrated-paper {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.paper-sections {
+  padding: 0;
+}
+
+.paper-section {
+  border-bottom: 1px solid #e9ecef;
+  padding: 40px;
+  transition: background-color 0.3s ease;
+}
+
+.paper-section:hover {
+  background-color: #f8f9fa;
+}
+
+.paper-section:last-child {
+  border-bottom: none;
+}
+
+.section-header {
+  margin-bottom: 30px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #f59e0b;
+}
+
+.section-title {
+  font-size: 2em;
+  color: #2c3e50;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+/* 섹션 부제목 스타일 제거됨 */
+
+.section-order {
+  display: inline-block;
+  background: #f59e0b;
+  color: white;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 30px;
+  font-weight: bold;
+  margin-right: 15px;
+  vertical-align: middle;
+}
+
+/* 쉬운 설명 스타일 */
+.easy-content {
+  margin-bottom: 30px;
+  padding: 25px;
+  background: #fef3c7;
+  border-radius: 8px;
+  border-left: 4px solid #f59e0b;
+}
+
+.easy-content h3 {
+  color: #d97706;
+  margin-bottom: 15px;
+  font-size: 1.3em;
+  display: flex;
+  align-items: center;
+}
+
+.easy-content h3::before {
+  content: "📖";
+  margin-right: 10px;
+  font-size: 1.2em;
+}
+
+.easy-content p {
+  font-size: 1.1em;
+  line-height: 1.8;
+  color: #424242;
+}
+
+.easy-content strong {
+  color: #d97706;
+  font-weight: 600;
+}
+
+/* 수식 해설 스타일 */
+.math-equations {
+  margin-top: 30px;
+}
+
+.math-equations h3 {
+  color: #d32f2f;
+  margin-bottom: 20px;
+  font-size: 1.3em;
+  display: flex;
+  align-items: center;
+}
+
+.math-equations h3::before {
+  content: "🔢";
+  margin-right: 10px;
+  font-size: 1.2em;
+}
+
+.equation-item {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.3s ease;
+}
+
+.equation-item:hover {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.equation-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.equation-index {
+  background: #d32f2f;
+  color: white;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 25px;
+  font-weight: bold;
+  margin-right: 10px;
+  font-size: 0.9em;
+}
+
+.equation-title {
+  color: #d32f2f;
+  font-weight: 600;
+  font-size: 1.1em;
+}
+
+/* 수식 라인 번호 스타일 제거됨 */
+
+/* 시각화 스타일 */
+.visualizations {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #28a745;
+}
+
+.visualizations h3 {
+  color: #28a745;
+  margin-bottom: 15px;
+  font-size: 1.3em;
+  font-weight: 600;
+}
+
+.visualization-item {
+  margin-bottom: 25px;
+  padding: 15px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.visualization-item h4 {
+  color: #2c3e50;
+  margin-bottom: 10px;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.viz-description {
+  color: #6c757d;
+  margin-bottom: 15px;
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+
+.viz-image {
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: block;
+  margin: 0 auto;
+}
+
+.equation {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  text-align: center;
+  border: 1px solid #e9ecef;
+  overflow-x: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* MathJax 수식 스타일 */
+.equation .MathJax {
+  font-size: 1.3em !important;
+}
+
+.equation-explanation {
+  color: #424242;
+  line-height: 1.7;
+  font-size: 1.05em;
+}
+
+.equation-explanation strong {
+  color: #d32f2f;
+  font-weight: 600;
+}
+
+/* 수식 없는 섹션 스타일 제거됨 */
+
+/* 푸터 스타일 */
+.paper-footer {
+  background: #2c3e50;
+  color: white;
+  padding: 30px;
+  border-radius: 12px;
+  margin-top: 30px;
+  text-align: center;
+}
+
+.paper-footer p {
+  margin-bottom: 15px;
+  font-size: 1.1em;
+}
+
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  min-width: 100px;
+}
+
+.stat-number {
+  font-size: 2em;
+  font-weight: bold;
+  color: #ffd700;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.stat-label {
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .container {
+    flex-direction: column;
+    padding: 10px;
+    gap: 20px;
+  }
+
+  .table-of-contents {
+    width: 100%;
+    position: static;
+    order: -1;
+  }
+
+  .main-content {
+    flex: none;
+  }
+
+  .paper-header h1 {
+    font-size: 2em;
+  }
+
+  .paper-section {
+    padding: 20px;
+  }
+
+  .section-title {
+    font-size: 1.5em;
+  }
+
+  .stats {
+    gap: 15px;
+  }
+
+  .stat-item {
+    min-width: 80px;
+    padding: 10px;
+  }
+
+  .stat-number {
+    font-size: 1.5em;
+  }
+}
+
+@media (max-width: 480px) {
+  .paper-header {
+    padding: 20px;
+  }
+
+  .paper-header h1 {
+    font-size: 1.8em;
+  }
+
+  .paper-info p {
+    font-size: 1em;
+  }
+
+  .paper-section {
+    padding: 15px;
+  }
+
+  .easy-content,
+  .equation-item {
+    padding: 15px;
+  }
+}
