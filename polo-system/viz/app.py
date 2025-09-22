@@ -3,29 +3,25 @@ import os
 from copy import deepcopy
 from registry import get as gram_get
 from switch import make_opts, resolve_label, merge_caption
-import importlib, pkgutil, time
+import importlib, pkgutil, time, json, sys
 from pathlib import Path
 from matplotlib import font_manager, rcParams
 from matplotlib.font_manager import FontProperties
-from pathlib import Path
 import matplotlib as mpl
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uvicorn
-import torch
 
 # GPU/CPU 디바이스 설정 (GPU 메모리 절약을 위해 CPU 강제 사용)
-DEVICE = "cpu"  # GPU 메모리 절약을 위해 CPU 강제 사용
-GPU_AVAILABLE = False  # GPU 사용 안함
-
+DEVICE = "cpu"
+GPU_AVAILABLE = False
 
 # matplotlib 설정
 mpl.rcParams["savefig.dpi"] = 220
 mpl.rcParams["figure.dpi"]  = 220
 mpl.rcParams["axes.unicode_minus"] = False
 
-# CPU 모드 강제 설정 (GPU 메모리 절약)
 print("🔧 Viz 서비스: CPU 모드로 실행 (GPU 메모리 절약)")
 print(f"🔧 디바이스: {DEVICE}")
 
@@ -51,7 +47,6 @@ def _mtexify_value(v):
     return v
 
 def _present_families(candidates):
-    """설치돼 있는 폰트만 필터링해서 family 이름 리스트로 반환."""
     present = []
     for name in candidates:
         if not name:
@@ -59,12 +54,11 @@ def _present_families(candidates):
         try:
             path = font_manager.findfont(
                 FontProperties(family=name),
-                fallback_to_default=False,  # ← 없으면 실패하게
+                fallback_to_default=False,
             )
         except Exception:
             path = ""
         if path and os.path.exists(path):
-            # 시스템폰트면 addfont 없어도 되지만, 경로로 family 이름을 정확히 가져오자
             try:
                 fam = FontProperties(fname=path).get_name()
             except Exception:
@@ -73,12 +67,6 @@ def _present_families(candidates):
     return present
 
 def _setup_matplotlib_fonts():
-    """
-    한글 폰트를 '설치되어 있든/없든' 최대한 자동으로 잡아준다.
-    1) 환경변수 FONT_KR_PATH, 2) ./fonts/*, 3) OS 공용 경로 순서로 폰트 파일을 찾아
-    font_manager.addfont 로 런타임 등록 후 family 우선순위를 세팅한다.
-    """
-    # 0) 런타임 등록 후보 경로 (존재하는 첫 파일 1개면 충분)
     here = Path(__file__).parent
     font_file_candidates = [
         os.getenv("FONT_KR_PATH"),
@@ -86,32 +74,28 @@ def _setup_matplotlib_fonts():
         str(here / "fonts" / "NanumGothic.ttf"),
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # macOS
-        "C:\\Windows\\Fonts\\malgun.ttf",              # Windows
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        "C:\\Windows\\Fonts\\malgun.ttf",
     ]
     for p in filter(None, font_file_candidates):
         try:
             if os.path.exists(p):
-                font_manager.fontManager.addfont(p)  # ← 런타임 등록 (없던 폰트도 사용 가능)
+                font_manager.fontManager.addfont(p)
                 break
         except Exception:
             pass
 
-    # 1) 한글 본문 후보 (환경변수로 family 강제 시 최우선)
     kr_candidates = (
         [os.getenv("FONT_KR_FAMILY")] if os.getenv("FONT_KR_FAMILY") else []
     ) + [
         "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo",
         "Malgun Gothic", "NanumGothic", "Source Han Sans K", "Source Han Sans KR",
     ]
-
-    # 2) 기호 폴백
     sym_candidates = ["Noto Sans Symbols 2", "Segoe UI Symbol", "DejaVu Sans"]
 
     kr_present  = _present_families(kr_candidates)
     sym_present = _present_families(sym_candidates)
 
-    # 최종 우선순위: [한글 본문 1개] + [존재하는 기호 폴백들] (최소 DejaVu Sans 보장)
     family = []
     if kr_present:
         family.append(kr_present[0])
@@ -134,26 +118,20 @@ def _prepare_outdir(outdir, clear=False, patterns=("*.png", "*.json")):
             except Exception:
                 pass
 
-
 _GRAMMARS_LOADED = False
 def _ensure_grammars_loaded():
     global _GRAMMARS_LOADED
     if _GRAMMARS_LOADED:
         return
     pkg_dir = Path(__file__).parent / "templates" / "grammars"
-
-    # 안전: 현재 폴더(viz)를 sys.path에 보장
-    import sys
     viz_dir = str(Path(__file__).parent.resolve())
     if viz_dir not in sys.path:
         sys.path.insert(0, viz_dir)
-
     for m in pkgutil.iter_modules([str(pkg_dir)]):
         importlib.import_module(f"templates.grammars.{m.name}")
     _GRAMMARS_LOADED = True
 
 def _localize_value(v, opts):
-    # {'ko':..., 'en':...} 구조는 문자열로 변환, 나머지는 재귀
     if isinstance(v, dict) and (("ko" in v) or ("en" in v)):
         return resolve_label(v, opts)
     if isinstance(v, dict):
@@ -163,7 +141,6 @@ def _localize_value(v, opts):
     return v
 
 def _inject_labels_into_inputs(item, inputs, opts):
-    # item.labels / item.caption_labels → inputs.title/label/caption에 주입
     if "labels" in item:
         resolved = resolve_label(item["labels"] or {}, opts)
         placed = False
@@ -181,55 +158,88 @@ def _inject_labels_into_inputs(item, inputs, opts):
 def _localize_inputs(inputs, opts):
     return _localize_value(inputs, opts)
 
-# 랜더링 할때 결과 출력물 세팅
 def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str = "missing", clear_outdir: bool = True):
-    _ensure_grammars_loaded() # 시각화 기법 로드
-    _setup_matplotlib_fonts() # 폰트 한글화
-    _prepare_outdir(outdir, clear=clear_outdir) # 이전 출력물 제거
+    _ensure_grammars_loaded()
+    _setup_matplotlib_fonts()
+    _prepare_outdir(outdir, clear=clear_outdir)
     opts = make_opts(target_lang=target_lang, bilingual=bilingual)
     os.makedirs(outdir, exist_ok=True)
 
     outputs = []
     for item in spec_list:
-        g = gram_get(item["type"])                         # 문법 조회
-        raw_inputs = deepcopy(item.get("inputs", {}))      # 원본 보존
+        if not isinstance(item, dict) or "type" not in item:
+            continue
+        g = gram_get(item["type"])
+        raw_inputs = deepcopy(item.get("inputs", {}))
         raw_inputs = _inject_labels_into_inputs(item, raw_inputs, opts)
-        inputs = _localize_inputs(raw_inputs, opts)        # ko/en 딕셔너리를 문자열로 변환
-        inputs = _mtexify_value(inputs)   
+        inputs = _localize_inputs(raw_inputs, opts)
+        inputs = _mtexify_value(inputs)
 
-        # 필수 입력 자동 채움(기존 로직 유지)
         for need in getattr(g, "needs", []):
             if need not in inputs:
                 inputs[need] = "__MISSING__"
 
-        # 항상 같은 파일명으로 저장 (브라우저 캐시 우회는 응답에서 처리)
-        out_path = os.path.join(outdir, f"{item['id']}_{item['type']}.png")
-
-        # 원자적 교체: 임시 파일로 먼저 저장 후 교체(부분 쓰기 노출 방지)
-        tmp_path = os.path.join(outdir, f".~{item['id']}_{item['type']}.png")
+        out_path = os.path.join(outdir, f"{item['id']}.png")
+        tmp_path = os.path.join(outdir, f".~{item['id']}.png")
         g.renderer(inputs, tmp_path)
-        os.replace(tmp_path, out_path)  # 같은 이름으로 교체
-
+        os.replace(tmp_path, out_path)
         now = time.time()
         os.utime(out_path, (now, now))
-
         outputs.append({"id": item["id"], "type": item["type"], "path": out_path})
     return outputs
 
-# FastAPI 앱 생성
-app = FastAPI(title="POLO Viz Service", version="1.0.0")
+# easy_results.json 파서/실행
 
-# 요청/응답 모델
+def _iter_easy_paragraphs(easy_json_path: str):
+    """
+    easy_results.json에서 (paper_id, section_id, paragraph_id, text) 순회.
+    """
+    data = json.loads(Path(easy_json_path).read_text(encoding="utf-8"))
+    paper_id = ((data.get("paper_info") or {}).get("paper_id")) or "paper"
+    for sec in data.get("easy_sections", []) or []:
+        sec_id = sec.get("easy_section_id") or "section"
+        for p in (sec.get("easy_paragraphs") or []):
+            pid = p.get("easy_paragraph_id") or "p"
+            txt = p.get("easy_paragraph_text") or ""
+            yield paper_id, sec_id, pid, txt
+        for sub in (sec.get("easy_subsections") or []):
+            sub_id = sub.get("easy_section_id") or sec_id
+            for p in (sub.get("easy_paragraphs") or []):
+                pid = p.get("easy_paragraph_id") or "p"
+                txt = p.get("easy_paragraph_text") or ""
+                yield paper_id, sub_id, pid, txt
+
+
+def sanitize_and_shorten_spec(spec_list, paragraph_id: str) -> list[dict]:
+            """None/결측 스펙 제거 + 짧은 id로 재지정"""
+            clean = []
+            for i, s in enumerate(spec_list or []):
+                if not s or not isinstance(s, dict):  # None 방지
+                    continue
+                if not s.get("type"):                # type 없으면 스킵
+                    continue
+                # 짧은 파일명: 02__bar_group
+                short_id = f"{i:02d}__{s['type']}"
+                s2 = deepcopy(s)
+                s2["id"] = short_id
+                clean.append(s2)
+            return clean
+
+# FastAPI 앱 생성
+app = FastAPI(title="POLO Viz Service", version="1.1.0")
+
+# 요청/응답 모델 (기존 엔드포인트 유지)
 class VizRequest(BaseModel):
     paper_id: str
     index: int
-    rewritten_text: str
+    rewritten_text: Optional[str] = None
     target_lang: str = "ko"
     bilingual: str = "missing"
 
 class VizResponse(BaseModel):
     paper_id: str
     index: int
+    paragraph_id: str  
     image_path: str
     success: bool
 
@@ -247,53 +257,111 @@ class GenerateVisualizationsResponse(BaseModel):
 async def health():
     return {"status": "ok", "service": "viz"}
 
+# 렌더 엔드포인트
 @app.post("/viz", response_model=VizResponse)
 async def generate_viz(request: VizRequest):
     """
-    텍스트를 받아서 시각화 이미지를 생성합니다.
+    (JSON 전용) easy_results.json을 읽어서 index번째 문단을 시각화.
+    - 결과 파일명: <easy_paragraph_id>__<spec-id>.png
+    - 출력 경로: server/data/viz/<paper_id>/<section_id>/<paragraph_id>/
     """
     try:
-        # 그래머 로드 보장
         _ensure_grammars_loaded()
-        
-        # 텍스트에서 스펙 자동 생성
         from text_to_spec import auto_build_spec_from_text
-        spec = auto_build_spec_from_text(request.rewritten_text)
+
+        # easy_results.json 경로: app.py와 같은 폴더
+        here = Path(__file__).parent
+        easy_path = here / "easy_results.json"
+        if not easy_path.exists():
+            raise HTTPException(status_code=400, detail=f"입력 JSON이 없습니다: {easy_path}")
+
+        # 문단 평탄화 리스트 구성
+        paras = list(_iter_easy_paragraphs(str(easy_path)))
+        if not paras:
+            raise HTTPException(status_code=400, detail="easy_results.json에 문단이 없습니다.")
         
-        # 출력 디렉토리 설정
-        # 절대 경로로 viz 디렉토리 설정
-        current_file = Path(__file__).resolve()
-        server_dir = current_file.parent.parent / "server"  # polo-system/server
-        outdir = server_dir / "data" / "viz" / request.paper_id
+        # 인덱스 검사: -1(전체 처리) 허용하도록 수정
+        if request.index != -1 and not (0 <= request.index < len(paras)):
+            raise HTTPException(status_code=400, detail=f"index 범위를 벗어났습니다(0~{len(paras)-1} 또는 -1).")
+        
+        # index = -1 이면 전체 처리
+        if request.index == -1:
+            all_outs = []
+            for paper_id, section_id, paragraph_id, text in paras:
+                if not text or not text.strip():
+                    continue
+                spec = auto_build_spec_from_text(text)
+                spec = sanitize_and_shorten_spec(spec, paragraph_id)
+                if not spec:
+                    continue
+                outdir = (Path(__file__).resolve().parent.parent / "server" /
+                        "data" / "viz" / paper_id / section_id / paragraph_id)
+                outdir.mkdir(parents=True, exist_ok=True)
+                outs = render_from_spec(
+                    spec, str(outdir),
+                    target_lang=request.target_lang,
+                    bilingual=request.bilingual,
+                    clear_outdir=True
+                )
+                all_outs.extend(outs)
+
+            if not all_outs:
+                raise HTTPException(status_code=500, detail="생성된 이미지가 없습니다.")
+
+            # 대표 1장만 응답(파이프라인 호환). 필요하면 리스트 반환으로 바꿔도 됨.
+            image_path = all_outs[0]["path"] + f"?rev={time.time_ns()}"
+            return VizResponse(
+                paper_id=paras[0][0],
+                index=request.index,
+                paragraph_id=paras[0][2],
+                image_path=image_path,
+                success=True
+            )
+
+        # 대상 문단 선택
+        paper_id, section_id, paragraph_id, text = paras[request.index]
+        if not text.strip():
+            raise HTTPException(status_code=400, detail=f"선택한 문단({paragraph_id})에 텍스트가 없습니다.")
+
+        # 스펙 생성
+        spec = auto_build_spec_from_text(text)
+        spec = sanitize_and_shorten_spec(spec, paragraph_id)
+        if not spec:
+            raise HTTPException(status_code=500, detail="이미지 생성 실패 (스펙 없음)")
+
+        # 출력 디렉토리 (문단별)
+        server_dir = Path(__file__).resolve().parent.parent / "server"  # polo-system/server
+        outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
         outdir.mkdir(parents=True, exist_ok=True)
-        
-        # 렌더링 실행
+
+        # 렌더
         outputs = render_from_spec(
-            spec, 
-            str(outdir), 
-            target_lang=request.target_lang, 
+            spec,
+            str(outdir),
+            target_lang=request.target_lang,
             bilingual=request.bilingual,
-            clear_outdir=True
+            clear_outdir=True  # 문단 폴더는 덮어써도 안전
         )
-        
-        # 첫 번째 이미지 경로 반환 (여러 개 생성될 수 있음)
-        image_path = outputs[0]["path"] if outputs else None
-        
-        if not image_path:
-            raise HTTPException(status_code=500, detail="이미지 생성 실패")
-        
-        rev = str(time.time_ns())  # 항상 새로운 값 → 브라우저/뷰어 캐시 완전 우회
+
+        if not outputs:
+            raise HTTPException(status_code=500, detail="이미지 생성 실패 (스펙 없음)")
+
+        # 첫 이미지 반환 (여러 개면 프론트에서 리스트화를 원할 수도 있음)
+        image_path = outputs[0]["path"]
+        rev = str(time.time_ns())  # 캐시 우회
         image_path_versioned = f"{image_path}?rev={rev}"
-        
+
         return VizResponse(
-            paper_id=request.paper_id,
+            paper_id=paper_id,
             index=request.index,
+            paragraph_id=paragraph_id,
             image_path=image_path_versioned,
             success=True
         )
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"시각화 생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"/viz 실행 실패: {str(e)}")
 
 @app.post("/generate-visualizations", response_model=GenerateVisualizationsResponse)
 async def generate_visualizations(request: GenerateVisualizationsRequest):
@@ -384,39 +452,54 @@ async def generate_visualizations(request: GenerateVisualizationsRequest):
         raise HTTPException(status_code=500, detail=f"시각화 생성 실패: {str(e)}")
 
 if __name__ == "__main__":
-    import os
     port = int(os.getenv("VIZ_PORT", "5005"))
-    
-    # 디바이스 상태 출력
     print("🎨 POLO Viz Service 시작")
-    print(f"🔧 디바이스: {DEVICE} (CPU 모드 - GPU 메모리 절약)")
+    print(f"🔧 디바이스: {DEVICE} (CPU 모드)")
     print(f"📊 포트: {port}")
-    
-    # 논문 텍스트 → 스펙 자동 생성 → 렌더 (개발용)
+
+    # 부트 시 easy_results.json 자동 테스트 (있을 때만)
     try:
-        from pathlib import Path
+        _ensure_grammars_loaded()
         from text_to_spec import auto_build_spec_from_text
 
-        _ensure_grammars_loaded()  # 그래머 로드 보장
+        here = Path(__file__).parent
+        easy_path = here / "easy_results.json"
+        if easy_path.exists():
+            print(f"easy_results.json 발견 → 문단별 테스트 렌더링 실행...")
+            # 서버 경로
+            server_dir = Path(__file__).resolve().parent.parent / "server"
+            cnt = 0
+            for paper_id, section_id, paragraph_id, text in _iter_easy_paragraphs(str(easy_path)):
+                if not text.strip():
+                    print(f"[SKIP] {section_id}/{paragraph_id} (empty)")
+                    continue
+                try:
+                    spec = auto_build_spec_from_text(text)
+                    print(f"[DEBUG] {section_id}/{paragraph_id} text_len={len(text)} raw_spec={len(spec or [])}")
+                    spec = sanitize_and_shorten_spec(spec, paragraph_id)
+                    print(f"[DEBUG] {section_id}/{paragraph_id} clean_spec={len(spec)}")
+                    if not spec:
+                        print(f"[SKIP] {section_id}/{paragraph_id} (no spec after sanitize)")
+                        continue
 
-        root = Path(__file__).parent
-        text_path = root / "paper.txt"   # 같은 폴더의 논문 텍스트
-        if text_path.exists():
-            print("📄 개발용 paper.txt 발견, 테스트 렌더링 실행...")
-            text = text_path.read_text(encoding="utf-8")
-            spec = auto_build_spec_from_text(text)       # glossary_hybrid.json 자동 탐색
+                    spec = auto_build_spec_from_text(text)
+                    spec = sanitize_and_shorten_spec(spec, paragraph_id)
+                    outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
+                    outdir.mkdir(parents=True, exist_ok=True)
+                    outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing", clear_outdir=True)
+                    for o in outs:
+                        print(f" [{section_id}/{paragraph_id}] → {o['path']}")
+                        cnt += 1
 
-            outdir = root / "charts"
-            outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing")
-            for o in outs:
-                print(f"✅ 생성됨: {o['path']}")
+                except Exception as e:
+                    import traceback
+                    print(f"[ERR] {section_id}/{paragraph_id}: {e}")
+                    traceback.print_exc()
+            print(f"✅ 테스트 렌더 완료: {cnt} 개")
         else:
-            print("ℹ️ paper.txt 없음, API 서버만 실행")
+            print("ℹ️ easy_results.json 없음, API 서버만 실행")
     except Exception as e:
-        print(f"⚠️ 테스트 렌더링 실패: {e}")
-        print("ℹ️ API 서버는 정상 실행됩니다.")
-    
-    # FastAPI 서버 실행
+        print(f"⚠️ 부트 테스트 실패: {e} (서버는 계속 실행)")
+
     print("🚀 Viz API 서버 시작 중...")
     uvicorn.run(app, host="0.0.0.0", port=port)
-

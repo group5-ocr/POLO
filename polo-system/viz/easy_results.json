@@ -1,0 +1,454 @@
+{
+  "paper_info": {
+    "paper_id": "yolo_v1_analysis",
+    "paper_title": "You Only Look Once: Unified, Real-Time Object Detection",
+    "paper_authors": "Joseph Redmon, Santosh Divvala, Ross Girshick, Ali Farhadi",
+    "paper_venue": "CVPR 2016",
+    "paper_date": "2016",
+    "total_sections": 17
+  },
+  "easy_sections": [
+    {
+      "easy_section_id": "easy_section_1",
+      "easy_section_title": "Abstract",
+      "easy_section_type": "section",
+      "easy_section_order": 1,
+      "easy_section_level": 1,
+      "easy_content": "우리는 object detection(이미지 속에서 물체의 위치와 종류를 찾아내는 작업)을 하나의 regression(연속적인 값을 예측하는 문제)으로 다시 정의합니다. 즉, 이미지 픽셀로부터 bounding box(물체를 둘러싸는 네모 상자) 좌표와 class probability(각 물체가 특정 클래스일 확률)를 직접 출력합니다.\n\n이 접근법은 object detection의 여러 단계를 하나의 neural network(인공 신경망)로 통합합니다. 이 시스템 YOLO는 매우 빠르며, 예측할 때 이미지 전체 맥락을 고려합니다. 따라서 기존 방식보다 단순하고, 실시간 응용에 적합합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_1_1",
+          "easy_paragraph_text": "우리는 object detection(이미지 속에서 물체의 위치와 종류를 찾아내는 작업)을 하나의 regression(연속적인 값을 예측하는 문제)으로 다시 정의합니다. 즉, 이미지 픽셀로부터 bounding box(물체를 둘러싸는 네모 상자) 좌표와 class probability(각 물체가 특정 클래스일 확률)를 직접 출력합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_2",
+          "easy_paragraph_text": "이 접근법은 object detection의 여러 단계를 하나의 neural network(인공 신경망)로 통합합니다. 이 시스템 YOLO는 매우 빠르며, 예측할 때 이미지 전체 맥락을 고려합니다. 따라서 기존 방식보다 단순하고, 실시간 응용에 적합합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_2",
+      "easy_section_title": "Introduction",
+      "easy_section_type": "section",
+      "easy_section_order": 2,
+      "easy_section_level": 1,
+      "easy_content": "사람은 이미지를 잠깐 보는 것만으로도 장면 속 object(물체)가 무엇이고 어디 있는지 쉽게 파악합니다. 하지만 기존 object detection 방법들은 region proposal(물체 후보 영역 생성), classifier(분류기), bounding box regression(박스 위치 보정) 같은 여러 단계를 거쳐야 했습니다. 이 파이프라인은 각 단계가 따로 최적화되기 때문에 전체 성능을 해칠 수 있고, 계산량도 큽니다.\n\nYOLO는 이러한 복잡한 단계를 버리고, object detection을 하나의 regression 문제로 단순화합니다. 즉, 이미지 전체를 한 번에 입력받아 bounding box 좌표와 class probability를 동시에 예측합니다. 이렇게 하면 속도가 매우 빨라지고, 장면의 전체 맥락을 활용하기 때문에 예측이 더 일관됩니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_2_1",
+          "easy_paragraph_text": "사람은 이미지를 잠깐 보는 것만으로도 장면 속 object(물체)가 무엇이고 어디 있는지 쉽게 파악합니다. 하지만 기존 object detection 방법들은 region proposal(물체 후보 영역 생성), classifier(분류기), bounding box regression(박스 위치 보정) 같은 여러 단계를 거쳐야 했습니다. 이 파이프라인은 각 단계가 따로 최적화되기 때문에 전체 성능을 해칠 수 있고, 계산량도 큽니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_2_2",
+          "easy_paragraph_text": "YOLO는 이러한 복잡한 단계를 버리고, object detection을 하나의 regression 문제로 단순화합니다. 즉, 이미지 전체를 한 번에 입력받아 bounding box 좌표와 class probability를 동시에 예측합니다. 이렇게 하면 속도가 매우 빨라지고, 장면의 전체 맥락을 활용하기 때문에 예측이 더 일관됩니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_3",
+      "easy_section_title": "Unified Detection",
+      "easy_section_type": "section",
+      "easy_section_order": 3,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 이미지를 grid cell(격자 셀)로 나누고, 각 cell이 그 안에 중심이 있는 object를 예측하도록 합니다. 각 cell은 bounding box 좌표와 confidence score(상자가 물체를 제대로 포함할 확률)를 내고, 동시에 class probability를 출력합니다. 예측된 confidence score와 class probability를 곱하면 각 클래스별 점수를 얻을 수 있고, 낮은 점수는 제거합니다.\n\n중복된 예측은 non-maximum suppression(NMS, 가장 확률이 높은 박스만 남기고 겹치는 박스를 제거하는 기법)을 사용해 정리합니다. 이렇게 하면 한 번의 neural network 실행으로 object detection 결과를 얻을 수 있습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_3_1",
+          "easy_paragraph_text": "YOLO는 이미지를 grid cell(격자 셀)로 나누고, 각 cell이 그 안에 중심이 있는 object를 예측하도록 합니다. 각 cell은 bounding box 좌표와 confidence score(상자가 물체를 제대로 포함할 확률)를 내고, 동시에 class probability를 출력합니다. 예측된 confidence score와 class probability를 곱하면 각 클래스별 점수를 얻을 수 있고, 낮은 점수는 제거합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_3_2",
+          "easy_paragraph_text": "중복된 예측은 non-maximum suppression(NMS, 가장 확률이 높은 박스만 남기고 겹치는 박스를 제거하는 기법)을 사용해 정리합니다. 이렇게 하면 한 번의 neural network 실행으로 object detection 결과를 얻을 수 있습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_4",
+      "easy_section_title": "Network Design",
+      "easy_section_type": "section",
+      "easy_section_order": 4,
+      "easy_section_level": 1,
+      "easy_content": "YOLO의 network architecture(네트워크 구조)는 convolutional layer(합성곱 계층)로 구성된 feature extractor(특징 추출기)와 fully connected layer(완전 연결 계층) 기반 predictor(예측기)로 나뉩니다. 앞부분은 이미지의 시각적 특징을 추출하고, 뒷부분은 bounding box 좌표와 class probability를 출력합니다.\n\nloss function(손실 함수)은 localization error(위치 오차), confidence error(신뢰도 오차), classification error(분류 오차)를 모두 고려합니다. 작은 물체에 대해 더 민감하도록 좌표 오차에 가중치를 주고, 배경에 대해서는 confidence 항목의 가중치를 줄여 안정성을 확보합니다. 또한 각 grid cell에서 여러 bounding box를 예측하지만, 학습 시 가장 IOU(겹침 비율)가 높은 박스만 물체에 대한 책임을 지도록 합니다. 이렇게 하면 예측기가 서로 다른 모양과 크기에 특화될 수 있습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_4_1",
+          "easy_paragraph_text": "YOLO의 network architecture(네트워크 구조)는 convolutional layer(합성곱 계층)로 구성된 feature extractor(특징 추출기)와 fully connected layer(완전 연결 계층) 기반 predictor(예측기)로 나뉩니다. 앞부분은 이미지의 시각적 특징을 추출하고, 뒷부분은 bounding box 좌표와 class probability를 출력합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_2",
+          "easy_paragraph_text": "loss function(손실 함수)은 localization error(위치 오차), confidence error(신뢰도 오차), classification error(분류 오차)를 모두 고려합니다. 작은 물체에 대해 더 민감하도록 좌표 오차에 가중치를 주고, 배경에 대해서는 confidence 항목의 가중치를 줄여 안정성을 확보합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_3",
+          "easy_paragraph_text": "또한 각 grid cell에서 여러 bounding box를 예측하지만, 학습 시 가장 IOU(겹침 비율)가 높은 박스만 물체에 대한 책임을 지도록 합니다. 이렇게 하면 예측기가 서로 다른 모양과 크기에 특화될 수 있습니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_5",
+      "easy_section_title": "Training",
+      "easy_section_type": "section",
+      "easy_section_order": 5,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 end-to-end(처음 입력부터 최종 출력까지 한 번에 학습하는 방식)로 학습되며, loss function(손실 함수)이 bounding box regression(박스 좌표 예측), confidence score(상자가 물체를 제대로 포함할 확률), class probability(클래스 확률)를 모두 고려하도록 설계되어 있습니다.\n\ntraining data(학습 데이터)로는 Pascal VOC dataset(객체 탐지 벤치마크 데이터셋)을 사용합니다. 데이터 증강(augmentation, 원본 이미지를 변형해 다양성을 높이는 기법)을 적용하여 모델이 다양한 크기, 위치, 조명에서 물체를 잘 찾도록 만듭니다.\n\noptimization(최적화)에는 stochastic gradient descent(SGD, 무작위 경사 하강법)를 사용하며, learning rate(학습률) 스케줄을 조정해 안정적으로 수렴시킵니다. 초기 학습 단계에서는 학습률을 낮춰 모델이 급격히 흔들리지 않게 하고, 후반에는 점차 줄여서 정교하게 맞춥니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_5_1",
+          "easy_paragraph_text": "YOLO는 end-to-end(처음 입력부터 최종 출력까지 한 번에 학습하는 방식)로 학습되며, loss function(손실 함수)이 bounding box regression(박스 좌표 예측), confidence score(상자가 물체를 제대로 포함할 확률), class probability(클래스 확률)를 모두 고려하도록 설계되어 있습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_5_2",
+          "easy_paragraph_text": "training data(학습 데이터)로는 Pascal VOC dataset(객체 탐지 벤치마크 데이터셋)을 사용합니다. 데이터 증강(augmentation, 원본 이미지를 변형해 다양성을 높이는 기법)을 적용하여 모델이 다양한 크기, 위치, 조명에서 물체를 잘 찾도록 만듭니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_5_3",
+          "easy_paragraph_text": "optimization(최적화)에는 stochastic gradient descent(SGD, 무작위 경사 하강법)를 사용하며, learning rate(학습률) 스케줄을 조정해 안정적으로 수렴시킵니다. 초기 학습 단계에서는 학습률을 낮춰 모델이 급격히 흔들리지 않게 하고, 후반에는 점차 줄여서 정교하게 맞춥니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_6",
+      "easy_section_title": "Inference",
+      "easy_section_type": "section",
+      "easy_section_order": 6,
+      "easy_section_level": 1,
+      "easy_content": "inference(추론) 단계에서는 입력 이미지를 grid cell(격자 셀)로 나누고, 각 cell이 bounding box와 confidence score, class probability를 예측합니다. 이 값들을 결합해 object의 위치와 종류를 결정합니다.\n\nconfidence score와 class probability를 곱하면 특정 object 클래스의 최종 점수가 되고, 낮은 점수의 박스는 제거됩니다. 이후 non-maximum suppression(NMS, 겹치는 박스 중 가장 신뢰도 높은 것만 남기는 기법)을 적용해 중복 탐지를 줄입니다.\n\n이 과정은 단일 neural network 실행만 필요하기 때문에 매우 빠르며, 실시간 영상에서도 object detection이 가능합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_6_1",
+          "easy_paragraph_text": "inference(추론) 단계에서는 입력 이미지를 grid cell(격자 셀)로 나누고, 각 cell이 bounding box와 confidence score, class probability를 예측합니다. 이 값들을 결합해 object의 위치와 종류를 결정합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_6_2",
+          "easy_paragraph_text": "confidence score와 class probability를 곱하면 특정 object 클래스의 최종 점수가 되고, 낮은 점수의 박스는 제거됩니다. 이후 non-maximum suppression(NMS, 겹치는 박스 중 가장 신뢰도 높은 것만 남기는 기법)을 적용해 중복 탐지를 줄입니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_6_3",
+          "easy_paragraph_text": "이 과정은 단일 neural network 실행만 필요하기 때문에 매우 빠르며, 실시간 영상에서도 object detection이 가능합니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_7",
+      "easy_section_title": "Limitations of YOLO",
+      "easy_section_type": "section",
+      "easy_section_order": 7,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 단순하고 빠르지만 몇 가지 limitation(제한점)을 가지고 있습니다. 첫째, grid cell이 작은 object 여러 개를 동시에 처리하지 못하는 경우가 많습니다. 셀 하나가 하나의 object만 담당하기 때문에 작은 object가 몰려 있으면 놓칠 수 있습니다.\n\n둘째, unusual aspect ratio(특이한 가로세로 비율)를 가진 object나 극단적인 크기의 object에는 성능이 낮습니다. 셀 기반 예측이 고정된 형태이기 때문입니다.\n\n셋째, localization error(위치 오차)가 발생하기 쉽습니다. 특히 정확한 좌표가 필요한 응용에서는 기존 region proposal 기반 방법보다 정밀도가 떨어질 수 있습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_7_1",
+          "easy_paragraph_text": "YOLO는 단순하고 빠르지만 몇 가지 limitation(제한점)을 가지고 있습니다. 첫째, grid cell이 작은 object 여러 개를 동시에 처리하지 못하는 경우가 많습니다. 셀 하나가 하나의 object만 담당하기 때문에 작은 object가 몰려 있으면 놓칠 수 있습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_7_2",
+          "easy_paragraph_text": "둘째, unusual aspect ratio(특이한 가로세로 비율)를 가진 object나 극단적인 크기의 object에는 성능이 낮습니다. 셀 기반 예측이 고정된 형태이기 때문입니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_7_3",
+          "easy_paragraph_text": "셋째, localization error(위치 오차)가 발생하기 쉽습니다. 특히 정확한 좌표가 필요한 응용에서는 기존 region proposal 기반 방법보다 정밀도가 떨어질 수 있습니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_8",
+      "easy_section_title": "Comparison to Other Detection Systems",
+      "easy_section_type": "section",
+      "easy_section_order": 8,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 R-CNN 계열의 detection system(탐지 시스템)과 비교했을 때 속도에서 큰 장점이 있습니다. R-CNN은 region proposal을 만들고, 각 proposal을 별도의 classifier로 분류해야 하기 때문에 느립니다. 반면 YOLO는 단일 neural network가 바로 예측하므로 매우 빠릅니다.\n\n또한 YOLO는 이미지 전체를 고려하기 때문에 background false positive(배경을 잘못 물체로 인식하는 오류)가 적습니다. 하지만 region proposal 방식은 작은 object나 위치 정밀도에서 우세할 수 있습니다. 따라서 두 접근법은 서로 장단점이 존재합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_8_1",
+          "easy_paragraph_text": "YOLO는 R-CNN 계열의 detection system(탐지 시스템)과 비교했을 때 속도에서 큰 장점이 있습니다. R-CNN은 region proposal을 만들고, 각 proposal을 별도의 classifier로 분류해야 하기 때문에 느립니다. 반면 YOLO는 단일 neural network가 바로 예측하므로 매우 빠릅니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_8_2",
+          "easy_paragraph_text": "또한 YOLO는 이미지 전체를 고려하기 때문에 background false positive(배경을 잘못 물체로 인식하는 오류)가 적습니다. 하지만 region proposal 방식은 작은 object나 위치 정밀도에서 우세할 수 있습니다. 따라서 두 접근법은 서로 장단점이 존재합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_9",
+      "easy_section_title": "Experiments",
+      "easy_section_type": "section",
+      "easy_section_order": 9,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 Pascal VOC 2007과 2012 dataset(객체 탐지 벤치마크 데이터셋)에서 실험을 진행했습니다. baseline method(비교 기준 방법)로는 Fast R-CNN과 같은 region proposal 기반 방법이 사용되었습니다.\n\nYOLO는 높은 detection speed(탐지 속도)를 보여주었고, 다른 방법보다 real-time performance(실시간 성능)에서 큰 차이를 냈습니다. 그러나 localization error(위치 오차)에서는 region proposal 기반 방법이 더 나은 결과를 보였습니다.\n\n실험 결과는 YOLO가 빠른 응용 분야에서 특히 유용하며, 다만 작은 object나 복잡한 장면에서는 개선이 필요하다는 점을 보여줍니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_9_1",
+          "easy_paragraph_text": "YOLO는 Pascal VOC 2007과 2012 dataset(객체 탐지 벤치마크 데이터셋)에서 실험을 진행했습니다. baseline method(비교 기준 방법)로는 Fast R-CNN과 같은 region proposal 기반 방법이 사용되었습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_9_2",
+          "easy_paragraph_text": "YOLO는 높은 detection speed(탐지 속도)를 보여주었고, 다른 방법보다 real-time performance(실시간 성능)에서 큰 차이를 냈습니다. 그러나 localization error(위치 오차)에서는 region proposal 기반 방법이 더 나은 결과를 보였습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_9_3",
+          "easy_paragraph_text": "실험 결과는 YOLO가 빠른 응용 분야에서 특히 유용하며, 다만 작은 object나 복잡한 장면에서는 개선이 필요하다는 점을 보여줍니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_10",
+      "easy_section_title": "Comparison to Other Real-Time Systems",
+      "easy_section_type": "section",
+      "easy_section_order": 10,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 다른 real-time detection system(실시간 탐지 시스템)과 비교했을 때도 뛰어난 성능을 보입니다. 예를 들어 DPM(Deformable Parts Model, 변형 가능한 부품 모델)이나 다른 lightweight classifier(가벼운 분류기) 기반 방법보다 훨씬 높은 mAP(mean Average Precision, 평균 정확도)를 기록했습니다.\n\n이와 동시에 frame per second(FPS, 초당 프레임 수) 성능도 매우 높아, 실시간 영상 분석에 이상적이라는 점이 강조되었습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_10_1",
+          "easy_paragraph_text": "YOLO는 다른 real-time detection system(실시간 탐지 시스템)과 비교했을 때도 뛰어난 성능을 보입니다. 예를 들어 DPM(Deformable Parts Model, 변형 가능한 부품 모델)이나 다른 lightweight classifier(가벼운 분류기) 기반 방법보다 훨씬 높은 mAP(mean Average Precision, 평균 정확도)를 기록했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_10_2",
+          "easy_paragraph_text": "이와 동시에 frame per second(FPS, 초당 프레임 수) 성능도 매우 높아, 실시간 영상 분석에 이상적이라는 점이 강조되었습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_11",
+      "easy_section_title": "VOC 2007 Error Analysis",
+      "easy_section_type": "section",
+      "easy_section_order": 11,
+      "easy_section_level": 1,
+      "easy_content": "VOC 2007 dataset을 기준으로 error analysis(오류 분석)를 수행했습니다. YOLO는 background error(배경을 물체로 잘못 탐지하는 오류)가 적었지만, localization error(위치 오차)는 상대적으로 높았습니다.\n\n이 분석은 YOLO가 global context(이미지 전체 맥락)를 잘 활용해 배경 오탐을 줄이는 대신, 정확한 위치 예측에서는 한계가 있다는 점을 보여줍니다.\n\n특히 작은 object에서는 bounding box의 정확도가 떨어지는 경향이 있었습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_11_1",
+          "easy_paragraph_text": "VOC 2007 dataset을 기준으로 error analysis(오류 분석)를 수행했습니다. YOLO는 background error(배경을 물체로 잘못 탐지하는 오류)가 적었지만, localization error(위치 오차)는 상대적으로 높았습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_11_2",
+          "easy_paragraph_text": "이 분석은 YOLO가 global context(이미지 전체 맥락)를 잘 활용해 배경 오탐을 줄이는 대신, 정확한 위치 예측에서는 한계가 있다는 점을 보여줍니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_11_3",
+          "easy_paragraph_text": "특히 작은 object에서는 bounding box의 정확도가 떨어지는 경향이 있었습니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_12",
+      "easy_section_title": "Combining Fast R-CNN and YOLO",
+      "easy_section_type": "section",
+      "easy_section_order": 12,
+      "easy_section_level": 1,
+      "easy_content": "YOLO와 Fast R-CNN을 결합했을 때 성능이 개선되었습니다. YOLO는 background error를 줄이는 데 강점이 있고, Fast R-CNN은 localization accuracy(위치 정확도)에서 강점이 있습니다.\n\n두 방법을 결합하면 서로의 단점을 보완할 수 있어, 더 높은 mAP를 얻을 수 있었습니다. 이는 ensemble(앙상블, 여러 모델을 조합하는 방식)의 장점을 잘 보여줍니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_12_1",
+          "easy_paragraph_text": "YOLO와 Fast R-CNN을 결합했을 때 성능이 개선되었습니다. YOLO는 background error를 줄이는 데 강점이 있고, Fast R-CNN은 localization accuracy(위치 정확도)에서 강점이 있습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_12_2",
+          "easy_paragraph_text": "두 방법을 결합하면 서로의 단점을 보완할 수 있어, 더 높은 mAP를 얻을 수 있었습니다. 이는 ensemble(앙상블, 여러 모델을 조합하는 방식)의 장점을 잘 보여줍니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_13",
+      "easy_section_title": "VOC 2012 Results",
+      "easy_section_type": "section",
+      "easy_section_order": 13,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 VOC 2012 dataset(객체 탐지 벤치마크 데이터셋)에서도 평가되었습니다. 다른 detection system(탐지 시스템)과 비교했을 때 YOLO는 뛰어난 detection speed(탐지 속도)를 유지하면서도 합리적인 수준의 mAP(mean Average Precision, 평균 정확도)를 기록했습니다.\n\n비록 localization error(위치 오차)는 region proposal 기반 방법보다 높았지만, background error(배경 오탐지)가 적어 전반적으로 안정적인 성능을 보였습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_13_1",
+          "easy_paragraph_text": "YOLO는 VOC 2012 dataset(객체 탐지 벤치마크 데이터셋)에서도 평가되었습니다. 다른 detection system(탐지 시스템)과 비교했을 때 YOLO는 뛰어난 detection speed(탐지 속도)를 유지하면서도 합리적인 수준의 mAP(mean Average Precision, 평균 정확도)를 기록했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_13_2",
+          "easy_paragraph_text": "비록 localization error(위치 오차)는 region proposal 기반 방법보다 높았지만, background error(배경 오탐지)가 적어 전반적으로 안정적인 성능을 보였습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_14",
+      "easy_section_title": "Speed",
+      "easy_section_type": "section",
+      "easy_section_order": 14,
+      "easy_section_level": 1,
+      "easy_content": "YOLO의 가장 큰 장점 중 하나는 speed(속도)입니다. YOLO는 단일 neural network 실행만으로 결과를 얻기 때문에 초당 수십 frame per second(FPS, 프레임) 처리 속도를 달성합니다.\n\n이는 기존 region proposal 기반 방법보다 수십 배 이상 빠르며, real-time detection(실시간 탐지)을 가능하게 만듭니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_14_1",
+          "easy_paragraph_text": "YOLO의 가장 큰 장점 중 하나는 speed(속도)입니다. YOLO는 단일 neural network 실행만으로 결과를 얻기 때문에 초당 수십 frame per second(FPS, 프레임) 처리 속도를 달성합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_14_2",
+          "easy_paragraph_text": "이는 기존 region proposal 기반 방법보다 수십 배 이상 빠르며, real-time detection(실시간 탐지)을 가능하게 만듭니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_15",
+      "easy_section_title": "Generalizability: Person Detection in Artwork",
+      "easy_section_type": "section",
+      "easy_section_order": 15,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 일반적인 사진뿐 아니라 artwork(예술 작품) 같은 비정형적인 데이터에도 적용해 실험했습니다. 예를 들어 그림 속 인물을 찾는 person detection(사람 탐지) 실험에서 YOLO는 다른 시스템보다 더 나은 generalization(일반화 성능)을 보였습니다.\n\n이는 YOLO가 global context(전체 맥락)를 고려하기 때문에 domain shift(데이터 특성이 다른 상황)에도 비교적 강인하다는 점을 보여줍니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_15_1",
+          "easy_paragraph_text": "YOLO는 일반적인 사진뿐 아니라 artwork(예술 작품) 같은 비정형적인 데이터에도 적용해 실험했습니다. 예를 들어 그림 속 인물을 찾는 person detection(사람 탐지) 실험에서 YOLO는 다른 시스템보다 더 나은 generalization(일반화 성능)을 보였습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_15_2",
+          "easy_paragraph_text": "이는 YOLO가 global context(전체 맥락)를 고려하기 때문에 domain shift(데이터 특성이 다른 상황)에도 비교적 강인하다는 점을 보여줍니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_16",
+      "easy_section_title": "Real-Time Detection In The Wild",
+      "easy_section_type": "section",
+      "easy_section_order": 16,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 실제 환경(in the wild)에서도 real-time detection(실시간 탐지)이 가능함을 보여주었습니다. 일반 도로, 사람 많은 장소, 다양한 환경에서 카메라 입력을 처리하면서도 높은 FPS와 안정적인 정확도를 유지했습니다.\n\n이는 robotics(로보틱스), autonomous driving(자율주행), surveillance(감시 시스템) 등 응용에서 매우 중요한 장점입니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_16_1",
+          "easy_paragraph_text": "YOLO는 실제 환경(in the wild)에서도 real-time detection(실시간 탐지)이 가능함을 보여주었습니다. 일반 도로, 사람 많은 장소, 다양한 환경에서 카메라 입력을 처리하면서도 높은 FPS와 안정적인 정확도를 유지했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_16_2",
+          "easy_paragraph_text": "이는 robotics(로보틱스), autonomous driving(자율주행), surveillance(감시 시스템) 등 응용에서 매우 중요한 장점입니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_17",
+      "easy_section_title": "Conclusion",
+      "easy_section_type": "section",
+      "easy_section_order": 17,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 object detection을 새로운 방식으로 재정의하여, 빠르고 단순하며 통합된 detection system을 제시했습니다. 이 접근은 real-time detection에 적합하며, 여러 응용 분야에서 강점을 보여주었습니다.\n\n비록 작은 object와 localization accuracy(위치 정확도)에서는 한계가 있지만, YOLO는 이후 많은 연구의 기반이 되었고, object detection 분야의 중요한 전환점이 되었습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_17_1",
+          "easy_paragraph_text": "YOLO는 object detection을 새로운 방식으로 재정의하여, 빠르고 단순하며 통합된 detection system을 제시했습니다. 이 접근은 real-time detection에 적합하며, 여러 응용 분야에서 강점을 보여주었습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_17_2",
+          "easy_paragraph_text": "비록 작은 object와 localization accuracy(위치 정확도)에서는 한계가 있지만, YOLO는 이후 많은 연구의 기반이 되었고, object detection 분야의 중요한 전환점이 되었습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_visualizations": []
+    }
+  ],
+  "metadata": {
+    "generated_at": "2025-09-22 10:30:00",
+    "easy_model_version": "yolo-easy-qlora-checkpoint-200",
+    "total_processing_time": 0,
+    "visualization_triggers": 0,
+    "total_paragraphs": 35,
+    "section_types": {
+      "section": 17,
+      "subsection": 0
+    },
+    "processing_status": "success",
+    "error_count": 0,
+    "warnings": [],
+    "errors": []
+  }
+}

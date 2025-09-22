@@ -1081,7 +1081,7 @@ export default function Upload() {
 
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-
+    
     console.warn("⚠️ [통합] Math 모델 처리 타임아웃, 계속 진행");
   };
 
