@@ -967,7 +967,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   }
 
   return (
-    <div className="container">
+    <div className="container" style={{ fontFamily: "'Noto Sans KR', 'Inter', 'Segoe UI', 'Apple SD Gothic Neo', Arial, sans-serif" }}>
       {createTableOfContents()}
 
       <div className="main-content">
@@ -991,10 +991,6 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               <span id="paper-venue">
                 {integratedData.paper_info.paper_venue}
               </span>
-            </p>
-            <p>
-              <strong>논문 ID:</strong>{" "}
-              <span id="paper-id">{integratedData.paper_info.paper_id}</span>
             </p>
           </div>
         </header>
