@@ -40,15 +40,104 @@ class FinalResult(BaseModel):
     easy: Dict[str, List[EasyFileItem]]
 
 
+# ---- 통합 결과용 새로운 스키마들 ----
+class PaperInfo(BaseModel):
+    paper_id: str
+    paper_title: Optional[str] = None
+    paper_authors: Optional[str] = None
+    paper_venue: Optional[str] = None
+    total_sections: int = 0
+    total_equations: int = 0
+    total_visualizations: int = 0
+
+
+class EasyParagraph(BaseModel):
+    easy_paragraph_id: str
+    easy_paragraph_text: Optional[str] = None
+    easy_visualization_trigger: bool = False
+
+
+class EasyVisualization(BaseModel):
+    viz_id: int
+    viz_type: Optional[str] = None
+    viz_title: Optional[str] = None
+    viz_description: Optional[str] = None
+    viz_image_path: Optional[str] = None
+    viz_metadata: Optional[Dict[str, Any]] = None
+
+
+class EasySection(BaseModel):
+    easy_section_id: str
+    easy_section_title: Optional[str] = None
+    easy_section_type: Optional[str] = None
+    easy_section_order: Optional[int] = None
+    easy_section_level: Optional[int] = None
+    easy_section_parent: Optional[str] = None
+    easy_content: Optional[str] = None
+    easy_paragraphs: List[EasyParagraph] = []
+    easy_visualizations: List[EasyVisualization] = []
+
+
+class MathEquation(BaseModel):
+    math_equation_id: str
+    math_equation_latex: Optional[str] = None
+    math_equation_explanation: Optional[str] = None
+    math_equation_section_ref: Optional[str] = None
+
+
+class IntegratedResult(BaseModel):
+    paper_info: PaperInfo
+    easy_sections: List[EasySection] = []
+    math_equations: List[MathEquation] = []
+    processing_status: str = "pending"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 @router.get("/{tex_id}", response_model=FinalResult)
 async def get_results(tex_id: int):
     """
-    프론트 템플릿에서 바로 사용할 수 있는 최종 결과 JSON
+    프론트 템플릿에서 바로 사용할 수 있는 최종 결과 JSON (기존 방식)
     """
     data = await DB.fetch_results(tex_id)
     if not data:
         raise HTTPException(status_code=404, detail="result not ready")
     return data
+
+
+@router.get("/{tex_id}/integrated", response_model=IntegratedResult)
+async def get_integrated_results(tex_id: int):
+    """
+    통합 결과 조회 (새로운 구조)
+    """
+    data = await DB.get_integrated_result(tex_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="integrated result not found")
+    return data
+
+
+@router.get("/db/status")
+async def get_database_status():
+    """
+    데이터베이스 연결 상태 및 테이블 정보 조회
+    """
+    try:
+        # 연결 테스트
+        connection_ok = await DB.test_connection()
+        
+        # 테이블 정보 조회
+        table_info = await DB.get_table_info()
+        
+        return {
+            "connection": "ok" if connection_ok else "failed",
+            "mode": DB.mode,
+            "table_info": table_info
+        }
+    except Exception as e:
+        return {
+            "connection": "failed",
+            "error": str(e)
+        }
 
 
 @router.get("/{tex_id}/status")

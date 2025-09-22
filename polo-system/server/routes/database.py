@@ -55,7 +55,7 @@ async def create_user(user_data: UserCreate):
     """
     try:
         # 이메일 중복 확인
-        async with DB.session() as session:
+        async with DB.session()() as session:
             result = await session.execute(
                 select(User).where(User.email == user_data.email)
             )
@@ -96,7 +96,7 @@ async def login(login_data: UserLogin):
     로그인
     """
     try:
-        async with DB.session() as session:
+        async with DB.session()() as session:
             # 사용자 조회
             result = await session.execute(
                 select(User).where(User.email == login_data.email)
@@ -135,7 +135,7 @@ async def get_users():
     사용자 목록 조회 (로그인 상태 확인용)
     """
     try:
-        async with DB.session() as session:
+        async with DB.session()() as session:
             result = await session.execute(select(User))
             users = result.scalars().all()
             
@@ -161,7 +161,7 @@ async def get_database_stats():
     데이터베이스 통계 (간단한 버전)
     """
     try:
-        async with DB.session() as session:
+        async with DB.session()() as session:
             # 사용자 수 조회
             result = await session.execute(select(User))
             users = result.scalars().all()
