@@ -10,21 +10,22 @@ from matplotlib.font_manager import FontProperties
 import matplotlib as mpl
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import Optional
 import uvicorn
 
-# GPU/CPU 디바이스 설정 (GPU 메모리 절약을 위해 CPU 강제 사용)
 DEVICE = "cpu"
 GPU_AVAILABLE = False
 
-# matplotlib 설정
 mpl.rcParams["savefig.dpi"] = 220
-mpl.rcParams["figure.dpi"]  = 220
+mpl.rcParams["figure.dpi"] = 220
 mpl.rcParams["axes.unicode_minus"] = False
 
 print("🔧 Viz 서비스: CPU 모드로 실행 (GPU 메모리 절약)")
 print(f"🔧 디바이스: {DEVICE}")
 
+# -----------------------
+# Helper functions
+# -----------------------
 _MT_MAP = {
     "≈": r"$\approx$", "×": r"$\times$", "∈": r"$\in$",
     "→": r"$\rightarrow$", "≥": r"$\geq$", "≤": r"$\leq$", "−": "-"
@@ -66,6 +67,47 @@ def _present_families(candidates):
             present.append(fam)
     return present
 
+def _as_text(maybe):
+    if maybe is None:
+        return ""
+    if isinstance(maybe, str):
+        return maybe.strip()
+    if isinstance(maybe, list):
+        parts = []
+        for x in maybe:
+            if isinstance(x, str) and x.strip():
+                parts.append(x.strip())
+            elif isinstance(x, dict):
+                t = x.get("text") or x.get("content") or x.get("value")
+                if isinstance(t, str) and t.strip():
+                    parts.append(t.strip())
+        return "\n".join([p for p in parts if p])
+    if isinstance(maybe, dict):
+        t = maybe.get("text") or maybe.get("content") or maybe.get("value")
+        return t.strip() if isinstance(t, str) else ""
+    return ""
+
+def _extract_para_text(p: dict) -> str:
+    orig = _as_text(p.get("easy_paragraph_text"))
+    a = _as_text(p.get("easy_content"))
+    b = _as_text(p.get("easy_paragraph_content"))
+    c = _as_text(p.get("content"))
+    d = _as_text(p.get("rewritten_text"))
+    e = _as_text(p.get("text"))
+
+    pieces = [x for x in [orig, a, b, c, d, e] if x]
+    if not pieces:
+        return ""
+
+    seen = set()
+    merged = []
+    for seg in pieces:
+        key = seg.strip()
+        if key and key not in seen:
+            merged.append(seg)
+            seen.add(key)
+    return "\n".join(merged).strip()
+
 def _setup_matplotlib_fonts():
     here = Path(__file__).parent
     font_file_candidates = [
@@ -93,7 +135,7 @@ def _setup_matplotlib_fonts():
     ]
     sym_candidates = ["Noto Sans Symbols 2", "Segoe UI Symbol", "DejaVu Sans"]
 
-    kr_present  = _present_families(kr_candidates)
+    kr_present = _present_families(kr_candidates)
     sym_present = _present_families(sym_candidates)
 
     family = []
@@ -144,14 +186,16 @@ def _inject_labels_into_inputs(item, inputs, opts):
     if "labels" in item:
         resolved = resolve_label(item["labels"] or {}, opts)
         placed = False
-        for k in ["title","label","name","text"]:
+        for k in ["title", "label", "name", "text"]:
             if not str(inputs.get(k, "")).strip():
-                inputs[k] = resolved; placed = True; break
+                inputs[k] = resolved
+                placed = True
+                break
         if not placed:
             inputs["title"] = resolved
     if "caption_labels" in item:
         cap = merge_caption(item["caption_labels"] or {}, opts)
-        if not str(inputs.get("caption","")).strip():
+        if not str(inputs.get("caption", "")).strip():
             inputs["caption"] = cap
     return inputs
 
@@ -188,47 +232,62 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
         outputs.append({"id": item["id"], "type": item["type"], "path": out_path})
     return outputs
 
-# easy_results.json 파서/실행
-
 def _iter_easy_paragraphs(easy_json_path: str):
-    """
-    easy_results.json에서 (paper_id, section_id, paragraph_id, text) 순회.
-    """
     data = json.loads(Path(easy_json_path).read_text(encoding="utf-8"))
     paper_id = ((data.get("paper_info") or {}).get("paper_id")) or "paper"
     for sec in data.get("easy_sections", []) or []:
         sec_id = sec.get("easy_section_id") or "section"
         for p in (sec.get("easy_paragraphs") or []):
             pid = p.get("easy_paragraph_id") or "p"
-            txt = p.get("easy_paragraph_text") or ""
+            txt = _extract_para_text(p)
             yield paper_id, sec_id, pid, txt
         for sub in (sec.get("easy_subsections") or []):
             sub_id = sub.get("easy_section_id") or sec_id
             for p in (sub.get("easy_paragraphs") or []):
                 pid = p.get("easy_paragraph_id") or "p"
-                txt = p.get("easy_paragraph_text") or ""
+                txt = _extract_para_text(p)
                 yield paper_id, sub_id, pid, txt
 
-
 def sanitize_and_shorten_spec(spec_list, paragraph_id: str) -> list[dict]:
-            """None/결측 스펙 제거 + 짧은 id로 재지정"""
-            clean = []
-            for i, s in enumerate(spec_list or []):
-                if not s or not isinstance(s, dict):  # None 방지
-                    continue
-                if not s.get("type"):                # type 없으면 스킵
-                    continue
-                # 짧은 파일명: 02__bar_group
-                short_id = f"{i:02d}__{s['type']}"
-                s2 = deepcopy(s)
-                s2["id"] = short_id
-                clean.append(s2)
-            return clean
+    clean = []
+    for i, s in enumerate(spec_list or []):
+        if not s or not isinstance(s, dict):
+            continue
+        if not s.get("type"):
+            continue
+        short_id = f"{i:02d}__{s['type']}"
+        s2 = deepcopy(s)
+        s2["id"] = short_id
+        clean.append(s2)
+    return clean
 
-# FastAPI 앱 생성
+# 중복 제거 로직
+NUMERIC_TYPES = {"metric_table", "bar_group", "donut_pct", "curve_generic"}
+EXAMPLE_TYPES = {"activation_curve", "cell_scale"}
+
+def _dedup_specs(spec_list, seen_sigs, seen_example_types):
+    kept = []
+    for s in (spec_list or []):
+        t = s.get("type")
+        inp = s.get("inputs", {}) or {}
+
+        if t in NUMERIC_TYPES:
+            sig = (t, json.dumps(inp, sort_keys=True, ensure_ascii=False))
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+
+        elif t in EXAMPLE_TYPES:
+            if t in seen_example_types:
+                continue
+            seen_example_types.add(t)
+
+        kept.append(s)
+    return kept
+
+# FastAPI
 app = FastAPI(title="POLO Viz Service", version="1.1.0")
 
-# 요청/응답 모델 (기존 엔드포인트 유지)
 class VizRequest(BaseModel):
     paper_id: str
     index: int
@@ -239,7 +298,7 @@ class VizRequest(BaseModel):
 class VizResponse(BaseModel):
     paper_id: str
     index: int
-    paragraph_id: str  
+    paragraph_id: str
     image_path: str
     success: bool
 
@@ -247,46 +306,56 @@ class VizResponse(BaseModel):
 async def health():
     return {"status": "ok", "service": "viz"}
 
-# 렌더 엔드포인트
 @app.post("/viz", response_model=VizResponse)
 async def generate_viz(request: VizRequest):
-    """
-    (JSON 전용) easy_results.json을 읽어서 index번째 문단을 시각화.
-    - 결과 파일명: <easy_paragraph_id>__<spec-id>.png
-    - 출력 경로: server/data/viz/<paper_id>/<section_id>/<paragraph_id>/
-    """
     try:
         _ensure_grammars_loaded()
         from text_to_spec import auto_build_spec_from_text
 
-        # easy_results.json 경로: app.py와 같은 폴더
         here = Path(__file__).parent
         easy_path = here / "easy_results.json"
         if not easy_path.exists():
             raise HTTPException(status_code=400, detail=f"입력 JSON이 없습니다: {easy_path}")
 
-        # 문단 평탄화 리스트 구성
         paras = list(_iter_easy_paragraphs(str(easy_path)))
         if not paras:
             raise HTTPException(status_code=400, detail="easy_results.json에 문단이 없습니다.")
-        
-        # 인덱스 검사: -1(전체 처리) 허용하도록 수정
+
         if request.index != -1 and not (0 <= request.index < len(paras)):
             raise HTTPException(status_code=400, detail=f"index 범위를 벗어났습니다(0~{len(paras)-1} 또는 -1).")
-        
-        # index = -1 이면 전체 처리
+
+        seen_sigs = set()
+        seen_example_types = set()
+
         if request.index == -1:
+            first_paper_id = paras[0][0]
+            server_dir = Path(__file__).resolve().parent.parent / "server"
+            paper_root = server_dir / "data" / "viz" / first_paper_id
+
+            import shutil
+            if paper_root.exists():
+                print(f"🗑️ 전체 삭제: {paper_root}")
+                shutil.rmtree(paper_root)
+            paper_root.mkdir(parents=True, exist_ok=True)
+
             all_outs = []
             for paper_id, section_id, paragraph_id, text in paras:
                 if not text or not text.strip():
                     continue
+
                 spec = auto_build_spec_from_text(text)
                 spec = sanitize_and_shorten_spec(spec, paragraph_id)
                 if not spec:
                     continue
+
+                spec = _dedup_specs(spec, seen_sigs, seen_example_types)
+                if not spec:
+                    continue
+
                 outdir = (Path(__file__).resolve().parent.parent / "server" /
                         "data" / "viz" / paper_id / section_id / paragraph_id)
                 outdir.mkdir(parents=True, exist_ok=True)
+
                 outs = render_from_spec(
                     spec, str(outdir),
                     target_lang=request.target_lang,
@@ -298,47 +367,43 @@ async def generate_viz(request: VizRequest):
             if not all_outs:
                 raise HTTPException(status_code=500, detail="생성된 이미지가 없습니다.")
 
-            # 대표 1장만 응답(파이프라인 호환). 필요하면 리스트 반환으로 바꿔도 됨.
             image_path = all_outs[0]["path"] + f"?rev={time.time_ns()}"
             return VizResponse(
-                paper_id=paras[0][0],
+                paper_id=first_paper_id,
                 index=request.index,
                 paragraph_id=paras[0][2],
                 image_path=image_path,
                 success=True
             )
 
-        # 대상 문단 선택
         paper_id, section_id, paragraph_id, text = paras[request.index]
         if not text.strip():
             raise HTTPException(status_code=400, detail=f"선택한 문단({paragraph_id})에 텍스트가 없습니다.")
 
-        # 스펙 생성
         spec = auto_build_spec_from_text(text)
         spec = sanitize_and_shorten_spec(spec, paragraph_id)
         if not spec:
             raise HTTPException(status_code=500, detail="이미지 생성 실패 (스펙 없음)")
 
-        # 출력 디렉토리 (문단별)
-        server_dir = Path(__file__).resolve().parent.parent / "server"  # polo-system/server
+        spec = _dedup_specs(spec, seen_sigs, seen_example_types)
+
+        server_dir = Path(__file__).resolve().parent.parent / "server"
         outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
         outdir.mkdir(parents=True, exist_ok=True)
 
-        # 렌더
         outputs = render_from_spec(
             spec,
             str(outdir),
             target_lang=request.target_lang,
             bilingual=request.bilingual,
-            clear_outdir=True  # 문단 폴더는 덮어써도 안전
+            clear_outdir=True
         )
 
         if not outputs:
             raise HTTPException(status_code=500, detail="이미지 생성 실패 (스펙 없음)")
 
-        # 첫 이미지 반환 (여러 개면 프론트에서 리스트화를 원할 수도 있음)
         image_path = outputs[0]["path"]
-        rev = str(time.time_ns())  # 캐시 우회
+        rev = str(time.time_ns())
         image_path_versioned = f"{image_path}?rev={rev}"
 
         return VizResponse(
@@ -353,14 +418,15 @@ async def generate_viz(request: VizRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/viz 실행 실패: {str(e)}")
 
-# 실행 진입점
+# -----------------------
+# Main entry
+# -----------------------
 if __name__ == "__main__":
     port = int(os.getenv("VIZ_PORT", "5005"))
     print("🎨 POLO Viz Service 시작")
     print(f"🔧 디바이스: {DEVICE} (CPU 모드)")
     print(f"📊 포트: {port}")
 
-    # 부트 시 easy_results.json 자동 테스트 (있을 때만)
     try:
         _ensure_grammars_loaded()
         from text_to_spec import auto_build_spec_from_text
@@ -368,37 +434,55 @@ if __name__ == "__main__":
         here = Path(__file__).parent
         easy_path = here / "easy_results.json"
         if easy_path.exists():
-            print(f"easy_results.json 발견 → 문단별 테스트 렌더링 실행...")
-            # 서버 경로
-            server_dir = Path(__file__).resolve().parent.parent / "server"
-            cnt = 0
-            for paper_id, section_id, paragraph_id, text in _iter_easy_paragraphs(str(easy_path)):
-                if not text.strip():
-                    print(f"[SKIP] {section_id}/{paragraph_id} (empty)")
-                    continue
-                try:
-                    spec = auto_build_spec_from_text(text)
-                    print(f"[DEBUG] {section_id}/{paragraph_id} text_len={len(text)} raw_spec={len(spec or [])}")
-                    spec = sanitize_and_shorten_spec(spec, paragraph_id)
-                    print(f"[DEBUG] {section_id}/{paragraph_id} clean_spec={len(spec)}")
-                    if not spec:
-                        print(f"[SKIP] {section_id}/{paragraph_id} (no spec after sanitize)")
+            print(f"easy_results.json 발견 → 전체 렌더링 실행...")
+
+            paras = list(_iter_easy_paragraphs(str(easy_path)))
+            if not paras:
+                print("⚠️ easy_results.json 비어있음 → 종료")
+            else:
+                first_paper_id = paras[0][0]
+                server_dir = Path(__file__).resolve().parent.parent / "server"
+                paper_root = server_dir / "data" / "viz" / first_paper_id
+                import shutil
+                if paper_root.exists():
+                    print(f"🗑️ 전체 삭제: {paper_root}")
+                    shutil.rmtree(paper_root)
+                paper_root.mkdir(parents=True, exist_ok=True)
+
+                seen_sigs = set()
+                seen_example_types = set()
+                cnt = 0
+                for paper_id, section_id, paragraph_id, text in paras:
+                    if not text.strip():
+                        print(f"[SKIP] {section_id}/{paragraph_id} (empty)")
                         continue
+                    try:
+                        spec = auto_build_spec_from_text(text)
+                        rs = len(spec or [])
+                        print(f"[DEBUG] {section_id}/{paragraph_id} raw_spec={rs}")
+                        if rs == 0:
+                            import re
+                            digits = len(re.findall(r"\d", text))
+                            head = text[:160].replace("\n", " ")
+                            print(f"  ↳ text_len={len(text)}, digits={digits}, head='{head}...'")
+                        spec = sanitize_and_shorten_spec(spec, paragraph_id)
+                        spec = _dedup_specs(spec, seen_sigs, seen_example_types)
+                        print(f"[DEBUG] {section_id}/{paragraph_id} clean_spec={len(spec)}")
+                        if not spec:
+                            continue
 
-                    spec = auto_build_spec_from_text(text)
-                    spec = sanitize_and_shorten_spec(spec, paragraph_id)
-                    outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
-                    outdir.mkdir(parents=True, exist_ok=True)
-                    outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing", clear_outdir=True)
-                    for o in outs:
-                        print(f" [{section_id}/{paragraph_id}] → {o['path']}")
-                        cnt += 1
+                        outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
+                        outdir.mkdir(parents=True, exist_ok=True)
+                        outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing", clear_outdir=True)
+                        for o in outs:
+                            print(f" [{section_id}/{paragraph_id}] → {o['path']}")
+                            cnt += 1
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERR] {section_id}/{paragraph_id}: {e}")
+                        traceback.print_exc()
 
-                except Exception as e:
-                    import traceback
-                    print(f"[ERR] {section_id}/{paragraph_id}: {e}")
-                    traceback.print_exc()
-            print(f"✅ 테스트 렌더 완료: {cnt} 개")
+                print(f"✅ 전체 렌더 완료: {cnt} 개")
         else:
             print("ℹ️ easy_results.json 없음, API 서버만 실행")
     except Exception as e:

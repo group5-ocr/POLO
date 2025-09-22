@@ -882,38 +882,32 @@ def _ensure_activation_fallback(mentions_set: set, spec_list: list):
     })
     return spec_list
 
+SEEN_GLOBAL_TYPES = set()
+SEEN_METRIC_SIGNATURES = set()   # (type, inputs 시그니처) 전역 중복 제거
+
 def postprocess_specs(text: str, spec_list: list, mentions) -> list:
-    """
-    전 타입 공통 후처리:
-    - cell_scale: 'viz.trigger.cell_scale' 트리거가 있을 때만 통과
-    - bar_group: 0~1 → % 보정; 구조 통일 후 중복 제거
-    - metric_table/donut_pct/curve_generic/activation_curve/도식류: 중복 제거
-    - 활성화 fallback: activation_panel 트리거가 있고 활성화 도식이 하나도 없을 때만 1장 추가
-    """
+    global SEEN_GLOBAL_TYPES, SEEN_METRIC_SIGNATURES
+
     ids = _to_id_set(mentions)
-    allow_cell_scale = ("viz.trigger.cell_scale" in ids)
 
-    seen = set()
-    seen_metric_family = set()
+    allow_cell_scale = True
+
+    EXAMPLE_ONE_SHOT_TYPES = {
+        # 예시/개념으로만 한정 (필요 최소만 유지)
+        "cell_scale",        # 같은 예시 반복 방지
+        # "activation_curve", "curve_generic" 는 실제 데이터 기반일 수 있어 제외
+        # generic concept 도식 타입이 따로 있다면 여기에 추가
+    }
+
+    METRIC_CONTENT_TYPES = {
+        "metric_table", "bar_group", "donut_pct",
+        "stack_bar", "histogram", "dist_scatter",
+        "ber_vs_snr", "ber_vs_rounds",
+        "curve_generic", "iou_overlap"
+    }
+
+    seen_sig = set()  # (문단 내) 동일 시그니처 중복 제거
     out = []
-
-    def _metric_family_key(item):
-        """정밀도/재현율/mAP 등 family를 라벨/제목/헤더에서 간단 추출."""
-        inp = item.get("inputs", {}) or {}
-        title = str(item.get("labels") or inp.get("title") or inp.get("label") or "").lower()
-        textish = " ".join(map(str, [title, inp.get("caption","")])).lower()
-        headers = [str(h).lower() for h in (inp.get("headers") or inp.get("cols") or [])]
-        blob = " ".join(headers + [textish])
-        for key, fam in {
-            "map": "map",
-            "mAP": "map",
-            "정밀도": "precision", "precision": "precision",
-            "재현율": "recall", "recall": "recall",
-            "f1": "f1"
-        }.items():
-            if key.lower() in blob:
-                return fam
-        return None
 
     for it in (spec_list or []):
         if not isinstance(it, dict):
@@ -922,58 +916,37 @@ def postprocess_specs(text: str, spec_list: list, mentions) -> list:
         t = it.get("type")
         inp = it.get("inputs", {}) or {}
 
-        # 1) cell_scale: 트리거 없으면 차단
+        # cell_scale 트리거 없으면 제외
         if t == "cell_scale" and not allow_cell_scale:
             continue
 
-        # 2) bar_group 스케일 보정
+        # bar_group 0~1 → % 보정
         if t == "bar_group":
             it = _scale_bar_group_percent_if_needed(it)
             inp = it.get("inputs", {}) or {}
 
-        # 3) 시그니처 생성(타입별)
-        if t == "metric_table":
-            headers = tuple(inp.get("headers") or inp.get("cols") or [])
-            rows = inp.get("rows") or inp.get("data") or []
-            sig = (t, ("headers", _norm_value(headers)), ("rows", _norm_value(rows)))
-            # 같은 metric family는 한 번만(데이터 완전 동일/유사일 때)
-            fam = _metric_family_key(it)
-            if fam:
-                fam_sig = (t, fam)
-                if fam_sig in seen_metric_family:
-                    # 그래도 데이터가 크게 다르면 통과시키고, 같거나 거의 같으면 스킵
-                    if sig in seen: 
-                        continue
-                else:
-                    seen_metric_family.add(fam_sig)
+        # 예시/개념: 타입 단위 전역 1회
+        if t in EXAMPLE_ONE_SHOT_TYPES:
+            if t in SEEN_GLOBAL_TYPES:
+                continue
+            SEEN_GLOBAL_TYPES.add(t)
 
-        elif t == "bar_group":
-            mode, canon = _canonical_bar_series(inp.get("series"))
-            if mode == "dict":
-                sig = (t, ("x", _norm_value(inp.get("x_labels") or inp.get("labels") or [])),
-                        ("series", _norm_value(canon)))
-            elif mode == "list":
-                # list는 (name, values) 튜플 목록으로 고정
-                sig = (t, ("x", _norm_value(inp.get("x_labels") or inp.get("labels") or [])),
-                        ("series", tuple((s.get("name",""), tuple(s.get("values") or [])) for s in canon)))
-            else:
-                sig = (t, _norm_value(inp))
+        # 지표/표/그래프: 내용이 같으면 전역 1회
+        if t in METRIC_CONTENT_TYPES:
+            sig_global = (t, _norm_value(inp))  # 내용 시그니처(정규화 입력값)
+            if sig_global in SEEN_METRIC_SIGNATURES:
+                continue
+            SEEN_METRIC_SIGNATURES.add(sig_global)
 
-        elif t == "donut_pct":
-            labels = tuple(inp.get("labels") or [])
-            values = tuple(inp.get("values") or inp.get("percents") or [])
-            sig = (t, ("labels", _norm_value(labels)), ("values", _norm_value(values)))
-
-        else:
-            # curve_generic / activation_curve / pipeline_* / heatmap_* / scatter_* 등
-            sig = (t, _norm_value(inp))
-
-        if sig in seen:
+        # (문단 범위) 동일 시그니처 중복 제거
+        sig_local = (t, _norm_value(inp))
+        if sig_local in seen_sig:
             continue
-        seen.add(sig)
+        seen_sig.add(sig_local)
+
         out.append(it)
 
-    # 4) 활성화 fallback (트리거가 있을 때만, 이미 있으면 추가 X)
+    # activation fallback (트리거 있을 때만, 이미 있으면 추가 X)
     out = _ensure_activation_fallback(ids, out)
     return out
 

@@ -19,7 +19,7 @@ def _iou(a, b):
 
 def render_iou_overlap(inputs, out_path):
     A = inputs.get("A", [0.15, 0.15, 0.55, 0.55])
-    B = inputs.get("B", [0.35, 0.25, 0.55, 0.55])
+    B = inputs.get("B", [0.15 + 0.2162726556, 0.15 + 0.08, 0.55, 0.55])
 
     # 받은 iou가 신뢰 구간(0.01~0.99)이면 사용, 아니면 박스 A/B로 계산
     iou_from_input = inputs.get("iou", None)

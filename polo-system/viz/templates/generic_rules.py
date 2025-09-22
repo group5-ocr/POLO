@@ -168,22 +168,6 @@ def _find_glossary_path_here():
             return str(p)
     return None
 
-def _load_glossary_local():
-    gp = _find_glossary_path_here()
-    if not gp:
-        return []
-    return json.loads(Path(gp).read_text(encoding="utf-8"))
-
-def _compile_patterns(entry: Dict[str, Any]):
-    pats = []
-    for lang in ("en", "ko"):
-        for pat in entry.get("regex", {}).get(lang, []):
-            try:
-                pats.append(re.compile(pat, re.IGNORECASE if lang == "en" else 0))
-            except re.error:
-                pass
-    return pats
-
 def _has_trigger(concept_idx: dict, key: str, text: str) -> bool:
     """key가 concept_id면 그 패턴만, category면 해당 카테고리 아무 패턴 매칭되면 True"""
     meta = concept_idx.get(key)
@@ -374,5 +358,71 @@ def build_concept_specs(text: str, spec: list,
                 "inputs":{"matrix": M, "labels": ["Neg","Pos"],
                         "title": _label("Confusion Matrix","혼동행렬")}
             })
+
+    # YOLO 학습/추론 플로우 (viz.trigger.yolo_training_flow)
+    if _has("viz.trigger.yolo_training_flow"):
+        # [한글 주석] 텍스트에 '책임 박스', 'λ_coord/λ_noobj', 'NMS' 등 키워드가 있을 때 glossary 트리거
+        nodes = [
+            {"id":"img","label":_label("Input Image","입력 이미지")},
+            {"id":"grid","label":_label("Grid cells (S×S)","그리드 셀 (S×S)")},
+            {"id":"pred","label":_label("Boxes + Scores + Class prob.","박스+점수+클래스확률")},
+            {"id":"assign","label":_label("Max IoU → responsible box","최대 IoU → 책임 박스")},
+            {"id":"loss","label":_label("Loss (coord/size/conf/cls)","손실(좌표/크기/신뢰도/분류)")},
+            {"id":"nms","label":_label("NMS","NMS")}
+        ]
+        edges = [
+            {"src":"img","dst":"grid"},
+            {"src":"grid","dst":"pred"},
+            {"src":"pred","dst":"assign"},
+            {"src":"assign","dst":"loss"},
+            {"src":"pred","dst":"nms"}
+        ]
+        spec.append({
+            "id":"yolo_train_flow",
+            "type":"flow_arch",
+            "labels":_label("YOLO training/inference flow","YOLO 학습/추론 플로우"),
+            "inputs":{"title":_label("YOLO training/inference flow","YOLO 학습/추론 플로우"),
+                    "nodes":nodes,"edges":edges}
+        })
+
+    # 손실 가중치 비교 바 (viz.trigger.loss_weights)
+    if _has("viz.trigger.loss_weights"):
+        # [한글 주석] 텍스트에서 λ_coord, λ_noobj 값을 추출 (표기 다양성 커버)
+        m1 = re.search(r"λ\s*coord\s*=\s*([0-9]+(?:\.[0-9]+)?)", text, re.I)
+        m2 = re.search(r"λ\s*noobj\s*=\s*([0-9]+(?:\.[0-9]+)?)", text, re.I)
+        if not (m1 and m2):
+            m1 = re.search(r"lambda[_\s]*coord\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)", text, re.I) or m1
+            m2 = re.search(r"lambda[_\s]*noobj\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)", text, re.I) or m2
+        if m1 and m2:
+            lam_coord = float(m1.group(1))
+            lam_noobj = float(m2.group(1))
+            spec.append({
+                "id":"loss_weights_bar",
+                "type":"bar_group",
+                "labels":{"ko":"손실 가중치 비교","en":"Loss weights"},
+                "inputs":{
+                    "title":{"ko":"손실 가중치 (λ)","en":"Loss weights (λ)"},
+                    "ylabel":{"ko":"가중치 값","en":"weight"},
+                    "categories":["λ_coord","λ_noobj"],
+                    "series":[{"label":{"ko":"가중치","en":"weight"},
+                            "values":[lam_coord, lam_noobj]}],
+                    "legend": False
+                }
+            })
+
+    # 7×7×30 텐서 캡션 보강 (viz.trigger.yolo_tensor_7x7x30)
+    if _has("viz.trigger.yolo_tensor_7x7x30"):
+        # [한글 주석] 렌더러가 캡션을 지원하므로 작은 더미 테이블 형태로 캡션만 노출
+        spec.append({
+            "id":"tensor_caption_7x7x30",
+            "type":"metric_table",
+            "labels":{"ko":"출력 텐서 설명","en":"Output tensor"},
+            "caption_labels":{"ko":"7×7×30: 셀 7×7, 각 셀당 30차원(2×박스(5) + 20×클래스)","en":"7×7×30: 7×7 cells, 30 dims per cell (2 boxes×5 + 20 classes)"},
+            "inputs":{
+                "methods": [" "], "metrics": [" "], "values": [[0]],
+                "title":{"ko":"출력 텐서 설명","en":"Output tensor"},
+                "caption_bottom": 0.10, "caption_y": 0.02
+            }
+        })
 
     return spec
