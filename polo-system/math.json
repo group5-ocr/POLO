@@ -1,0 +1,146 @@
+{
+  "overview": "수학 모델이 생성하는 JSON 구조 - 수식 설명 및 분석",
+  "paper_info": {
+    "paper_id": "yolo_v1_analysis",
+    "paper_title": "You Only Look Once: Unified, Real-Time Object Detection",
+    "paper_authors": "Joseph Redmon, Santosh Divvala, Ross Girshick, Ali Farhadi",
+    "paper_venue": "CVPR 2016",
+    "total_equations": 6
+  },
+  "math_equations": [
+    {
+      "math_equation_id": "math_equation_1",
+      "math_equation_index": "(1)",
+      "math_equation_latex": "\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+      "math_equation_explanation": "이 수식은 **객체 탐지 신뢰도**를 계산합니다. P(Object)는 해당 격자 셀에 객체가 있을 확률이고, IOU는 예측된 바운딩 박스와 실제 바운딩 박스 간의 **겹침 비율**입니다. 객체가 존재하지 않으면 확률 항은 0이므로 신뢰도 점수도 0입니다.",
+      "math_equation_context": "YOLO의 신뢰도 점수 계산",
+      "math_equation_section_ref": "easy_section_2",
+      "math_equation_type": "inline",
+      "math_equation_env": "",
+      "math_equation_line_start": 120,
+      "math_equation_line_end": 120,
+      "math_equation_variables": [
+        {
+          "variable": "\\Pr(\\textrm{Object})",
+          "description": "객체가 그리드 셀에 존재할 확률"
+        },
+        {
+          "variable": "\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+          "description": "예측된 상자와 실제 상자 사이의 Intersection over Union 점수"
+        }
+      ],
+      "math_equation_importance": "high",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_2",
+      "math_equation_index": "(2)",
+      "math_equation_latex": "\\Pr(\\textrm{Class}_i | \\textrm{Object})",
+      "math_equation_explanation": "이 수식은 **조건부 확률**을 나타냅니다. 객체가 존재할 때, 해당 객체가 클래스 i에 속할 확률을 계산합니다. YOLO에서는 각 격자 셀마다 모든 클래스에 대한 확률을 예측합니다.",
+      "math_equation_context": "YOLO의 클래스 확률 계산",
+      "math_equation_section_ref": "easy_section_2",
+      "math_equation_type": "inline",
+      "math_equation_env": "",
+      "math_equation_line_start": 124,
+      "math_equation_line_end": 124,
+      "math_equation_variables": [
+        {
+          "variable": "\\Pr(\\textrm{Class}_i | \\textrm{Object})",
+          "description": "객체가 존재할 때 클래스 i에 속할 확률"
+        }
+      ],
+      "math_equation_importance": "high",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_3",
+      "math_equation_index": "(3)",
+      "math_equation_latex": "\\Pr(\\textrm{Class}_i | \\textrm{Object}) * \\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}} = \\Pr(\\textrm{Class}_i)*\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+      "math_equation_explanation": "이 수식은 **최종 신뢰도 점수**를 계산합니다. 클래스 확률, 객체 존재 확률, IOU 점수를 모두 곱하여 최종적으로 해당 바운딩 박스가 특정 클래스의 객체를 포함할 신뢰도를 나타냅니다.",
+      "math_equation_context": "YOLO의 최종 신뢰도 점수 계산",
+      "math_equation_section_ref": "easy_section_2",
+      "math_equation_type": "display",
+      "math_equation_env": "equation",
+      "math_equation_line_start": 127,
+      "math_equation_line_end": 130,
+      "math_equation_variables": [
+        {
+          "variable": "\\Pr(\\textrm{Class}_i)",
+          "description": "클래스 i에 속할 확률"
+        }
+      ],
+      "math_equation_importance": "critical",
+      "math_equation_difficulty": "advanced"
+    },
+    {
+      "math_equation_id": "math_equation_4",
+      "math_equation_index": "(4)",
+      "math_equation_latex": "\\phi(x) = \\begin{cases} x, & \\text{if } x > 0\\\\ 0.1x, & \\text{otherwise} \\end{cases}",
+      "math_equation_explanation": "이 수식은 **Leaky ReLU 활성화 함수**를 정의합니다. 양수 입력에 대해서는 입력값을 그대로 반환하고, 음수 입력에 대해서는 0.1을 곱한 값을 반환합니다. 이는 기울기 소실 문제를 완화하는 데 도움이 됩니다.",
+      "math_equation_context": "YOLO 네트워크의 활성화 함수",
+      "math_equation_section_ref": "easy_section_3",
+      "math_equation_type": "display",
+      "math_equation_env": "equation",
+      "math_equation_line_start": 179,
+      "math_equation_line_end": 185,
+      "math_equation_variables": [
+        {
+          "variable": "x",
+          "description": "함수의 입력값"
+        },
+        {
+          "variable": "\\phi(x)",
+          "description": "Leaky ReLU 함수의 출력값"
+        }
+      ],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "beginner"
+    },
+    {
+      "math_equation_id": "math_equation_5",
+      "math_equation_index": "(5)",
+      "math_equation_latex": "\\lambda_\\textbf{coord} \\sum_{i = 0}^{S^2} \\sum_{j = 0}^{B} \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}} \\left[ \\left( x_i - \\hat{x}_i \\right)^2 + \\left( y_i - \\hat{y}_i \\right)^2 \\right]",
+      "math_equation_explanation": "이 수식은 **좌표 손실 함수**의 첫 번째 부분입니다. 예측된 바운딩 박스의 중심 좌표 (x, y)와 실제 바운딩 박스의 중심 좌표 간의 제곱 오차를 계산합니다. λ_coord는 좌표 손실에 대한 가중치입니다.",
+      "math_equation_context": "YOLO의 손실 함수 - 좌표 손실",
+      "math_equation_section_ref": "easy_section_4",
+      "math_equation_type": "display",
+      "math_equation_env": "multline",
+      "math_equation_line_start": 198,
+      "math_equation_line_end": 246,
+      "math_equation_variables": [
+        {
+          "variable": "\\lambda_\\textbf{coord}",
+          "description": "좌표 손실에 대한 가중치"
+        },
+        {
+          "variable": "S^2",
+          "description": "격자 셀의 총 개수"
+        },
+        {
+          "variable": "B",
+          "description": "각 셀당 바운딩 박스 개수"
+        },
+        {
+          "variable": "\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}",
+          "description": "객체가 있는 셀에 대한 지시 함수"
+        }
+      ],
+      "math_equation_importance": "critical",
+      "math_equation_difficulty": "advanced"
+    }
+  ],
+  "metadata": {
+    "generated_at": "2025-01-20T12:00:00Z",
+    "math_model_version": "qwen2.5-math-1.5b",
+    "total_processing_time": 15.3,
+    "equation_types": {
+      "inline": 2,
+      "display": 3
+    },
+    "difficulty_levels": {
+      "beginner": 1,
+      "intermediate": 2,
+      "advanced": 2
+    }
+  }
+}

@@ -692,7 +692,7 @@ async def preprocess_callback(body: PreprocessCallback):
                 
                 # 고정 입력/출력 경로로 강제 설정
                 server_dir = Path(__file__).resolve().parent.parent
-                fixed_tex = server_dir / "data" / "out" / "transformer" / "source" / "merged_body.tex"
+                fixed_tex = server_dir / "data" / "out" / "source" / "merged_body.tex"
                 out_dir = server_dir / "data" / "outputs"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 
@@ -800,8 +800,8 @@ async def send_to_easy(request: ModelSendRequest, bg: BackgroundTasks):
         # 전처리 결과 파일 경로 찾기
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent  # polo-system/server
-        # 고정 입력 경로: transformer/source/merged_body.tex
-        tex_path = server_dir / "data" / "out" / "transformer" / "source" / "merged_body.tex"
+        # 고정 입력 경로: out/source/merged_body.tex
+        tex_path = server_dir / "data" / "out" / "source" / "merged_body.tex"
         if not tex_path.exists():
             print(f"❌ [SERVER] merged_body.tex 파일 없음: {tex_path}")
             raise HTTPException(status_code=404, detail="merged_body.tex 파일을 찾을 수 없습니다")
@@ -929,10 +929,28 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
         print(f"  - tex_path: {str(tex_path)}")
         print(f"  - output_dir: {str(output_dir)}")
         
-        # Math 모델로 실제 처리 실행 (비동기 백그라운드 실행, 즉시 202 반환)
+        # Math 모델로 실제 처리 실행 (Easy 결과 기반)
         async def _run_math_processing():
             try:
                 print(f"🔄 [SERVER] Math 모델 백그라운드 작업 시작...")
+                
+                # Easy 결과 파일 확인 (Math는 Easy 결과를 기반으로 처리)
+                easy_output_dir = server_dir / "data" / "outputs" / paper_id
+                easy_json_path = easy_output_dir / "easy_results.json"
+                
+                if not easy_json_path.exists():
+                    print(f"❌ [SERVER] Easy 결과 파일 없음: {easy_json_path}")
+                    print(f"🔄 [SERVER] Easy 결과 대기 중...")
+                    # Easy 결과 대기 (최대 10분)
+                    for i in range(120):  # 120 * 5초 = 10분
+                        await asyncio.sleep(5)
+                        if easy_json_path.exists():
+                            print(f"✅ [SERVER] Easy 결과 파일 발견: {easy_json_path}")
+                            break
+                        print(f"⏳ [SERVER] Easy 결과 대기 중... ({i+1}/120)")
+                    else:
+                        print(f"❌ [SERVER] Easy 결과 대기 타임아웃")
+                        return
                 
                 # Math 모델 연결 테스트
                 try:
@@ -946,41 +964,64 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                     print(f"❌ [SERVER] Math 모델 연결 테스트 실패: {e}")
                     return
                 
-                # Math 모델로 실제 처리 실행 (/html 엔드포인트 사용)
+                # Math 모델로 실제 처리 실행 (Easy 결과 기반)
                 async with httpx.AsyncClient(timeout=1800) as client:  # 30분 허용
                     print(f"📤 [SERVER] Math 모델로 처리 시작...")
                     
-                    # /html 엔드포인트 사용 (파일 생성 + HTML 생성)
-                    response = await client.get(f"{math_url}/html/{str(tex_path)}")
+                    # Easy 결과를 Math 모델에 전달
+                    # 1. Easy 결과에서 수식이 포함된 섹션들 추출
+                    import json
+                    with open(easy_json_path, 'r', encoding='utf-8') as f:
+                        easy_data = json.load(f)
+                    
+                    # 2. Math 모델에 Easy 결과 전달 (새로운 엔드포인트 사용)
+                    response = await client.post(f"{math_url}/math-with-easy", json={
+                        "path": str(tex_path),
+                        "easy_results": easy_data,  # Easy 결과 전달
+                        "paper_id": paper_id
+                    })
                     print(f"📥 [SERVER] Math 모델 응답: {response.status_code}")
                     if response.status_code != 200:
                         print(f"❌ [SERVER] Math 모델 응답 실패: {response.status_code} - {response.text}")
                         return
                     
-                    # HTML 내용 저장
-                    html_content = response.text
-                    html_file = output_dir / f"math_results_{paper_id}.html"
-                    html_file.write_text(html_content, encoding="utf-8")
-                    print(f"✅ [SERVER] Math HTML 결과 생성 완료: {html_file}")
+                    # Math 결과 저장
+                    math_result = response.json()
                     
-                    # Math 모델이 생성한 파일들을 math_outputs로 복사
+                    # Math 결과를 올바른 경로에 저장
+                    math_output_dir = server_dir / "data" / "outputs" / paper_id
+                    math_output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # math_results.json으로 저장 (Result.tsx에서 읽을 수 있도록)
+                    math_json_file = math_output_dir / "math_results.json"
+                    math_json_file.write_text(json.dumps(math_result, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"✅ [SERVER] Math JSON 결과 생성 완료: {math_json_file}")
+                    
+                    # 기존 경로에도 저장 (호환성 유지)
+                    json_file = output_dir / "equations_explained.json"
+                    json_file.write_text(json.dumps(math_result, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"✅ [SERVER] Math JSON 결과 생성 완료 (호환성): {json_file}")
+                    
+                    # HTML 생성 (선택사항)
                     try:
-                        # Math 모델의 기본 출력 디렉토리에서 파일들 찾기
-                        math_build_dir = Path(__file__).resolve().parent.parent.parent / "models" / "math" / "_build"
-                        
-                        # JSON 파일 복사
-                        json_file = math_build_dir / "equations_explained.json"
-                        if json_file.exists():
-                            import shutil
-                            shutil.copy2(json_file, output_dir / "equations_explained.json")
-                            print(f"✅ [SERVER] Math JSON 결과 복사 완료")
+                        html_response = await client.get(f"{math_url}/html/{str(tex_path)}")
+                        if html_response.status_code == 200:
+                            html_file = output_dir / f"math_results_{paper_id}.html"
+                            html_file.write_text(html_response.text, encoding="utf-8")
+                            print(f"✅ [SERVER] Math HTML 결과 생성 완료: {html_file}")
+                    except Exception as e:
+                        print(f"⚠️ [SERVER] Math HTML 생성 실패 (무시): {e}")
 
-                        # TeX 파일 복사
-                        tex_file = math_build_dir / "yolo_math_report.tex"
-                        if tex_file.exists():
-                            import shutil
-                            shutil.copy2(tex_file, output_dir / "yolo_math_report.tex")
-                            print(f"✅ [SERVER] Math TeX 결과 복사 완료")
+                        # TeX 파일 복사 (math_build_dir 변수 정의 필요)
+                        try:
+                            math_build_dir = Path("/tmp/math_build")  # 임시 경로
+                            tex_file = math_build_dir / "yolo_math_report.tex"
+                            if tex_file.exists():
+                                import shutil
+                                shutil.copy2(tex_file, output_dir / "yolo_math_report.tex")
+                                print(f"✅ [SERVER] Math TeX 결과 복사 완료")
+                        except Exception as e:
+                            print(f"⚠️ [SERVER] Math TeX 복사 실패 (무시): {e}")
                         
                         # 처리 후 결과 파일을 DB에 기록(가능한 경우)
                         try:
@@ -1026,3 +1067,204 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
     except Exception as e:
         print(f"❌ [ERROR] Math 모델 처리 실패: {e}")
         raise HTTPException(status_code=500, detail=f"Math 모델 처리 실패: {e}")
+
+@router.get("/integrated-result/{paper_id}")
+async def get_integrated_result(paper_id: str):
+    """
+    통합 결과 조회 (Easy + Math + 시각화)
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        output_dir = server_dir / "data" / "outputs" / paper_id
+        
+        # Easy 결과 로드
+        easy_data = None
+        easy_error = None
+        try:
+            easy_file = output_dir / "easy_outputs" / "easy_results.json"
+            if easy_file.exists():
+                with open(easy_file, 'r', encoding='utf-8') as f:
+                    easy_data = json.load(f)
+            else:
+                easy_error = "Easy 결과 파일이 없습니다"
+        except Exception as e:
+            easy_error = f"Easy 결과 로드 실패: {str(e)}"
+        
+        # Math 결과 로드
+        math_data = None
+        math_error = None
+        try:
+            math_file = output_dir / "math_outputs" / "equations_explained.json"
+            if math_file.exists():
+                with open(math_file, 'r', encoding='utf-8') as f:
+                    math_data = json.load(f)
+            else:
+                math_error = "Math 결과 파일이 없습니다"
+        except Exception as e:
+            math_error = f"Math 결과 로드 실패: {str(e)}"
+        
+        # 통합 데이터 생성
+        integrated_data = {
+            "paper_info": {
+                "paper_id": paper_id,
+                "paper_title": easy_data.get("paper_info", {}).get("paper_title", f"논문 {paper_id}") if easy_data else f"논문 {paper_id}",
+                "paper_authors": easy_data.get("paper_info", {}).get("paper_authors", "Unknown") if easy_data else "Unknown",
+                "paper_venue": easy_data.get("paper_info", {}).get("paper_venue", "Unknown") if easy_data else "Unknown",
+                "total_sections": easy_data.get("paper_info", {}).get("total_sections", 0) if easy_data else 0,
+                "total_equations": len(math_data.get("items", [])) if math_data else 0
+            },
+            "easy_sections": easy_data.get("easy_sections", []) if easy_data else [],
+            "math_equations": [],
+            "model_errors": {
+                "easy_model_error": easy_error,
+                "math_model_error": math_error,
+                "viz_api_error": None
+            },
+            "processing_logs": []
+        }
+        
+        # Math 데이터 변환 및 Easy 섹션과 매핑
+        if math_data and "items" in math_data:
+            try:
+                easy_sections = easy_data.get("easy_sections", []) if easy_data else []
+                
+                for i, item in enumerate(math_data["items"]):
+                    try:
+                        # Math 수식이 어느 Easy 섹션에 속하는지 결정
+                        # 기본적으로 순서대로 매핑하되, 섹션 수를 초과하지 않도록 함
+                        section_index = i % len(easy_sections) if easy_sections else 0
+                        section_ref = easy_sections[section_index]["easy_section_id"] if easy_sections else f"easy_section_{i+1}"
+                        
+                        equation = {
+                            "math_equation_id": f"math_equation_{i+1}",
+                            "math_equation_index": f"({i+1})",
+                            "math_equation_latex": item.get("equation", ""),
+                            "math_equation_explanation": item.get("explanation", ""),
+                            "math_equation_context": f"수식 {i+1}",
+                            "math_equation_section_ref": section_ref  # Easy 섹션 ID와 매핑
+                        }
+                        integrated_data["math_equations"].append(equation)
+                    except Exception as e:
+                        integrated_data["processing_logs"].append(f"수식 {i+1} 변환 실패: {str(e)}")
+                        # 에러가 발생해도 빈 수식으로 추가
+                        equation = {
+                            "math_equation_id": f"math_equation_{i+1}",
+                            "math_equation_index": f"({i+1})",
+                            "math_equation_latex": item.get("equation", ""),
+                            "math_equation_explanation": f"수식 변환 중 오류 발생: {str(e)}",
+                            "math_equation_context": f"수식 {i+1}",
+                            "math_equation_section_ref": f"easy_section_{i+1}"
+                        }
+                        integrated_data["math_equations"].append(equation)
+            except Exception as e:
+                integrated_data["processing_logs"].append(f"Math 데이터 변환 실패: {str(e)}")
+        else:
+            integrated_data["processing_logs"].append("Math 데이터가 없거나 형식이 올바르지 않습니다")
+        
+        return integrated_data
+        
+    except Exception as e:
+        print(f"❌ [ERROR] 통합 결과 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"통합 결과 조회 실패: {e}")
+
+@router.get("/integrated-result/{paper_id}/download")
+async def download_integrated_result(paper_id: str):
+    """
+    통합 결과 HTML 다운로드
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        output_dir = server_dir / "data" / "outputs" / paper_id
+        
+        # 통합 결과 HTML 생성
+        html_content = f"""
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>통합 결과 - 논문 {paper_id}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center; }}
+        .content {{ padding: 30px; }}
+        .section {{ margin-bottom: 30px; padding: 25px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; }}
+        .section-title {{ font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px; }}
+        .paragraph {{ margin-bottom: 15px; line-height: 1.6; }}
+        .equation {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: 'Courier New', monospace; }}
+        .visualization {{ text-align: center; margin: 20px 0; }}
+        .visualization img {{ max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI 논문 분석 결과</h1>
+            <p>논문 ID: {paper_id}</p>
+        </div>
+        <div class="content">
+            <p>이 결과는 AI가 논문을 분석하여 생성한 통합 결과입니다.</p>
+            <p>쉬운 설명, 수식 해설, 시각화가 포함되어 있습니다.</p>
+        </div>
+    </div>
+</body>
+</html>
+        """
+        
+        # HTML 파일로 저장
+        html_file = output_dir / "integrated_result.html"
+        html_file.write_text(html_content, encoding="utf-8")
+        
+        return FileResponse(
+            path=str(html_file),
+            filename=f"integrated_result_{paper_id}.html",
+            media_type="text/html"
+        )
+        
+    except Exception as e:
+        print(f"❌ [ERROR] 통합 결과 다운로드 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"통합 결과 다운로드 실패: {e}")
+
+@router.get("/results/{paper_id}/easy_results.json")
+async def get_easy_results(paper_id: str):
+    """Easy 모델 결과 직접 반환"""
+    try:
+        results_dir = Path("data/outputs") / paper_id
+        easy_file = results_dir / "easy_results.json"
+        
+        if not easy_file.exists():
+            raise HTTPException(status_code=404, detail="Easy 결과 파일이 없습니다")
+        
+        return FileResponse(
+            path=str(easy_file),
+            media_type="application/json",
+            filename=f"easy_results_{paper_id}.json"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Easy 결과 로드 실패: {str(e)}")
+
+@router.get("/results/{paper_id}/ready")
+async def check_results_ready(paper_id: str):
+    """결과 파일이 준비되었는지 확인"""
+    try:
+        # 결과 디렉토리 확인
+        results_dir = Path("data/outputs") / paper_id
+        if not results_dir.exists():
+            return {"status": "not_found", "ok": False, "message": "결과 디렉토리가 없습니다"}
+        
+        # easy_results.json 파일 확인
+        easy_file = results_dir / "easy_results.json"
+        if not easy_file.exists():
+            return {"status": "processing", "ok": False, "message": "Easy 모델 처리 중"}
+        
+        # math_results.json 파일 확인
+        math_file = results_dir / "math_results.json"
+        if not math_file.exists():
+            return {"status": "processing", "ok": False, "message": "Math 모델 처리 중"}
+        
+        return {"status": "ready", "ok": True, "message": "모든 결과가 준비되었습니다"}
+    except Exception as e:
+        return {"status": "error", "ok": False, "message": f"오류 발생: {str(e)}"}

@@ -189,6 +189,24 @@ class DBRouter:
 
     async def create_tex(self, origin_id: int, file_addr: str) -> int:
         return await create_tex(origin_id, file_addr)
+    
+    async def get_origin_id_from_tex(self, tex_id: int) -> Optional[int]:
+        return await get_origin_id_from_tex(tex_id)
+    
+    async def save_easy_chunk(self, tex_id: int | str, index: int, rewritten_text: str) -> None:
+        return await save_easy_chunk(tex_id, index, rewritten_text)
+    
+    async def save_easy_result(self, tex_id: int, origin_id: int, result_path: str) -> None:
+        return await save_easy_result(tex_id, origin_id, result_path)
+    
+    async def save_math_result(self, tex_id: int, origin_id: int, result_path: str, sections: Optional[List[Dict[str, Any]]] = None) -> None:
+        return await save_math_result(tex_id, origin_id, result_path, sections)
+    
+    async def set_flag(self, tex_id: int, field: str, value: Any) -> None:
+        return await set_flag(tex_id, field, value)
+    
+    async def get_state(self, tex_id: int) -> Optional[Tex]:
+        return await get_state(tex_id)
 
 
 DB = DBRouter()
@@ -294,6 +312,15 @@ async def save_viz_image(tex_id: int | str, index: int, image_path: str) -> None
         else:
             chunk.image_path = image_path
         await s.commit()
+
+
+async def save_easy_result(tex_id: int, origin_id: int, result_path: str) -> int:
+    async with DB.session() as s:
+        easy = EasyFile(tex_id=tex_id, origin_id=origin_id, filename="easy_results.json", file_addr=result_path)
+        s.add(easy)
+        await s.commit()
+        await s.refresh(easy)
+        return easy.easy_id
 
 
 async def save_math_result(

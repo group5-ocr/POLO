@@ -1,0 +1,235 @@
+{
+  "overview": "Easy 모델이 생성하는 JSON 구조 - 섹션별 쉬운 설명 및 시각화 트리거",
+  "paper_info": {
+    "paper_id": "yolo_v1_analysis",
+    "paper_title": "You Only Look Once: Unified, Real-Time Object Detection",
+    "paper_authors": "Joseph Redmon, Santosh Divvala, Ross Girshick, Ali Farhadi",
+    "paper_venue": "CVPR 2016",
+    "paper_date": "2016",
+    "total_sections": 5
+  },
+  "easy_sections": [
+    {
+      "easy_section_id": "easy_section_1",
+      "easy_section_title": "Introduction",
+      "easy_section_type": "section",
+      "easy_section_order": 1,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 실시간 객체 탐지를 위한 새로운 접근법입니다. 기존의 R-CNN 계열 모델들과 달리, YOLO는 전체 이미지를 한 번만 보고 모든 객체를 탐지합니다.",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_1_1",
+          "easy_paragraph_text": "YOLO(You Only Look Once)는 **실시간 객체 탐지**를 위한 혁신적인 방법입니다. 기존의 R-CNN 계열 모델들과 달리, YOLO는 전체 이미지를 한 번만 보고 모든 객체를 탐지합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_2",
+          "easy_paragraph_text": "이 방법의 핵심 장점은 **속도**입니다. YOLO는 초당 45프레임을 처리할 수 있어 실시간 애플리케이션에 적합합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": false
+        }
+      ],
+      "easy_subsections": [
+        {
+          "easy_section_id": "easy_subsection_1_1",
+          "easy_section_title": "Background",
+          "easy_section_type": "subsection",
+          "easy_section_order": 1,
+          "easy_section_level": 2,
+          "easy_section_parent": "easy_section_1",
+          "easy_content": "기존 객체 탐지 방법들의 배경과 한계점을 설명합니다.",
+          "easy_paragraphs": [
+            {
+              "easy_paragraph_id": "easy_paragraph_1_1_1",
+              "easy_paragraph_text": "기존의 R-CNN 계열 모델들은 **2단계 과정**을 거칩니다. 먼저 객체가 있을 만한 영역을 찾고, 그 다음 각 영역에서 객체를 분류합니다.",
+              "easy_paragraph_order": 1,
+              "easy_visualization_trigger": true
+            }
+          ]
+        },
+        {
+          "easy_section_id": "easy_subsection_1_2",
+          "easy_section_title": "Contributions",
+          "easy_section_type": "subsection",
+          "easy_section_order": 2,
+          "easy_section_level": 2,
+          "easy_section_parent": "easy_section_1",
+          "easy_content": "이 논문의 주요 기여점들을 설명합니다.",
+          "easy_paragraphs": [
+            {
+              "easy_paragraph_id": "easy_paragraph_1_2_1",
+              "easy_paragraph_text": "YOLO의 주요 기여점은 **단일 네트워크**로 객체 탐지를 수행한다는 것입니다. 이는 기존 방법들의 복잡성을 크게 줄입니다.",
+              "easy_paragraph_order": 1,
+              "easy_visualization_trigger": false
+            }
+          ]
+        }
+      ],
+      "easy_visualizations": [
+        {
+          "easy_viz_id": "easy_viz_1_1",
+          "easy_viz_title": "YOLO vs 기존 방법 비교",
+          "easy_viz_description": "YOLO와 기존 방법들의 성능 비교 차트",
+          "easy_viz_image_path": "/api/viz/yolo_comparison.png",
+          "easy_viz_type": "chart"
+        }
+      ]
+    },
+    {
+      "easy_section_id": "easy_section_2",
+      "easy_section_title": "Method",
+      "easy_section_type": "section",
+      "easy_section_order": 2,
+      "easy_section_level": 1,
+      "easy_content": "YOLO 방법론에 대한 자세한 설명입니다.",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_2_1",
+          "easy_paragraph_text": "YOLO는 이미지를 **S×S 격자**로 나누어 처리합니다. 각 격자 셀은 B개의 바운딩 박스를 예측할 수 있습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_2_2",
+          "easy_paragraph_text": "각 바운딩 박스는 **5개의 값**을 예측합니다: 중심 좌표 (x, y), 너비와 높이 (w, h), 그리고 신뢰도 점수입니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_subsections": [
+        {
+          "easy_section_id": "easy_subsection_2_1",
+          "easy_section_title": "Network Design",
+          "easy_section_type": "subsection",
+          "easy_section_order": 1,
+          "easy_section_level": 2,
+          "easy_section_parent": "easy_section_2",
+          "easy_content": "YOLO 네트워크의 구조와 설계 원리를 설명합니다.",
+          "easy_paragraphs": [
+            {
+              "easy_paragraph_id": "easy_paragraph_2_1_1",
+              "easy_paragraph_text": "YOLO는 **24개의 컨볼루션 레이어**와 2개의 fully connected 레이어로 구성됩니다. 이는 GoogLeNet에서 영감을 받은 구조입니다.",
+              "easy_paragraph_order": 1,
+              "easy_visualization_trigger": true
+            }
+          ]
+        },
+        {
+          "easy_section_id": "easy_subsection_2_2",
+          "easy_section_title": "Training",
+          "easy_section_type": "subsection",
+          "easy_section_order": 2,
+          "easy_section_level": 2,
+          "easy_section_parent": "easy_section_2",
+          "easy_content": "YOLO의 훈련 과정과 손실 함수를 설명합니다.",
+          "easy_paragraphs": [
+            {
+              "easy_paragraph_id": "easy_paragraph_2_2_1",
+              "easy_paragraph_text": "훈련은 **ImageNet**으로 사전 훈련한 후 **PASCAL VOC**로 파인튜닝합니다. 이는 전이 학습의 전형적인 접근법입니다.",
+              "easy_paragraph_order": 1,
+              "easy_visualization_trigger": false
+            }
+          ]
+        }
+      ],
+      "easy_visualizations": [
+        {
+          "easy_viz_id": "easy_viz_2_1",
+          "easy_viz_title": "YOLO 아키텍처 다이어그램",
+          "easy_viz_description": "YOLO 네트워크의 전체 구조를 보여주는 다이어그램",
+          "easy_viz_image_path": "/api/viz/yolo_architecture.png",
+          "easy_viz_type": "diagram"
+        },
+        {
+          "easy_viz_id": "easy_viz_2_2",
+          "easy_viz_title": "격자 기반 예측",
+          "easy_viz_description": "이미지를 격자로 나누어 객체를 예측하는 과정",
+          "easy_viz_image_path": "/api/viz/grid_prediction.png",
+          "easy_viz_type": "diagram"
+        }
+      ]
+    },
+    {
+      "easy_section_id": "easy_section_3",
+      "easy_section_title": "Results",
+      "easy_section_type": "section",
+      "easy_section_order": 3,
+      "easy_section_level": 1,
+      "easy_content": "YOLO의 실험 결과와 성능 평가입니다.",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_3_1",
+          "easy_paragraph_text": "YOLO는 **PASCAL VOC 2007** 데이터셋에서 63.4% mAP를 달성했습니다. 이는 당시 최고 성능 중 하나였습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_3_2",
+          "easy_paragraph_text": "**속도** 측면에서 YOLO는 초당 45프레임을 처리할 수 있어 실시간 애플리케이션에 적합합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": [
+        {
+          "easy_viz_id": "easy_viz_3_1",
+          "easy_viz_title": "성능 비교 차트",
+          "easy_viz_description": "YOLO와 다른 방법들의 mAP 성능 비교",
+          "easy_viz_image_path": "/api/viz/performance_comparison.png",
+          "easy_viz_type": "chart"
+        },
+        {
+          "easy_viz_id": "easy_viz_3_2",
+          "easy_viz_title": "속도 vs 정확도 그래프",
+          "easy_viz_description": "다양한 방법들의 속도와 정확도 트레이드오프",
+          "easy_viz_image_path": "/api/viz/speed_accuracy.png",
+          "easy_viz_type": "graph"
+        }
+      ]
+    },
+    {
+      "easy_section_id": "easy_section_4",
+      "easy_section_title": "Discussion",
+      "easy_section_type": "section",
+      "easy_section_order": 4,
+      "easy_section_level": 1,
+      "easy_content": "YOLO의 장단점과 한계점에 대한 논의입니다.",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_4_1",
+          "easy_paragraph_text": "YOLO의 **주요 장점**은 빠른 속도와 단순한 구조입니다. 하지만 작은 객체 탐지에는 한계가 있습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        }
+      ]
+    },
+    {
+      "easy_section_id": "easy_section_5",
+      "easy_section_title": "Conclusion",
+      "easy_section_type": "section",
+      "easy_section_order": 5,
+      "easy_section_level": 1,
+      "easy_content": "논문의 결론과 향후 연구 방향입니다.",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_5_1",
+          "easy_paragraph_text": "YOLO는 **실시간 객체 탐지**의 새로운 패러다임을 제시했습니다. 향후 연구에서는 정확도와 속도의 균형을 더욱 개선할 수 있을 것입니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": false
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "generated_at": "2025-01-20T12:00:00Z",
+    "easy_model_version": "yolo-easy-qlora-checkpoint-45",
+    "total_processing_time": 45.2,
+    "visualization_triggers": 8,
+    "total_paragraphs": 12,
+    "section_types": {
+      "section": 5,
+      "subsection": 4
+    }
+  }
+}
