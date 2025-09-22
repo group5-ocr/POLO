@@ -1298,13 +1298,7 @@ export default function Upload() {
           {/* 오른쪽: 안내 또는 결과 영역 */}
           <div className="upload-right">
             {result || selectedFile ? (
-              <div
-                className={`result-container ${
-                  isLoadingEasy || isLoadingMath || easyReady || mathReady
-                    ? "has-content"
-                    : "buttons-only"
-                }`}
-              >
+              <div className="upload-right-content">
                 {!isModelProcessing() && (
                   <div className="result-top">
                     <div className="result-header">
@@ -1339,11 +1333,24 @@ export default function Upload() {
                   <div className="model-loading-container">
                     {/* 간소화된 로딩 UI */}
                     <div className="simple-loading-box">
+                      {/* 파티클 효과 */}
+                      <div className="particle-container">
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                        <div className="particle"></div>
+                      </div>
+
                       <div className="loading-header">
                         <div className="loading-spinner">
                           <div className="spinner"></div>
                         </div>
-                        <h2>AI 논문 분석 진행 중</h2>
+                        <h2>AI 논문 분석 중</h2>
                       </div>
 
                       <div className="progress-container">
@@ -1352,11 +1359,6 @@ export default function Upload() {
                             className="progress-fill"
                             style={{
                               width: `${progress}%`,
-                              background:
-                                "linear-gradient(90deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
-                              transition: "width 0.5s ease-in-out",
-                              borderRadius: "25px",
-                              boxShadow: "0 4px 15px rgba(255, 107, 107, 0.4)",
                             }}
                           ></div>
                         </div>
@@ -1368,40 +1370,38 @@ export default function Upload() {
                       <div className="loading-messages">
                         {progress >= 10 && (
                           <div className="message-item">
-                            <span className="material-icons">psychology</span>
+                            <span className="material-icons">lightbulb</span>
                             <span>
                               중학생도 이해할 수 있는 쉬운 설명을 생성하고
-                              있습니다
+                              있어요
                             </span>
                           </div>
                         )}
                         {progress >= 30 && (
                           <div className="message-item">
-                            <span className="material-icons">auto_awesome</span>
-                            <span>
-                              문단별 시각화 이미지를 생성하고 있습니다
-                            </span>
+                            <span className="material-icons">palette</span>
+                            <span>문단별 시각화 이미지를 생성하고 있어요</span>
                           </div>
                         )}
                         {progress >= 50 && (
                           <div className="message-item">
                             <span className="material-icons">calculate</span>
                             <span>
-                              수식 분석 및 상세한 해설을 작성하고 있습니다
+                              수식 분석 및 상세한 해설을 작성하고 있어요
                             </span>
                           </div>
                         )}
                         {progress >= 75 && (
                           <div className="message-item">
-                            <span className="material-icons">palette</span>
-                            <span>고급 시각화 이미지를 생성하고 있습니다</span>
+                            <span className="material-icons">auto_awesome</span>
+                            <span>고급 시각화 이미지를 생성하고 있어요</span>
                           </div>
                         )}
                         {progress >= 95 && (
                           <div className="message-item">
                             <span className="material-icons">analytics</span>
                             <span>
-                              통합 결과를 정리하고 최종 검토를 진행하고 있습니다
+                              통합 결과를 정리하고 최종 검토를 진행하고 있어요
                             </span>
                           </div>
                         )}
@@ -1414,6 +1414,16 @@ export default function Upload() {
                 {allProcessingComplete && !isModelProcessing() && (
                   <div className="result-content">
                     <div className="processing-complete">
+                      {/* 축하 파티클 효과 */}
+                      <div className="celebration-particles">
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                        <div className="celebration-particle"></div>
+                      </div>
+
                       <div className="complete-icon">
                         <span className="material-icons">check_circle</span>
                       </div>
@@ -1431,27 +1441,27 @@ export default function Upload() {
                         className="view-results-button"
                         style={{
                           background:
-                            "linear-gradient(135deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
+                            "linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%)",
                           color: "white",
                           border: "none",
-                          borderRadius: "12px",
+                          borderRadius: "15px",
                           padding: "20px 40px",
                           fontSize: "1.2rem",
                           fontWeight: "600",
                           cursor: "pointer",
                           transition: "all 0.3s ease",
-                          boxShadow: "0 6px 20px rgba(255, 107, 107, 0.4)",
+                          boxShadow: "0 6px 20px rgba(245, 158, 11, 0.4)",
                           marginTop: "20px",
                         }}
                         onMouseOver={(e) => {
                           e.currentTarget.style.transform = "translateY(-2px)";
                           e.currentTarget.style.boxShadow =
-                            "0 8px 25px rgba(255, 107, 107, 0.6)";
+                            "0 8px 25px rgba(245, 158, 11, 0.6)";
                         }}
                         onMouseOut={(e) => {
                           e.currentTarget.style.transform = "translateY(0)";
                           e.currentTarget.style.boxShadow =
-                            "0 6px 20px rgba(255, 107, 107, 0.4)";
+                            "0 6px 20px rgba(245, 158, 11, 0.4)";
                         }}
                       >
                         <span

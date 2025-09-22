@@ -2,53 +2,99 @@
 
 /* 간소화된 로딩 UI */
 .simple-loading-box {
-  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
-  border-radius: 20px;
-  padding: 40px;
-  margin: 20px 0;
-  box-shadow: 0 10px 30px rgba(26, 35, 126, 0.3);
-  color: white;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+  color: #1f2937;
   text-align: center;
-  animation: fadeInUp 0.6s ease-out;
+  animation: fadeInUp 0.8s ease-out;
+  position: relative;
+  overflow: visible;
 }
 
 .loading-header {
-  margin-bottom: 30px;
+  margin-bottom: 40px;
+  position: relative;
+  z-index: 10;
 }
 
 .loading-spinner {
-  margin-bottom: 20px;
+  margin-bottom: 30px;
   display: flex;
   justify-content: center;
+  position: relative;
 }
 
 .spinner {
-  width: 50px;
-  height: 50px;
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid white;
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top: 4px solid #f59e0b;
+  border-right: 4px solid #fbbf24;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spin 1.2s linear infinite, pulse 2s ease-in-out infinite;
+  position: relative;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.4),
+    inset 0 0 15px rgba(255, 255, 255, 0.1);
+}
+
+.spinner::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border: 2px solid transparent;
+  border-top: 2px solid rgba(245, 158, 11, 0.3);
+  border-radius: 50%;
+  animation: spin 2s linear infinite reverse;
+}
+
+.spinner::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  background: radial-gradient(circle, #f59e0b, #fbbf24);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: innerPulse 1.5s ease-in-out infinite;
 }
 
 .loading-header h2 {
   margin: 0 0 10px 0;
   font-size: 1.8rem;
   font-weight: 600;
+  color: #1f2937;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 10;
 }
 
 .loading-header p {
   margin: 0;
   font-size: 1.1rem;
-  opacity: 0.9;
+  opacity: 0.8;
+  font-weight: 500;
+  color: #6b7280;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 10;
 }
 
 /* 로딩 메시지 */
 .loading-messages {
-  margin-top: 30px;
+  margin-top: 40px;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 20px;
+  position: relative;
+  z-index: 10;
 }
 
 .message-item {
@@ -56,81 +102,297 @@
   align-items: center;
   gap: 15px;
   padding: 15px 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(245, 158, 11, 0.2);
   border-radius: 12px;
-  transition: all 0.3s ease;
-  opacity: 0.8;
-  animation: fadeInMessage 0.5s ease-out;
+  transition: all 0.4s ease;
+  opacity: 0.9;
+  animation: fadeInMessage 0.6s ease-out, messageFloat 3s ease-in-out infinite;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  position: relative;
+  overflow: hidden;
 }
 
-.message-item:nth-child(1) { animation-delay: 0.2s; }
-.message-item:nth-child(2) { animation-delay: 0.4s; }
-.message-item:nth-child(3) { animation-delay: 0.6s; }
-.message-item:nth-child(4) { animation-delay: 0.8s; }
+.message-item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.message-item:nth-child(1) {
+  animation-delay: 0.3s;
+  animation-duration: 3.2s;
+}
+.message-item:nth-child(2) {
+  animation-delay: 0.6s;
+  animation-duration: 3.4s;
+}
+.message-item:nth-child(3) {
+  animation-delay: 0.9s;
+  animation-duration: 3.6s;
+}
+.message-item:nth-child(4) {
+  animation-delay: 1.2s;
+  animation-duration: 3.8s;
+}
 
 .message-item .material-icons {
   font-size: 1.5rem;
-  color: #ffeb3b;
+  color: #f59e0b;
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+  animation: iconPulse 2s ease-in-out infinite;
 }
 
 .message-item span:last-child {
   font-size: 1rem;
   font-weight: 500;
   flex: 1;
+  color: #374151;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* 진행률 바 */
 .progress-container {
-  margin: 30px 0;
+  margin: 40px 0;
+  position: relative;
+  z-index: 10;
 }
 
 .progress-bar {
   width: 100%;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 25px;
+  height: 16px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.2),
+    rgba(255, 255, 255, 0.1)
+  );
+  border-radius: 30px;
   overflow: hidden;
-  margin-bottom: 15px;
+  margin-bottom: 20px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .progress-fill {
   height: 100%;
-  border-radius: 25px;
+  border-radius: 30px;
   position: relative;
   overflow: hidden;
+  background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%);
+  background-size: 200% 100%;
+  animation: progressGradient 2s ease-in-out infinite;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-.progress-fill::after {
-  content: '';
+.progress-fill::before {
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  animation: shimmer 2s infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  animation: progressShimmer 1.5s infinite;
+}
+
+.progress-fill::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.8),
+    transparent
+  );
+  transform: translateY(-50%);
+  animation: progressLine 2s ease-in-out infinite;
 }
 
 .progress-text {
   font-size: 1rem;
   font-weight: 500;
-  opacity: 0.9;
+  opacity: 0.8;
+  color: #6b7280;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  animation: textPulse 2s ease-in-out infinite;
 }
 
 /* 애니메이션 추가 */
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeInMessage {
   from {
     opacity: 0;
-    transform: translateX(-20px);
+    transform: translateX(-30px) scale(0.9);
   }
   to {
+    opacity: 0.9;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes floatingGlow {
+  0%,
+  100% {
+    box-shadow: 0 20px 60px rgba(30, 64, 175, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 0 50px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 25px 70px rgba(30, 64, 175, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 80px rgba(59, 130, 246, 0.5);
+  }
+}
+
+@keyframes gradientShift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes textGlow {
+  0%,
+  100% {
+    text-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(245, 158, 11, 0.6),
+      0 0 40px rgba(59, 130, 246, 0.3);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
     opacity: 0.8;
-    transform: translateX(0);
+  }
+}
+
+@keyframes innerPulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0.7;
+  }
+}
+
+@keyframes messageFloat {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes iconPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    color: #f59e0b;
+  }
+  50% {
+    transform: scale(1.1);
+    color: #fbbf24;
+  }
+}
+
+@keyframes progressGradient {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes progressShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes progressLine {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-100%);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0%);
+  }
+}
+
+@keyframes textPulse {
+  0%,
+  100% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
   }
 }
 
@@ -138,34 +400,101 @@
 .processing-complete {
   text-align: center;
   padding: 40px;
-  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+  background: 
+    /* 메인 그라데이션 */ radial-gradient(
+      ellipse 800px 400px at 50% 30%,
+      rgba(255, 193, 7, 0.15) 0%,
+      rgba(251, 191, 36, 0.08) 30%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 600px 300px at 20% 80%,
+      rgba(167, 243, 208, 0.12) 0%,
+      rgba(16, 185, 129, 0.06) 40%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 400px 200px at 80% 20%,
+      rgba(191, 219, 254, 0.1) 0%,
+      rgba(59, 130, 246, 0.05) 40%,
+      transparent 70%
+    ),
+    /* 배경 그라데이션 */
+      linear-gradient(
+        135deg,
+        rgba(254, 247, 255, 0.95) 0%,
+        rgba(240, 249, 255, 0.9) 25%,
+        rgba(240, 253, 244, 0.85) 50%,
+        rgba(255, 251, 235, 0.9) 75%,
+        rgba(254, 242, 242, 0.95) 100%
+      );
   border-radius: 20px;
-  color: white;
+  color: #1f2937;
   margin: 20px 0;
-  box-shadow: 0 10px 30px rgba(26, 35, 126, 0.3);
-  animation: fadeInUp 0.6s ease-out;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  animation: fadeInUp 0.8s ease-out, celebrationGlow 3s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.processing-complete::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(245, 158, 11, 0.3),
+    transparent,
+    rgba(251, 191, 36, 0.3),
+    transparent,
+    rgba(245, 158, 11, 0.3),
+    transparent
+  );
+  animation: rotate 6s linear infinite;
+  z-index: 1;
 }
 
 .complete-icon {
-  margin-bottom: 20px;
+  margin-bottom: 30px;
+  position: relative;
+  z-index: 10;
 }
 
 .complete-icon .material-icons {
   font-size: 4rem;
-  color: #4CAF50;
-  animation: bounce 2s infinite;
+  color: #f59e0b;
+  animation: celebrationBounce 2s ease-in-out infinite,
+    iconGlow 2s ease-in-out infinite;
+  text-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
+  filter: drop-shadow(0 0 15px rgba(245, 158, 11, 0.4));
 }
 
 .processing-complete h2 {
   margin: 0 0 10px 0;
   font-size: 2rem;
   font-weight: 600;
+  color: #1f2937;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 10;
 }
 
 .processing-complete p {
   margin: 0 0 20px 0;
   font-size: 1.1rem;
-  opacity: 0.9;
+  opacity: 0.8;
+  font-weight: 500;
+  color: #6b7280;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 10;
 }
 
 .view-results-button {
@@ -193,15 +522,63 @@
   }
 }
 
-@keyframes bounce {
-  0%, 20%, 50%, 80%, 100% {
-    transform: translateY(0);
+@keyframes celebrationBounce {
+  0%,
+  20%,
+  50%,
+  80%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  10% {
+    transform: translateY(-15px) scale(1.1);
+  }
+  30% {
+    transform: translateY(-8px) scale(1.05);
   }
   40% {
-    transform: translateY(-10px);
+    transform: translateY(-12px) scale(1.08);
   }
   60% {
-    transform: translateY(-5px);
+    transform: translateY(-6px) scale(1.03);
+  }
+}
+
+@keyframes celebrationGlow {
+  0%,
+  100% {
+    box-shadow: 0 20px 60px rgba(30, 64, 175, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 0 50px rgba(245, 158, 11, 0.3);
+  }
+  50% {
+    box-shadow: 0 25px 70px rgba(30, 64, 175, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 80px rgba(245, 158, 11, 0.5);
+  }
+}
+
+@keyframes iconGlow {
+  0%,
+  100% {
+    text-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
+    filter: drop-shadow(0 0 15px rgba(245, 158, 11, 0.4));
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(245, 158, 11, 0.8),
+      0 0 40px rgba(251, 191, 36, 0.4);
+    filter: drop-shadow(0 0 20px rgba(245, 158, 11, 0.6));
+  }
+}
+
+@keyframes celebrationTextGlow {
+  0%,
+  100% {
+    text-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(245, 158, 11, 0.6),
+      0 0 40px rgba(251, 191, 36, 0.3);
   }
 }
 
@@ -214,30 +591,200 @@
   }
 }
 
+/* 파티클 효과 */
+.particle-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: radial-gradient(
+    circle,
+    rgba(255, 193, 7, 0.8),
+    rgba(167, 243, 208, 0.4)
+  );
+  border-radius: 50%;
+  animation: particleFloat 6s ease-in-out infinite;
+}
+
+.particle:nth-child(1) {
+  left: 10%;
+  animation-delay: 0s;
+  animation-duration: 6s;
+}
+.particle:nth-child(2) {
+  left: 20%;
+  animation-delay: 1s;
+  animation-duration: 7s;
+}
+.particle:nth-child(3) {
+  left: 30%;
+  animation-delay: 2s;
+  animation-duration: 8s;
+}
+.particle:nth-child(4) {
+  left: 40%;
+  animation-delay: 3s;
+  animation-duration: 6.5s;
+}
+.particle:nth-child(5) {
+  left: 50%;
+  animation-delay: 4s;
+  animation-duration: 7.5s;
+}
+.particle:nth-child(6) {
+  left: 60%;
+  animation-delay: 5s;
+  animation-duration: 8.5s;
+}
+.particle:nth-child(7) {
+  left: 70%;
+  animation-delay: 1.5s;
+  animation-duration: 6.8s;
+}
+.particle:nth-child(8) {
+  left: 80%;
+  animation-delay: 2.5s;
+  animation-duration: 7.2s;
+}
+.particle:nth-child(9) {
+  left: 90%;
+  animation-delay: 3.5s;
+  animation-duration: 8.2s;
+}
+
+@keyframes particleFloat {
+  0% {
+    transform: translateY(100vh) scale(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(90vh) scale(1);
+  }
+  90% {
+    opacity: 1;
+    transform: translateY(10vh) scale(1);
+  }
+  100% {
+    transform: translateY(-10vh) scale(0);
+    opacity: 0;
+  }
+}
+
+/* 성공 시 파티클 효과 */
+.celebration-particles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.celebration-particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: radial-gradient(circle, #ffc107, #a7f3d0);
+  border-radius: 50%;
+  animation: celebrationBurst 2s ease-out infinite;
+}
+
+.celebration-particle:nth-child(1) {
+  left: 20%;
+  top: 30%;
+  animation-delay: 0s;
+}
+.celebration-particle:nth-child(2) {
+  left: 40%;
+  top: 20%;
+  animation-delay: 0.2s;
+}
+.celebration-particle:nth-child(3) {
+  left: 60%;
+  top: 25%;
+  animation-delay: 0.4s;
+}
+.celebration-particle:nth-child(4) {
+  left: 80%;
+  top: 30%;
+  animation-delay: 0.6s;
+}
+.celebration-particle:nth-child(5) {
+  left: 30%;
+  top: 60%;
+  animation-delay: 0.8s;
+}
+.celebration-particle:nth-child(6) {
+  left: 70%;
+  top: 65%;
+  animation-delay: 1s;
+}
+
+@keyframes celebrationBurst {
+  0% {
+    transform: scale(0) translateY(0);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1) translateY(-20px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.5) translateY(-40px);
+    opacity: 0;
+  }
+}
+
 /* 반응형 디자인 */
 @media (max-width: 768px) {
   .unified-loading-box {
     padding: 20px;
     margin: 10px 0;
   }
-  
+
   .service-flow {
     padding: 0 10px;
   }
-  
+
   .flow-step {
     padding: 12px 15px;
   }
-  
+
   .step-text {
     font-size: 0.9rem;
   }
-  
+
   .loading-header h2 {
     font-size: 1.5rem;
   }
-  
+
   .loading-header p {
     font-size: 1rem;
+  }
+
+  .simple-loading-box {
+    padding: 30px 20px;
+  }
+
+  .spinner {
+    width: 60px;
+    height: 60px;
+  }
+
+  .loading-header h2 {
+    font-size: 1.8rem;
   }
 }

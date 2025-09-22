@@ -3291,6 +3291,104 @@ body,
   flex-direction: column;
   gap: 24px;
   height: 100%;
+  background: 
+    /* 메인 그라데이션 */ radial-gradient(
+      ellipse 800px 400px at 50% 30%,
+      rgba(255, 193, 7, 0.15) 0%,
+      rgba(251, 191, 36, 0.08) 30%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 600px 300px at 20% 80%,
+      rgba(167, 243, 208, 0.12) 0%,
+      rgba(16, 185, 129, 0.06) 40%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 400px 200px at 80% 20%,
+      rgba(191, 219, 254, 0.1) 0%,
+      rgba(59, 130, 246, 0.05) 40%,
+      transparent 70%
+    ),
+    /* 배경 그라데이션 */
+      linear-gradient(
+        135deg,
+        rgba(254, 247, 255, 0.95) 0%,
+        rgba(240, 249, 255, 0.9) 25%,
+        rgba(240, 253, 244, 0.85) 50%,
+        rgba(255, 251, 235, 0.9) 75%,
+        rgba(254, 242, 242, 0.95) 100%
+      );
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-right::before {
+  content: "";
+  position: absolute;
+  top: 15%;
+  right: 10%;
+  width: 180px;
+  height: 180px;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 193, 7, 0.1),
+    rgba(251, 191, 36, 0.05)
+  );
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  animation: morphing 8s ease-in-out infinite;
+  z-index: 1;
+}
+
+.upload-right::after {
+  content: "";
+  position: absolute;
+  bottom: 15%;
+  left: 15%;
+  width: 120px;
+  height: 120px;
+  background: linear-gradient(
+    135deg,
+    rgba(167, 243, 208, 0.08),
+    rgba(16, 185, 129, 0.04)
+  );
+  border-radius: 50% 20% 50% 20%;
+  animation: morphing 10s ease-in-out infinite reverse;
+  z-index: 1;
+}
+
+.upload-right-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  height: 100%;
+  position: relative;
+  z-index: 10;
+}
+
+@keyframes morphing {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    border-radius: 70% 30% 30% 70% / 70% 70% 30% 30%;
+    transform: rotate(90deg) scale(1.1);
+  }
+  50% {
+    border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%;
+    transform: rotate(180deg) scale(0.9);
+  }
+  75% {
+    border-radius: 20% 80% 80% 20% / 80% 20% 80% 20%;
+    transform: rotate(270deg) scale(1.05);
+  }
 }
 
 /* 업로드 영역과 가이드 영역 높이 동일하게 맞춤 */
