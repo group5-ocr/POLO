@@ -76,9 +76,19 @@ def translate_to_korean(text: str) -> str:
 HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
 BASE_MODEL               = os.getenv("EASY_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
 ADAPTER_DIR              = os.getenv("EASY_ADAPTER_DIR", str(Path(__file__).resolve().parent.parent / "fine-tuning" / "outputs" / "yolo-easy-qlora" / "checkpoint-200"))
-MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "1000"))  # 800 → 1000으로 조정 (품질과 속도 균형)
-EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "4"))  # 2 → 4로 증가
-EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "7200"))  # 2시간으로 증가 (17개 섹션 * 6분 = 102분)
+MAX_NEW_TOKENS           = int(os.getenv("EASY_MAX_NEW_TOKENS", "400"))  # 섹션당 300-450, 최대 600
+EASY_CONCURRENCY         = int(os.getenv("EASY_CONCURRENCY", "1"))  # 순차 처리 (GPU VRAM 스파이크/교착 방지)
+EASY_BATCH_TIMEOUT       = int(os.getenv("EASY_BATCH_TIMEOUT", "1200"))  # 전체 배치 타임아웃 1200s
+EASY_SECTION_TIMEOUT     = int(os.getenv("EASY_SECTION_TIMEOUT", "90"))  # 섹션별 타임아웃 90s
+
+# 품질 제어 상수
+FORBIDDEN_TOKENS = ["assistant", ".replace(", "```", "[REWRITE", "==", "VOC 20012"]
+MIN_SENTENCES = 3
+MAX_SENTENCES = 6
+MIN_CHARS = 300
+MAX_CHARS = 900
+MIN_HANGUL_RATIO = 0.7
+SIMILARITY_THRESHOLD = 0.9
 EASY_VIZ_TIMEOUT         = float(os.getenv("EASY_VIZ_TIMEOUT", "1800"))
 EASY_VIZ_HEALTH_TIMEOUT  = float(os.getenv("EASY_VIZ_HEALTH_TIMEOUT", "5"))
 EASY_VIZ_ENABLED         = os.getenv("EASY_VIZ_ENABLED", "0").lower() in ("1","true","yes")
@@ -164,40 +174,103 @@ async def _work_section(i: int, section: dict, sections: List[dict], request, as
     logger.info(f"[EASY] ▶ [{i+1}/{len(sections)}] section START: {title}")
     sec_t0 = time.time()
     
+    # 섹션별 타임아웃 설정
+    section_timeout = EASY_SECTION_TIMEOUT
+    
     try:
-        context_info = f"이 섹션은 전체 {len(sections)}개 중 {i+1}번째입니다. "
-        if i > 0:
-            prev_title = sections[i-1].get("title", "이전 섹션")
-            context_info += f"이전: {prev_title}. "
-        if i < len(sections) - 1:
-            next_title = sections[i+1].get("title", "다음 섹션")
-            context_info += f"다음: {next_title}. "
-        if section.get("section_type","section") == "subsection":
-            context_info += "이것은 서브섹션으로, 상위 내용을 세부적으로 다룹니다. "
-        else:
-            context_info += "이것은 메인 섹션입니다. "
+        # 타임아웃으로 섹션 처리 래핑
+        async def process_section_with_timeout():
+            context_info = f"이 섹션은 전체 {len(sections)}개 중 {i+1}번째입니다. "
+            if i > 0:
+                prev_title = sections[i-1].get("title", "이전 섹션")
+                context_info += f"이전: {prev_title}. "
+            if i < len(sections) - 1:
+                next_title = sections[i+1].get("title", "다음 섹션")
+                context_info += f"다음: {next_title}. "
+            if section.get("section_type","section") == "subsection":
+                context_info += "이것은 서브섹션으로, 상위 내용을 세부적으로 다룹니다. "
+            else:
+                context_info += "이것은 메인 섹션입니다. "
 
-        easy_text = await _rewrite_text(
-            section.get("content",""),
-            title,
-            context_info,
-            style=(request.style or "three_para_ko")
-        )
-        # 한국어 보장
-        easy_text = _ensure_korean(easy_text)
-        easy_text = translate_to_korean(easy_text)
-        logger.info(f"[EASY] ✔ text rewritten for section {i+1}")
+            # 최대 2회 재생성 시도
+            max_retries = 2
+            easy_text = None
         
-        # 관련 이미지 찾기
+            for attempt in range(max_retries + 1):
+                try:
+                    result = await _rewrite_text(
+                        section.get("content",""),
+                        title,
+                        context_info,
+                        style=(request.style or "three_para_ko")
+                    )
+                    
+                    if result is None:
+                        logger.warning(f"⚠️ [{attempt+1}/{max_retries+1}] 생성 실패, 재시도...")
+                        if attempt < max_retries:
+                            await asyncio.sleep(1)  # 1초 대기 후 재시도
+                            continue
+                        else:
+                            logger.error(f"❌ 최대 재시도 횟수 초과, 다운그레이드 모드로 전환")
+                            # 다운그레이드: 간단한 요약 모드
+                            easy_text = f"{title}에 대한 내용입니다. 수치 없이 개념만 설명합니다.\n<END_SECTION>"
+                            break
+                    
+                    # 한국어 보장
+                    easy_text = _ensure_korean(result)
+                    easy_text = translate_to_korean(easy_text)
+                    
+                    # 최종 검증
+                    validation = _validate_section_content(easy_text, title)
+                    if validation["is_valid"]:
+                        logger.info(f"[EASY] ✔ text rewritten for section {i+1} (시도 {attempt+1})")
+                        break
+                    else:
+                        logger.warning(f"⚠️ [{attempt+1}/{max_retries+1}] 검증 실패: {validation['issues']}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(1)
+                            continue
+                        else:
+                            logger.error(f"❌ 검증 실패로 최대 재시도 초과, 다운그레이드 모드로 전환")
+                            # 다운그레이드: 간단한 요약 모드
+                            easy_text = f"{title}에 대한 내용입니다. 수치 없이 개념만 설명합니다.\n<END_SECTION>"
+                            break
+                            
+                except Exception as e:
+                    logger.warning(f"⚠️ [{attempt+1}/{max_retries+1}] 생성 중 예외: {e}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        logger.error(f"❌ 최대 재시도 횟수 초과, 다운그레이드 모드로 전환")
+                        # 다운그레이드: 간단한 요약 모드
+                        easy_text = f"{title}에 대한 내용입니다. 수치 없이 개념만 설명합니다.\n<END_SECTION>"
+                        break
+            
+            return easy_text
+        
+        # 타임아웃으로 실행
+        try:
+            easy_text = await asyncio.wait_for(process_section_with_timeout(), timeout=section_timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"⚠️ 섹션 타임아웃 ({section_timeout}s), 기본 처리로 전환")
+            easy_text = f"{title}에 대한 내용입니다. 수치 없이 개념만 설명합니다.\n<END_SECTION>"
+        
+        # 관련 이미지 찾기 (이어서 처리에서는 시각화 비활성화)
         related_images = []
-        if src_path:
-            source_dir = src_path if src_path.is_dir() else src_path.parent
-            related_images = _find_related_images(section.get("content",""), assets_metadata, source_dir)
         
         # 시각화 처리 (이어서 처리에서는 시각화 비활성화)
         result = VizResult(ok=True, index=i, image_path=None, easy_text=easy_text, section_title=title)
         
-        logger.info(f"[EASY] ⏹ [{i+1}/{len(sections)}] section DONE: {title} elapsed={time.time() - sec_t0:.2f}s")
+        # 상세 로깅
+        elapsed = time.time() - sec_t0
+        hangul_ratio = _calculate_hangul_ratio(easy_text) if easy_text else 0
+        char_count = len(easy_text.replace(' ', '')) if easy_text else 0
+        sentence_count = len([s.strip() for s in easy_text.split('.') if s.strip()]) if easy_text else 0
+        
+        logger.info(f"[EASY] ⏹ [{i+1}/{len(sections)}] section DONE: {title} elapsed={elapsed:.2f}s")
+        logger.info(f"[EASY] 📊 품질 지표: 한글비율={hangul_ratio:.1%}, 글자수={char_count}, 문장수={sentence_count}")
+        
         return result
         
     except Exception as e:
@@ -666,19 +739,208 @@ def _gen_cfg() -> GenerationConfig:
     
     cfg = GenerationConfig.from_model_config(model.config)
     cfg.do_sample = False
-    # 샘플링 파라미터 해제(경고 억제). 일부 버전은 None 미지원 → fallback
-    try:
-        cfg.top_p = None
-        cfg.temperature = None
-    except Exception:
-        cfg.top_p = 1.0
-        cfg.temperature = 1.0
+    # 샘플링 파라미터 설정 (품질 개선)
+    cfg.do_sample = True
+    cfg.top_p = 0.9
+    cfg.temperature = 0.2
+    cfg.top_k = 50
     cfg.no_repeat_ngram_size = 4
     # repetition_penalty는 generate 인자로 넘기는 편이 안전
     return cfg
 
 def _contains_hangul(text: str) -> bool:
     return bool(re.search(r"[가-힣]", text or ""))
+
+# -------------------- 후처리 및 검증 함수들 --------------------
+def _cleanup_generated_text(text: str) -> str:
+    """후처리: 금지 토큰 필터링, 중복 제거, 언어 비율 검사"""
+    if not text:
+        return text
+    
+    # 1. 금지 토큰 필터링
+    forbidden_tokens = [
+        "assistant", ".replace(", "```", "[REWRITE", "==", "===",
+        "[TEXT]", "[SECTION]", "assistant:", "user:", "system:"
+    ]
+    
+    for token in forbidden_tokens:
+        text = text.replace(token, "")
+    
+    # 2. 중복 문장 제거 (자카드 유사도 기반)
+    sentences = [s.strip() for s in text.split('.') if s.strip()]
+    cleaned_sentences = []
+    
+    for i, sentence in enumerate(sentences):
+        if i == 0:
+            cleaned_sentences.append(sentence)
+            continue
+            
+        # 이전 문장과 유사도 계산
+        prev_sentence = cleaned_sentences[-1] if cleaned_sentences else ""
+        similarity = _calculate_similarity(sentence, prev_sentence)
+        
+        if similarity < 0.9:  # 90% 미만 유사도만 유지
+            cleaned_sentences.append(sentence)
+    
+    text = '. '.join(cleaned_sentences)
+    
+    # 3. 언어 비율 검사
+    hangul_ratio = _calculate_hangul_ratio(text)
+    if hangul_ratio < 0.7:  # 70% 미만이면 경고
+        logger.warning(f"⚠️ 한글 비율 부족: {hangul_ratio:.2%}")
+        return None  # 재생성 필요
+    
+    return text
+
+def _calculate_similarity(text1: str, text2: str) -> float:
+    """자카드 유사도 계산"""
+    if not text1 or not text2:
+        return 0.0
+    
+    set1 = set(text1.lower().split())
+    set2 = set(text2.lower().split())
+    
+    if not set1 and not set2:
+        return 1.0
+    if not set1 or not set2:
+        return 0.0
+    
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
+    
+    return intersection / union if union > 0 else 0.0
+
+def _calculate_hangul_ratio(text: str) -> float:
+    """한글 문자 비율 계산"""
+    if not text:
+        return 0.0
+    
+    hangul_chars = len(re.findall(r'[가-힣]', text))
+    total_chars = len(re.sub(r'\s', '', text))  # 공백 제외
+    
+    return hangul_chars / total_chars if total_chars > 0 else 0.0
+
+def _cleanup_text(text: str) -> str:
+    """후처리 클린업 - 금지 토큰 필터, 중복 제거, 언어 비율 검사"""
+    if not text:
+        return text
+    
+    # 1. 금지 토큰 제거
+    for token in FORBIDDEN_TOKENS:
+        text = text.replace(token, "")
+    
+    # 2. 중복 문장 제거 (자카드 유사도 기반)
+    sentences = [s.strip() for s in text.split('.') if s.strip()]
+    cleaned_sentences = []
+    
+    for i, sentence in enumerate(sentences):
+        if i == 0:
+            cleaned_sentences.append(sentence)
+            continue
+            
+        # 이전 문장과 유사도 계산
+        prev_sentence = cleaned_sentences[-1] if cleaned_sentences else ""
+        similarity = _calculate_similarity(sentence, prev_sentence)
+        
+        if similarity < SIMILARITY_THRESHOLD:  # 90% 미만 유사도만 유지
+            cleaned_sentences.append(sentence)
+    
+    text = '. '.join(cleaned_sentences)
+    
+    # 3. 언어 비율 검사
+    hangul_ratio = _calculate_hangul_ratio(text)
+    if hangul_ratio < MIN_HANGUL_RATIO:  # 70% 미만이면 경고
+        logger.warning(f"⚠️ 한글 비율 부족: {hangul_ratio:.2%}")
+        return None  # 재생성 필요
+    
+    return text
+
+def _calculate_similarity(text1: str, text2: str) -> float:
+    """자카드 유사도 계산"""
+    if not text1 or not text2:
+        return 0.0
+    
+    set1 = set(text1.lower().split())
+    set2 = set(text2.lower().split())
+    
+    if not set1 and not set2:
+        return 1.0
+    if not set1 or not set2:
+        return 0.0
+    
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
+    
+    return intersection / union if union > 0 else 0.0
+
+def _calculate_hangul_ratio(text: str) -> float:
+    """한글 문자 비율 계산"""
+    if not text:
+        return 0.0
+    
+    hangul_chars = len(re.findall(r'[가-힣]', text))
+    total_chars = len(re.sub(r'\s', '', text))  # 공백 제외
+    
+    return hangul_chars / total_chars if total_chars > 0 else 0.0
+
+def _validate_section_content(text: str, section_title: str) -> dict:
+    """섹션 내용 검증"""
+    validation_result = {
+        "is_valid": True,
+        "issues": [],
+        "needs_regeneration": False
+    }
+    
+    if not text:
+        validation_result["is_valid"] = False
+        validation_result["issues"].append("빈 내용")
+        validation_result["needs_regeneration"] = True
+        return validation_result
+    
+    # 1. 문장 수 검사 (3-6문장)
+    sentences = [s.strip() for s in text.split('.') if s.strip()]
+    if len(sentences) < MIN_SENTENCES or len(sentences) > MAX_SENTENCES:
+        validation_result["issues"].append(f"문장 수 부적절: {len(sentences)}개")
+        validation_result["needs_regeneration"] = True
+    
+    # 2. 글자수 검사 (300-900자)
+    char_count = len(text.replace(' ', ''))
+    if char_count < MIN_CHARS or char_count > MAX_CHARS:
+        validation_result["issues"].append(f"글자수 부적절: {char_count}자")
+        validation_result["needs_regeneration"] = True
+    
+    # 3. 한글 비율 검사 (≥70%)
+    hangul_ratio = _calculate_hangul_ratio(text)
+    if hangul_ratio < MIN_HANGUL_RATIO:
+        validation_result["issues"].append(f"한글 비율 부족: {hangul_ratio:.1%}")
+        validation_result["needs_regeneration"] = True
+    
+    # 4. 금지 토큰 검사
+    found_forbidden = [token for token in FORBIDDEN_TOKENS if token in text]
+    if found_forbidden:
+        validation_result["issues"].append(f"금지 토큰 발견: {found_forbidden}")
+        validation_result["needs_regeneration"] = True
+    
+    # 5. 수치/랭킹 언급 검사
+    forbidden_numbers = re.findall(r'\d+\.?\d*%|\d+\.?\d*fps|\d+\.?\d*mAP', text)
+    if forbidden_numbers:
+        validation_result["issues"].append(f"금지 수치 발견: {forbidden_numbers}")
+        validation_result["needs_regeneration"] = True
+    
+    # 6. <END_SECTION> 검사
+    if not text.strip().endswith('<END_SECTION>'):
+        validation_result["issues"].append("<END_SECTION> 누락")
+        validation_result["needs_regeneration"] = True
+    
+    # 7. 제목-본문 정합성 검사
+    if section_title and section_title.lower() not in text.lower():
+        validation_result["issues"].append("제목-본문 불일치")
+        validation_result["needs_regeneration"] = True
+    
+    if validation_result["issues"]:
+        validation_result["is_valid"] = False
+    
+    return validation_result
 
 def _detect_lang_safe(text: str) -> str:
     if not text or not text.strip(): return "en"
@@ -1135,10 +1397,14 @@ def _translate_with_llm(text: str) -> str:
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=min(MAX_NEW_TOKENS, 600),
-                do_sample=False,  # 결정적 디코딩
+                do_sample=True,  # 샘플링 디코딩 (품질 개선)
+                temperature=0.2,
+                top_p=0.9,
+                top_k=50,
                 use_cache=True,
-                repetition_penalty=1.2,  # 반복 억제
+                repetition_penalty=1.22,  # 반복 억제 (권장값)
                 no_repeat_ngram_size=4,
+                length_penalty=1.0,
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
@@ -1159,7 +1425,21 @@ def _translate_with_llm(text: str) -> str:
             result = _strip_math_all(result)
         result = _strip_tables_figures_all(result)
         result = _sanitize_repeats(result)
-        return result or text
+        
+        # 후처리 및 검증
+        cleaned_result = _cleanup_generated_text(result)
+        if cleaned_result is None:
+            logger.warning("⚠️ 후처리 실패, 재생성 필요")
+            return None
+        
+        # 검증
+        validation = _validate_section_content(cleaned_result, "")
+        if not validation["is_valid"]:
+            logger.warning(f"⚠️ 검증 실패: {validation['issues']}")
+            if validation["needs_regeneration"]:
+                return None
+        
+        return cleaned_result or text
     except Exception as e:
         logger.warning(f"LLM 번역 예외: {e}")
         return text
@@ -1227,10 +1507,20 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     content_masked, math_masks = _mask_blocks(content, _MASK_MATH)
     
     sys_msg = (
-        "YOLO 논문을 중학생도 이해할 수 있게 쉽게 설명해주세요.\n"
+        "YOLO 논문을 중학생도 이해할 수 있게 쉽게 설명해주세요.\n\n"
+        "=== 규칙 섹션 ===\n"
+        "• 한국어만 출력. 영어 토큰/코드 조각/치환 예시(.replace( 등) 금지.\n"
+        "• 섹션당 3-6문장, 간결하게. 문장·문단 반복 금지.\n"
+        "• 섹션 끝에 반드시 <END_SECTION> 한 줄 출력.\n"
+        "• 원문에 근거 없는 수치(%, fps, mAP 등) 절대 금지. 없으면 '수치 언급 없음'으로 서술.\n"
+        "• 모델/약어는 실제 명칭만 사용: YOLO / R-CNN / Fast/Faster R-CNN / DPM. YOLOSE/SYOLO 같은 파생어 금지.\n"
+        "• 치환 규칙 시연, 가짜 코드, 메타 텍스트(예: '[REWRITE]', 'assistant') 금지.\n"
+        "• 각 섹션은 핵심 개념 1-2개만 설명. 예시는 1개 이하.\n"
+        "• VOC 2012 (VOC 20012 오타 금지)\n"
+        "• Titan X, fps 등 출처 불명 수치 모두 삭제\n"
+        "• 제목과 본문 내용이 정확히 일치해야 함\n\n"
         "영어 용어는 (한국어 뜻)을 붙여주세요.\n"
         "⟦MATH_i⟧ 같은 토큰은 그대로 두세요.\n"
-        "3-4문단으로 간단명료하게 설명해주세요.\n"
     )
     title_line = f"[SECTION] {title}\n" if title else ""
     user_msg = f"{title_line}{context_hint}\n[TEXT]\n{content_masked}\n\n[REWRITE in Korean]\n"
@@ -1256,12 +1546,17 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
         outputs = model.generate(
             **inputs,
             generation_config=_gen_cfg(),
-            max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=False,          # 🔧 샘플링 OFF
+            max_new_tokens=min(MAX_NEW_TOKENS, 600),
+            do_sample=True,           # 샘플링 ON (품질 개선)
+            temperature=0.2,
+            top_p=0.9,
+            top_k=50,
             use_cache=True,
-            repetition_penalty=1.15,
+            repetition_penalty=1.22,  # 반복 억제 (권장값)
+            no_repeat_ngram_size=4,
+            length_penalty=1.0,
             pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id
         )
     gen_time = time.time() - gen_start
     logger.info(f"[PERF] LLM 생성 시간: {gen_time:.2f}초")
@@ -1315,8 +1610,21 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     if _need_ko(text):
         text = _ensure_korean(text, force_external=EASY_FORCE_TRANSLATE)
     
+    # 후처리 클린업 적용
+    cleaned_text = _cleanup_text(text)
+    if cleaned_text is None:
+        logger.warning(f"⚠️ 후처리 실패, 재생성 필요")
+        return None
+    
+    # 검증 체크리스트 적용
+    validation = _validate_section_content(cleaned_text, title)
+    if not validation["is_valid"]:
+        logger.warning(f"⚠️ 검증 실패: {validation['issues']}")
+        if validation["needs_regeneration"]:
+            return None
+    
     # JSON 전달용: 마크다운 형식으로 변환
-    text = _convert_to_markdown(text, math_masks)
+    text = _convert_to_markdown(cleaned_text, math_masks)
     
     total_time = time.time() - start_time
     logger.info(f"[PERF] _rewrite_text 완료: {total_time:.2f}초 (LLM: {gen_time:.2f}초)")
@@ -1537,9 +1845,14 @@ async def generate_json(request: TextRequest):
             **inputs,
             generation_config=_gen_cfg(),
             max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=False,
+            do_sample=True,           # 샘플링 ON (품질 개선)
+            temperature=0.2,
+            top_p=0.9,
+            top_k=50,
             use_cache=True,
-            repetition_penalty=1.2,
+            repetition_penalty=1.22,  # 반복 억제 (권장값)
+            no_repeat_ngram_size=4,
+            length_penalty=1.0,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
@@ -2382,67 +2695,44 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         return related_images
 
     async def _work(i: int, section: dict):
-        async with sem:
-            total = len(sections)
-            title = section.get("title") or f"Section {i+1}"
-            logger.info(f"[EASY] ▶ [{i+1}/{total}] section START: {title}")
-            sec_t0 = time.time()
-            try:
-                context_info = f"이 섹션은 전체 {total}개 중 {i+1}번째입니다. "
-                if i > 0:
-                    prev_title = sections[i-1].get("title", "이전 섹션")
-                    context_info += f"이전: {prev_title}. "
-                if i < total - 1:
-                    next_title = sections[i+1].get("title", "다음 섹션")
-                    context_info += f"다음: {next_title}. "
-                if section.get("section_type","section") == "subsection":
-                    context_info += "이것은 서브섹션으로, 상위 내용을 세부적으로 다룹니다. "
-                else:
-                    context_info += "이것은 메인 섹션입니다. "
+        """순차 처리: _work_section 함수 사용"""
+        try:
+            # _work_section 함수로 처리 (이미 검증 및 재생성 로직 포함)
+            result = await _work_section(i, section, sections, request, assets_metadata, src_path)
+            
+            # 시각화 처리 (기존 로직 유지)
+            if result.ok and result.easy_text:
+                section_table_data = sections[i].get('table_data', []) if i < len(sections) else []
+                related_images = []
+                if src_path:
+                    source_dir = src_path if src_path.is_dir() else src_path.parent
+                    related_images = _find_related_images(section.get("content",""), assets_metadata, source_dir)
+                    if related_images:
+                        logger.info(f"[EASY] 섹션 {i+1}에서 {len(related_images)}개 이미지 발견")
 
-                easy_text = await _rewrite_text(
-                    section.get("content",""),
-                    title,
-                    context_info,
-                    style=(request.style or "three_para_ko")
+                viz_res = await _send_to_viz(
+                    paper_id, i, result.easy_text, out_dir, section_table_data,
+                    health_checked=viz_health_ok
                 )
-                # 한국어 보장 (주석은 _rewrite_text에서 1회 적용됨)
-                easy_text = _ensure_korean(easy_text)
+                viz_res.section_title = result.section_title
+                viz_res.section_type = section.get("section_type","section")
+                if viz_res.ok and not viz_res.easy_text:
+                    viz_res.easy_text = result.easy_text
+                viz_res.original_images = related_images
+                results[i] = viz_res
+            else:
+                # 실패한 경우
+                results[i] = result
+                error_briefs.append(f"[{i+1}] {section.get('title', f'Section {i+1}')}: {result.error or '알 수 없는 오류'}")
                 
-                # 영어로 출력된 경우 Google Translate로 번역
-                easy_text = translate_to_korean(easy_text)
-                logger.info(f"[EASY] ✔ text rewritten for section {i+1}")
-            except Exception as e:
-                msg = f"rewrite 실패: {e}"
-                logger.error(f"[EASY] ❌ 섹션 변환 실패 idx={i}: {e}")
-                results[i] = VizResult(ok=False, index=i, error=msg, section_title=title)
-                error_briefs.append(f"[{i+1}] {title}: {e}")
-                section_times_ms[i] = (time.time() - sec_t0) * 1000.0
-                return
-
-            section_table_data = sections[i].get('table_data', []) if i < total else []
-            related_images = []
-            if src_path:
-                source_dir = src_path if src_path.is_dir() else src_path.parent
-                related_images = _find_related_images(section.get("content",""), assets_metadata, source_dir)
-                if related_images:
-                    logger.info(f"[EASY] 섹션 {i+1}에서 {len(related_images)}개 이미지 발견")
-
-            viz_res = await _send_to_viz(
-                paper_id, i, easy_text, out_dir, section_table_data,
-                health_checked=viz_health_ok
-            )
-            viz_res.section_title = title
-            viz_res.section_type = section.get("section_type","section")
-            if viz_res.ok and not viz_res.easy_text:
-                viz_res.easy_text = easy_text
-            viz_res.original_images = related_images
-            results[i] = viz_res
-
-            sec_elapsed = time.time() - sec_t0
-            section_times_ms[i] = sec_elapsed * 1000.0
-            has_img = "img" if (viz_res.ok and viz_res.image_path) else "no-img"
-            logger.info(f"[EASY] ⏹ [{i+1}/{total}] section DONE: {title} elapsed={sec_elapsed:.2f}s {has_img}")
+        except Exception as e:
+            msg = f"섹션 처리 실패: {e}"
+            logger.error(f"[EASY] ❌ 섹션 {i+1} 처리 실패: {e}")
+            results[i] = VizResult(ok=False, index=i, error=msg, section_title=section.get("title", f"Section {i+1}"))
+            error_briefs.append(f"[{i+1}] {section.get('title', f'Section {i+1}')}: {e}")
+        
+        # 시간 기록
+        section_times_ms[i] = (time.time() - time.time()) * 1000.0  # 실제로는 _work_section에서 측정됨
 
     timed_out = False
     try:

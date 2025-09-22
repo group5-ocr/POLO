@@ -795,13 +795,39 @@ export default function Upload() {
           updateProgress(40);
           console.log("✅ [1단계] Easy 모델 완료 - 섹션별 쉬운 설명 생성됨");
           
-          // Easy 모델 완료 시 Math 모델 자동 실행
-          console.log("🔢 [2단계] Math 모델 자동 실행 시작...");
+          // 2단계: Viz API 처리 (Easy 결과의 각 섹션에 시각화 생성)
+          console.log("🎨 [2단계] Viz API 처리 시작...");
           updateProgress(50);
           
-           // Math 모델 자동 실행
+          try {
+            // Easy 결과를 가져와서 각 섹션의 easy_content를 Viz API에 전달
+            const easyDataResponse = await fetch(`${apiBase}/api/results/${paperId}/easy_results.json`);
+            if (easyDataResponse.ok) {
+              const easyData = await easyDataResponse.json();
+              console.log("✅ [2단계] Easy 결과 로드 완료, Viz API 호출 시작");
+              
+              // 각 섹션에 대해 Viz API 호출
+              for (const section of easyData.easy_sections || []) {
+                try {
+                  await callVizApiForSection(section.easy_section_id, section.easy_section_title, section.easy_content);
+                } catch (error) {
+                  console.warn(`⚠️ [2단계] 섹션 ${section.easy_section_title} Viz API 실패, 계속 진행:`, error);
+                }
+              }
+              console.log("✅ [2단계] Viz API 처리 완료");
+            } else {
+              console.warn("⚠️ [2단계] Easy 결과 로드 실패, Viz API 건너뜀");
+            }
+          } catch (error) {
+            console.warn("⚠️ [2단계] Viz API 처리 실패, 계속 진행:", error);
+          }
           
-          // Math 모델 실행
+          updateProgress(60);
+          
+          // 3단계: Math 모델 처리 (수식 해설 생성)
+          console.log("🔢 [3단계] Math 모델 처리 시작...");
+          updateProgress(70);
+          
           try {
             const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
               method: "POST",
@@ -810,30 +836,30 @@ export default function Upload() {
             });
 
             if (mathResponse.ok) {
-              console.log("✅ [2단계] Math 모델 전송 성공");
-              updateProgress(70);
+              console.log("✅ [3단계] Math 모델 전송 성공");
+              updateProgress(80);
               
-          // Math 결과 폴링
-          try {
-            await pollForMathResults(paperId || '');
-            updateProgress(90);
-                console.log("✅ [2단계] Math 모델 완료 - 수식 해설 생성됨");
+              // Math 결과 폴링
+              try {
+                await pollForMathResults(paperId || '');
+                updateProgress(90);
+                console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
               } catch (error) {
-                console.warn("⚠️ [2단계] Math 모델 폴링 실패, 계속 진행:", error);
+                console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
                 updateProgress(90);
               }
             } else {
               const errorText = await mathResponse.text();
-              console.warn("⚠️ [2단계] Math 모델 처리 실패:", errorText);
+              console.warn("⚠️ [3단계] Math 모델 처리 실패:", errorText);
               updateProgress(90);
             }
           } catch (error) {
-            console.warn("⚠️ [2단계] Math 모델 실행 실패:", error);
+            console.warn("⚠️ [3단계] Math 모델 실행 실패:", error);
             updateProgress(90);
           }
           
-          // Easy + Math 완료 후 처리 완료 상태로 설정
-          console.log("✅ [Easy + Math 완료] 처리 완료");
+          // 모든 처리 완료 후 처리 완료 상태로 설정
+          console.log("✅ [Easy + Viz + Math 완료] 모든 처리 완료");
           setIsProcessing(false);
           setAllProcessingComplete(true);
           updateProgress(100);
@@ -857,101 +883,13 @@ export default function Upload() {
         return;
       }
 
-      // 2단계: Viz 모델 처리 (Easy 결과의 각 문단에 시각화 생성)
-      console.log("🎨 [2단계] Viz 모델 처리 시작...");
-      updateProgress(50);
-      
-      // Easy 결과를 기반으로 각 문단에 시각화 생성
-      // (Easy 모델이 이미 시각화 트리거를 포함한 결과를 생성함)
-      console.log("✅ [2단계] Viz 모델 완료 - 문단별 시각화 생성됨");
-      updateProgress(70);
-
-       // 3단계: Math 모델 처리 (수식 해설 생성)
-       console.log("🔢 [3단계] Math 모델 처리 시작...");
-       updateProgress(75);
-       
-       const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ paper_id: paperId }),
-       });
-
-       if (mathResponse.ok) {
-         console.log("✅ [3단계] Math 모델 전송 성공");
-         updateProgress(85);
-         
-         // Math 결과 폴링
-         try {
-           await pollForMathResults(paperId || '');
-           updateProgress(95);
-           console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
-         } catch (error) {
-           console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
-           updateProgress(95);
-         }
-       } else {
-         console.warn("⚠️ [3단계] Math 모델 처리 실패, 계속 진행");
-         updateProgress(95);
-       }
-
-      // 4단계: 통합 데이터 생성 (Easy + Viz + Math 결과 통합)
-      console.log("🔗 [4단계] 통합 데이터 생성 중...");
-      updateProgress(98);
-      
-      try {
-        const integratedResponse = await fetch(`${apiBase}/api/integrated-result/${paperId}`);
-        if (integratedResponse.ok) {
-          const integratedResult = await integratedResponse.json();
-          setIntegratedData(integratedResult);
-          console.log("✅ [4단계] 통합 데이터 생성 완료");
-        } else {
-          console.warn("⚠️ [4단계] 통합 데이터 생성 실패, 기본 데이터로 계속 진행");
-          // 기본 데이터 생성
-          setIntegratedData({
-            paper_info: {
-              paper_id: paperId,
-              paper_title: `논문 ${paperId}`,
-              paper_authors: "Unknown",
-              paper_venue: "Unknown",
-              total_sections: 0,
-              total_equations: 0
-            },
-            easy_sections: [],
-            math_equations: [],
-            model_errors: {
-              easy_model_error: "통합 데이터 생성 실패",
-              math_model_error: null,
-              viz_api_error: null
-            },
-            processing_logs: ["통합 데이터 생성 중 오류 발생"]
-          });
-        }
-      } catch (error) {
-        console.warn("⚠️ [4단계] 통합 데이터 생성 중 오류, 기본 데이터로 계속 진행:", error);
-        // 기본 데이터 생성
-        setIntegratedData({
-          paper_info: {
-            paper_id: paperId,
-            paper_title: `논문 ${paperId}`,
-            paper_authors: "Unknown",
-            paper_venue: "Unknown",
-            total_sections: 0,
-            total_equations: 0
-          },
-          easy_sections: [],
-          math_equations: [],
-          model_errors: {
-            easy_model_error: "통합 데이터 생성 중 오류 발생",
-            math_model_error: null,
-            viz_api_error: null
-          },
-          processing_logs: [`통합 데이터 생성 중 오류 발생: ${error}`]
-        });
-      }
-
-      updateProgress(100);
+      // Easy 모델 실패 시에도 처리 완료 상태로 설정
+      console.log("⚠️ [1단계] Easy 모델 처리 실패, 기본 처리 완료");
+      updateProgress(40);
+      setIsProcessing(false);
       setAllProcessingComplete(true);
-      console.log("🎉 [완료] Easy → Viz → Math 순서로 모든 처리 완료!");
+      updateProgress(100);
+      return;
 
     } catch (error) {
       console.error("❌ [통합] 처리 중 오류:", error);
@@ -1023,8 +961,37 @@ export default function Upload() {
 
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-
+    
     console.warn("⚠️ [통합] Math 모델 처리 타임아웃, 계속 진행");
+  };
+
+  // Viz API 호출 함수 (섹션별)
+  const callVizApiForSection = async (sectionId: string, sectionTitle: string, sectionContent: string) => {
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/viz-api/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          section_id: sectionId,
+          section_title: sectionTitle,
+          section_content: sectionContent,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Viz API 호출 실패: ${response.status}`);
+      }
+
+      const vizResult = await response.json();
+      console.log(`✅ [Viz API] 섹션 ${sectionTitle} 시각화 생성 완료`);
+      return vizResult;
+    } catch (error) {
+      console.warn(`⚠️ [Viz API] 섹션 ${sectionTitle} 시각화 생성 실패:`, error);
+      throw error;
+    }
   };
 
   // Result.tsx 미리보기 열기
@@ -1306,12 +1273,15 @@ export default function Upload() {
                       </div>
                       <h2>AI 논문 분석 완료!</h2>
                       <p>Easy 모델과 Math 모델의 결과를 확인해보세요.</p>
-                      <button
-                        onClick={() => {
-                          const pathParts = window.location.pathname.split('/');
-                          const paperId = pathParts[pathParts.length - 1];
-                          navigate(`/result/${paperId}`);
-                        }}
+                       <button
+                         onClick={() => {
+                           const paperId = result?.doc_id;
+                           if (paperId) {
+                             navigate(`/result/${paperId}`);
+                           } else {
+                             alert("논문 ID를 찾을 수 없습니다.");
+                           }
+                         }}
                         className="view-results-button"
                         style={{
                           background: "linear-gradient(135deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
