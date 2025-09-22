@@ -3452,6 +3452,8 @@ body,
   height: 100%;
   position: relative;
   z-index: 10;
+  justify-content: flex-start; /* 상단 정렬로 변경 */
+  padding-top: 20px; /* 상단 패딩만 추가 */
 }
 
 @keyframes morphing {
@@ -4117,6 +4119,101 @@ body,
   height: 4px;
   background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
   border-radius: 20px 20px 0 0;
+}
+
+/* 결과 상단 영역 간격 조정 */
+.result-top {
+  margin-bottom: 48px; /* 하단 여백을 48px로 증가 */
+}
+
+/* 통합 분석 버튼 간격 조정 */
+.integrated-analysis-button {
+  margin-top: -16px !important; /* 상단 마진을 음수로 조정하여 위로 이동 */
+  background: linear-gradient(
+    135deg,
+    #667eea 0%,
+    #764ba2 50%,
+    #f093fb 100%
+  ) !important;
+  color: white !important;
+  border: none !important;
+  cursor: pointer !important;
+  text-align: center !important;
+  transition: all 0.3s ease !important;
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4),
+    0 4px 12px rgba(118, 75, 162, 0.3) !important;
+  padding: 24px 32px !important;
+  border-radius: 16px !important;
+  font-size: 1.2rem !important;
+  font-weight: 700 !important;
+  position: relative !important;
+  overflow: hidden !important;
+  min-height: 80px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+}
+
+.integrated-analysis-button:hover {
+  transform: translateY(-4px) scale(1.02) !important;
+  box-shadow: 0 12px 35px rgba(102, 126, 234, 0.5),
+    0 8px 20px rgba(118, 75, 162, 0.4) !important;
+  background: linear-gradient(
+    135deg,
+    #5a67d8 0%,
+    #6b46c1 50%,
+    #ec4899 100%
+  ) !important;
+}
+
+.integrated-analysis-button:active {
+  transform: translateY(-2px) scale(1.01) !important;
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4),
+    0 3px 10px rgba(118, 75, 162, 0.3) !important;
+}
+
+/* 버튼 내부 아이콘 스타일 */
+.integrated-analysis-button .step-number {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
+  width: 40px !important;
+  height: 40px !important;
+  font-size: 1.3rem !important;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2) !important;
+  animation: pulse 2s infinite !important;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.3);
+  }
+}
+
+/* 버튼 텍스트 스타일 */
+.integrated-analysis-button .step-content {
+  text-align: left !important;
+}
+
+.integrated-analysis-button .step-title {
+  font-size: 1.3rem !important;
+  font-weight: 800 !important;
+  color: white !important;
+  margin-bottom: 6px !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+.integrated-analysis-button .step-desc {
+  font-size: 1rem !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 500 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
 }
 
 /* 오른쪽 안내 영역 - 히어로 스타일 */
@@ -6112,7 +6209,7 @@ body,
   }
 
   .result-top {
-    margin-bottom: 24px;
+    margin-bottom: 32px; /* 모바일에서도 적절한 간격 유지 */
   }
 
   .result-header {
@@ -6323,6 +6420,27 @@ body,
   .step-item {
     padding: 16px;
     margin-bottom: 16px;
+  }
+
+  .integrated-analysis-button {
+    margin-top: -12px !important; /* 모바일에서도 위로 조정 */
+    padding: 20px 24px !important; /* 모바일 패딩 조정 */
+    font-size: 1.1rem !important; /* 모바일 폰트 크기 */
+    min-height: 70px !important; /* 모바일 최소 높이 */
+  }
+
+  .integrated-analysis-button .step-number {
+    width: 36px !important; /* 모바일 아이콘 크기 */
+    height: 36px !important;
+    font-size: 1.2rem !important;
+  }
+
+  .integrated-analysis-button .step-title {
+    font-size: 1.2rem !important; /* 모바일 제목 크기 */
+  }
+
+  .integrated-analysis-button .step-desc {
+    font-size: 0.9rem !important; /* 모바일 설명 크기 */
   }
 
   .step-number {
