@@ -1068,6 +1068,186 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
         print(f"❌ [ERROR] Math 모델 처리 실패: {e}")
         raise HTTPException(status_code=500, detail=f"Math 모델 처리 실패: {e}")
 
+@router.post("/upload/send-to-viz")
+async def send_to_viz(request: ModelSendRequest, bg: BackgroundTasks):
+    """
+    Viz 모델로 Easy 결과 전송 및 시각화 생성
+    """
+    try:
+        paper_id = request.paper_id
+        print(f"🚀 [SERVER] Viz 모델 처리 요청: paper_id={paper_id}")
+        
+        # Easy 결과 파일 경로 찾기
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        # Easy 결과 파일을 여러 위치에서 찾기
+        easy_json_path = server_dir / "data" / "outputs" / paper_id / "easy_results.json"
+        if not easy_json_path.exists():
+            # easy_outputs 디렉토리에서 찾기
+            easy_json_path = server_dir / "data" / "outputs" / paper_id / "easy_outputs" / "easy_results.json"
+        
+        if not easy_json_path.exists():
+            print(f"❌ [SERVER] Easy 결과 파일 없음: {easy_json_path}")
+            raise HTTPException(status_code=404, detail="Easy 결과를 찾을 수 없습니다")
+        
+        # Viz 모델 URL
+        viz_url = os.getenv("VIZ_MODEL_URL", "http://localhost:5005")
+        output_dir = server_dir / "data" / "outputs" / paper_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"📁 [SERVER] Viz 모델 처리 준비 완료:")
+        print(f"  - viz_url: {viz_url}")
+        print(f"  - easy_json_path: {str(easy_json_path)}")
+        print(f"  - output_dir: {str(output_dir)}")
+        
+        # Viz 모델로 처리 실행
+        async def _run_viz_processing():
+            try:
+                print(f"🔄 [SERVER] Viz 모델 백그라운드 작업 시작...")
+                
+                # Viz 모델 연결 테스트
+                try:
+                    async with httpx.AsyncClient(timeout=10) as test_client:
+                        test_response = await test_client.get(f"{viz_url}/health")
+                        if test_response.status_code != 200:
+                            print(f"❌ [SERVER] Viz 모델 연결 실패: {test_response.status_code}")
+                            return
+                        print(f"✅ [SERVER] Viz 모델 연결 확인됨")
+                except Exception as e:
+                    print(f"❌ [SERVER] Viz 모델 연결 테스트 실패: {e}")
+                    return
+                
+                async with httpx.AsyncClient(timeout=1800) as client:  # 30분 허용
+                    print(f"📤 [SERVER] Viz 모델로 처리 시작...")
+                    
+                    # Easy 결과를 Viz 모델에 전달
+                    import json
+                    with open(easy_json_path, 'r', encoding='utf-8') as f:
+                        easy_data = json.load(f)
+                    
+                    # Viz 모델에 Easy 결과 전달
+                    response = await client.post(f"{viz_url}/generate-visualizations", json={
+                        "paper_id": paper_id,
+                        "easy_results": easy_data,
+                        "output_dir": str(output_dir)
+                    })
+                    print(f"📥 [SERVER] Viz 모델 응답: {response.status_code}")
+                    if response.status_code != 200:
+                        print(f"❌ [SERVER] Viz 모델 응답 실패: {response.status_code} - {response.text}")
+                        return
+                    
+                    # Viz 결과 저장
+                    viz_result = response.json()
+                    viz_json_file = output_dir / "viz_results.json"
+                    viz_json_file.write_text(json.dumps(viz_result, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"✅ [SERVER] Viz JSON 결과 생성 완료: {viz_json_file}")
+                    
+            except Exception as e:
+                print(f"❌ [SERVER] Viz 모델 처리 실패: {e}")
+        
+        # 백그라운드에서 실행
+        bg.add_task(_run_viz_processing)
+        
+        return {
+            "message": "Viz 모델 처리 시작됨",
+            "paper_id": paper_id,
+            "status": "processing"
+        }
+        
+    except Exception as e:
+        print(f"❌ [SERVER] Viz 모델 전송 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"Viz 모델 전송 실패: {e}")
+
+@router.post("/upload/send-to-viz-api")
+async def send_to_viz_api(request: ModelSendRequest, bg: BackgroundTasks):
+    """
+    Viz API 모델로 고급 시각화 생성
+    """
+    try:
+        paper_id = request.paper_id
+        print(f"🚀 [SERVER] Viz API 모델 처리 요청: paper_id={paper_id}")
+        
+        # Easy 결과 파일 경로 찾기
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        # Easy 결과 파일을 여러 위치에서 찾기
+        easy_json_path = server_dir / "data" / "outputs" / paper_id / "easy_results.json"
+        if not easy_json_path.exists():
+            # easy_outputs 디렉토리에서 찾기
+            easy_json_path = server_dir / "data" / "outputs" / paper_id / "easy_outputs" / "easy_results.json"
+        
+        if not easy_json_path.exists():
+            print(f"❌ [SERVER] Easy 결과 파일 없음: {easy_json_path}")
+            raise HTTPException(status_code=404, detail="Easy 결과를 찾을 수 없습니다")
+        
+        # Viz API 모델 URL
+        viz_api_url = os.getenv("VIZ_API_URL", "http://localhost:5006")
+        output_dir = server_dir / "data" / "outputs" / paper_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"📁 [SERVER] Viz API 모델 처리 준비 완료:")
+        print(f"  - viz_api_url: {viz_api_url}")
+        print(f"  - easy_json_path: {str(easy_json_path)}")
+        print(f"  - output_dir: {str(output_dir)}")
+        
+        # Viz API 모델로 처리 실행
+        async def _run_viz_api_processing():
+            try:
+                print(f"🔄 [SERVER] Viz API 모델 백그라운드 작업 시작...")
+                
+                # Viz API 모델 연결 테스트
+                try:
+                    async with httpx.AsyncClient(timeout=10) as test_client:
+                        test_response = await test_client.get(f"{viz_api_url}/health")
+                        if test_response.status_code != 200:
+                            print(f"❌ [SERVER] Viz API 모델 연결 실패: {test_response.status_code}")
+                            return
+                        print(f"✅ [SERVER] Viz API 모델 연결 확인됨")
+                except Exception as e:
+                    print(f"❌ [SERVER] Viz API 모델 연결 테스트 실패: {e}")
+                    return
+                
+                async with httpx.AsyncClient(timeout=1800) as client:  # 30분 허용
+                    print(f"📤 [SERVER] Viz API 모델로 처리 시작...")
+                    
+                    # Easy 결과를 Viz API 모델에 전달
+                    import json
+                    with open(easy_json_path, 'r', encoding='utf-8') as f:
+                        easy_data = json.load(f)
+                    
+                    # Viz API 모델에 Easy 결과 전달
+                    response = await client.post(f"{viz_api_url}/generate-advanced-visualizations", json={
+                        "paper_id": paper_id,
+                        "easy_results": easy_data,
+                        "output_dir": str(output_dir)
+                    })
+                    print(f"📥 [SERVER] Viz API 모델 응답: {response.status_code}")
+                    if response.status_code != 200:
+                        print(f"❌ [SERVER] Viz API 모델 응답 실패: {response.status_code} - {response.text}")
+                        return
+                    
+                    # Viz API 결과 저장
+                    viz_api_result = response.json()
+                    viz_api_json_file = output_dir / "viz_api_results.json"
+                    viz_api_json_file.write_text(json.dumps(viz_api_result, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"✅ [SERVER] Viz API JSON 결과 생성 완료: {viz_api_json_file}")
+                    
+            except Exception as e:
+                print(f"❌ [SERVER] Viz API 모델 처리 실패: {e}")
+        
+        # 백그라운드에서 실행
+        bg.add_task(_run_viz_api_processing)
+        
+        return {
+            "message": "Viz API 모델 처리 시작됨",
+            "paper_id": paper_id,
+            "status": "processing"
+        }
+        
+    except Exception as e:
+        print(f"❌ [SERVER] Viz API 모델 전송 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"Viz API 모델 전송 실패: {e}")
+
 @router.get("/integrated-result/{paper_id}")
 async def get_integrated_result(paper_id: str):
     """
