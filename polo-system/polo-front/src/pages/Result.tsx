@@ -322,10 +322,9 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   const createTableOfContents = () => {
     if (!integratedData?.easy_sections) return null;
 
-    const renderTocItem = (section: EasySection, level: number = 0) => {
-      const indentClass =
-        level > 0 ? `toc-subsection toc-level-${level}` : "toc-section";
-
+    const renderTocItem = (section: EasySection) => {
+      const level = section.easy_section_level ?? (section.easy_section_type === "subsection" ? 2 : 1);
+      const indentClass = level > 1 ? `toc-subsection toc-level-${level}` : "toc-section";
       return (
         <li key={section.easy_section_id} className={indentClass}>
           <a
@@ -335,16 +334,9 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               scrollToSection(section.easy_section_id);
             }}
           >
-            {level > 0 && <span className="toc-indent">└ </span>}
+            {level > 1 && <span className="toc-indent">└ </span>}
             {section.easy_section_title}
           </a>
-          {section.easy_subsections && section.easy_subsections.length > 0 && (
-            <ul className="toc-sublist">
-              {section.easy_subsections.map((subsection) =>
-                renderTocItem(subsection, level + 1)
-              )}
-            </ul>
-          )}
         </li>
       );
     };
@@ -354,13 +346,10 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         <nav className="table-of-contents" id="table-of-contents">
           <h3>목차</h3>
           <ul id="toc-list">
-            {integratedData.easy_sections.map((section) =>
-              renderTocItem(section)
-            )}
+            {integratedData.easy_sections.map((section) => renderTocItem(section))}
           </ul>
         </nav>
 
-        {/* HTML 다운로드 버튼 */}
         <div className="download-section">
           <button
             id="download-html-btn"
@@ -377,10 +366,11 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   };
 
   const createSectionElement = (section: EasySection, index: number) => {
-    const isSubsection = section.easy_section_type === "subsection";
+    const level = section.easy_section_level ?? (section.easy_section_type === "subsection" ? 2 : 1);
+    const isSubsection = level > 1;
     const sectionClass = isSubsection ? "paper-subsection" : "paper-section";
     const headerClass = isSubsection ? "subsection-header" : "section-header";
-    const titleClass = isSubsection ? "subsection-title" : "section-title";
+    const titleTag = level > 1 ? "h4" : "h2";
 
     return (
       <div
@@ -389,48 +379,17 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         id={section.easy_section_id}
       >
         <div className={headerClass}>
-          <div className={titleClass}>
-            <span className="section-order">
-              {isSubsection
-                ? `${section.easy_section_order}.`
-                : section.easy_section_order}
-            </span>
-            <span>{section.easy_section_title}</span>
-          </div>
-
-          {/* Viz API 버튼 (섹션에만 표시) */}
-          {!isSubsection && (
-            <div className="section-actions">
-              <button
-                className="viz-api-button"
-                onClick={() => {
-                  if (!section.viz_api_result) {
-                    // 첫 호출 시 Viz API 호출
-                    callVizApi(
-                      section.easy_section_id,
-                      section.easy_section_title,
-                      section.easy_content
-                    );
-                  }
-                  toggleVizApi(section.easy_section_id);
-                }}
-                disabled={loadingVizApi[section.easy_section_id]}
-              >
-                {loadingVizApi[section.easy_section_id] ? (
-                  <>
-                    <span className="spinner-small"></span>
-                    생성 중...
-                  </>
-                ) : (
-                  <>
-                    🎨{" "}
-                    {activeVizApi[section.easy_section_id]
-                      ? "시각화 숨기기"
-                      : "시각화 보기"}
-                  </>
-                )}
-              </button>
-            </div>
+          {React.createElement(
+            titleTag as any,
+            { className: "section-title" },
+            <>
+              <span className="section-order">
+                {isSubsection
+                  ? `${section.easy_section_order}.`
+                  : section.easy_section_order}
+              </span>
+              <span>{section.easy_section_title}</span>
+            </>
           )}
         </div>
 
@@ -441,59 +400,106 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               className="paragraph-container"
             >
               <p
-                className={`paragraph-text ${
-                  paragraph.easy_visualization_trigger
-                    ? "clickable-paragraph"
-                    : ""
-                }`}
-                onClick={() => {
-                  if (paragraph.easy_visualization_trigger) {
-                    toggleVisualization(
-                      section.easy_section_id,
-                      paragraph.easy_paragraph_id
-                    );
-                  }
-                }}
+                className="paragraph-text"
                 dangerouslySetInnerHTML={{
                   __html: formatText(paragraph.easy_paragraph_text),
                 }}
               />
 
-              {/* 시각화 표시 영역 */}
-              {paragraph.easy_visualization_trigger &&
-                activeViz[
-                  `${section.easy_section_id}-${paragraph.easy_paragraph_id}`
-                ] && (
-                  <div className="visualization-container">
-                    {section.easy_visualizations?.map((viz) => (
-                      <div key={viz.easy_viz_id} className="visualization-item">
-                        <h4>{viz.easy_viz_title}</h4>
-                        {viz.easy_viz_description && (
-                          <p className="viz-description">
-                            {viz.easy_viz_description}
-                          </p>
-                        )}
-                        {viz.easy_viz_image_path && (
-                          <img
-                            src={viz.easy_viz_image_path}
-                            alt={viz.easy_viz_title}
-                            className="viz-image"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = "none";
-                              const fallback = document.createElement("div");
-                              fallback.className = "image-fallback";
-                              fallback.textContent = viz.easy_viz_title;
-                              fallback.style.cssText =
-                                "padding: 40px; text-align: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; color: #6c757d;";
-                              target.parentNode?.appendChild(fallback);
-                            }}
-                          />
-                        )}
+              {/* 문단에 삽입된 수식 렌더링 및 토글 설명 */}
+              {(paragraph as any).paragraph_type === "math_equation" &&
+                (paragraph as any).math_equation && (
+                  <div className="equation-item">
+                    <div className="equation-header">
+                      <div className="equation-index">
+                        {(paragraph as any).math_equation.equation_index}
                       </div>
-                    ))}
+                      <div className="equation-title">
+                        {(paragraph as any).math_equation.equation_context || "수식"}
+                      </div>
+                      <button
+                        className="equation-toggle"
+                        onClick={() =>
+                          toggleEquation((paragraph as any).math_equation.equation_id)
+                        }
+                      >
+                        {activeEquation === (paragraph as any).math_equation.equation_id
+                          ? "숨기기"
+                          : "설명 보기"}
+                      </button>
+                    </div>
+
+                    <div
+                      className={`equation ${
+                        activeEquation === (paragraph as any).math_equation.equation_id
+                          ? "equation-active"
+                          : ""
+                      }`}
+                      ref={mathJaxRef}
+                      onClick={() =>
+                        toggleEquation((paragraph as any).math_equation.equation_id)
+                      }
+                      style={{ cursor: "pointer" }}
+                      title="수식을 클릭하면 설명을 볼 수 있습니다"
+                    >
+                      {`$$${(paragraph as any).math_equation.equation_latex}$$`}
+                    </div>
+
+                    {activeEquation === (paragraph as any).math_equation.equation_id && (
+                      <div className="equation-explanation">
+                        <div className="explanation-header">
+                          <span className="explanation-icon">💡</span>
+                          <span className="explanation-title">수식 설명</span>
+                        </div>
+                        <div
+                          className="explanation-content"
+                          dangerouslySetInnerHTML={{
+                            __html: formatText(
+                              (paragraph as any).math_equation.equation_explanation || ""
+                            ),
+                          }}
+                        />
+                        {(paragraph as any).math_equation.equation_variables &&
+                          (paragraph as any).math_equation.equation_variables.length > 0 && (
+                            <div className="equation-variables">
+                              <div className="explanation-header">
+                                <span className="explanation-icon">🔠</span>
+                                <span className="explanation-title">변수 설명</span>
+                              </div>
+                              <ul>
+                                {(paragraph as any).math_equation.equation_variables.map(
+                                  (v: any, idx: number) => (
+                                    <li key={idx}>{typeof v === "string" ? v : JSON.stringify(v)}</li>
+                                  )
+                                )}
+                              </ul>
+                            </div>
+                          )}
+                      </div>
+                    )}
                   </div>
                 )}
+
+              {/* 시각화 항상 표시 (존재 시) */}
+              {(paragraph as any).visualization?.image_path && (
+                <div className="visualization-container">
+                  <img
+                    src={(paragraph as any).visualization.image_path}
+                    alt={section.easy_section_title}
+                    className="viz-image"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = "none";
+                      const fallback = document.createElement("div");
+                      fallback.className = "image-fallback";
+                      fallback.textContent = "이미지를 불러올 수 없습니다";
+                      fallback.style.cssText =
+                        "padding: 40px; text-align: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; color: #6c757d;";
+                      target.parentNode?.appendChild(fallback);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -630,7 +636,9 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
   const formatText = (text: string) => {
     if (!text) return "";
-    return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    // 강조(** **)를 형광펜 효과로 변환
+    let html = text.replace(/\*\*(.*?)\*\*/g, "<mark><strong>$1</strong></mark>");
+    return html;
   };
 
   const downloadAsHTML = async () => {

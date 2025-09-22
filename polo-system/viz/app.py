@@ -269,9 +269,9 @@ async def generate_viz(request: VizRequest):
         _ensure_grammars_loaded()
         from text_to_spec import auto_build_spec_from_text
 
-        # easy_results.json 경로: app.py와 같은 폴더
-        here = Path(__file__).parent
-        easy_path = here / "easy_results.json"
+        # easy_results.json 경로: server/data/outputs/{paper_id}/easy_results.json
+        server_dir = Path(__file__).resolve().parent.parent / "server"
+        easy_path = server_dir / "data" / "outputs" / request.paper_id / "easy_results.json"
         if not easy_path.exists():
             raise HTTPException(status_code=400, detail=f"입력 JSON이 없습니다: {easy_path}")
 
@@ -462,42 +462,48 @@ if __name__ == "__main__":
         _ensure_grammars_loaded()
         from text_to_spec import auto_build_spec_from_text
 
-        here = Path(__file__).parent
-        easy_path = here / "easy_results.json"
-        if easy_path.exists():
-            print(f"easy_results.json 발견 → 문단별 테스트 렌더링 실행...")
-            # 서버 경로
-            server_dir = Path(__file__).resolve().parent.parent / "server"
-            cnt = 0
-            for paper_id, section_id, paragraph_id, text in _iter_easy_paragraphs(str(easy_path)):
-                if not text.strip():
-                    print(f"[SKIP] {section_id}/{paragraph_id} (empty)")
-                    continue
-                try:
-                    spec = auto_build_spec_from_text(text)
-                    print(f"[DEBUG] {section_id}/{paragraph_id} text_len={len(text)} raw_spec={len(spec or [])}")
-                    spec = sanitize_and_shorten_spec(spec, paragraph_id)
-                    print(f"[DEBUG] {section_id}/{paragraph_id} clean_spec={len(spec)}")
-                    if not spec:
-                        print(f"[SKIP] {section_id}/{paragraph_id} (no spec after sanitize)")
-                        continue
+        # 부트 시 테스트는 첫 번째 논문 폴더를 찾아서 실행
+        server_dir = Path(__file__).resolve().parent.parent / "server"
+        outputs_dir = server_dir / "data" / "outputs"
+        if outputs_dir.exists():
+            # 첫 번째 논문 폴더 찾기
+            paper_dirs = [d for d in outputs_dir.iterdir() if d.is_dir()]
+            if paper_dirs:
+                easy_path = paper_dirs[0] / "easy_results.json"
+                if easy_path.exists():
+                    print(f"easy_results.json 발견 → 문단별 테스트 렌더링 실행...")
+                    # 서버 경로
+                    server_dir = Path(__file__).resolve().parent.parent / "server"
+                    cnt = 0
+                    for paper_id, section_id, paragraph_id, text in _iter_easy_paragraphs(str(easy_path)):
+                        if not text.strip():
+                            print(f"[SKIP] {section_id}/{paragraph_id} (empty)")
+                            continue
+                        try:
+                            spec = auto_build_spec_from_text(text)
+                            print(f"[DEBUG] {section_id}/{paragraph_id} text_len={len(text)} raw_spec={len(spec or [])}")
+                            spec = sanitize_and_shorten_spec(spec, paragraph_id)
+                            print(f"[DEBUG] {section_id}/{paragraph_id} clean_spec={len(spec)}")
+                            if not spec:
+                                print(f"[SKIP] {section_id}/{paragraph_id} (no spec after sanitize)")
+                                continue
 
-                    spec = auto_build_spec_from_text(text)
-                    spec = sanitize_and_shorten_spec(spec, paragraph_id)
-                    outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
-                    outdir.mkdir(parents=True, exist_ok=True)
-                    outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing", clear_outdir=True)
-                    for o in outs:
-                        print(f" [{section_id}/{paragraph_id}] → {o['path']}")
-                        cnt += 1
+                            spec = auto_build_spec_from_text(text)
+                            spec = sanitize_and_shorten_spec(spec, paragraph_id)
+                            outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
+                            outdir.mkdir(parents=True, exist_ok=True)
+                            outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing", clear_outdir=True)
+                            for o in outs:
+                                print(f" [{section_id}/{paragraph_id}] → {o['path']}")
+                                cnt += 1
 
-                except Exception as e:
-                    import traceback
-                    print(f"[ERR] {section_id}/{paragraph_id}: {e}")
-                    traceback.print_exc()
-            print(f"✅ 테스트 렌더 완료: {cnt} 개")
-        else:
-            print("ℹ️ easy_results.json 없음, API 서버만 실행")
+                        except Exception as e:
+                            import traceback
+                            print(f"[ERR] {section_id}/{paragraph_id}: {e}")
+                            traceback.print_exc()
+                    print(f"✅ 테스트 렌더 완료: {cnt} 개")
+                else:
+                    print("ℹ️ easy_results.json 없음, API 서버만 실행")
     except Exception as e:
         print(f"⚠️ 부트 테스트 실패: {e} (서버는 계속 실행)")
 

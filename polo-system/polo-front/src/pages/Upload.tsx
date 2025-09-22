@@ -758,7 +758,7 @@ export default function Upload() {
     }
   };
 
-  // 통합 처리 함수 - Easy+Viz 병렬 → Math → Viz API 순서로 실행
+  // 통합 처리 함수 - 순차 실행 엔드포인트 사용 (Easy → Viz → Math)
   const handleIntegratedProcessing = async () => {
     const paperId = result?.doc_id;
     if (!paperId) {
@@ -775,199 +775,43 @@ export default function Upload() {
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
-      // 1단계: Easy 모델과 Viz 모델 병렬 처리
-      console.log("🚀 [1단계] Easy 모델과 Viz 모델 병렬 처리 시작...");
+      // 순차 실행 엔드포인트 호출 (Easy → Viz → Math)
+      console.log("🚀 [PIPELINE] 전체 모델 순차 실행 시작...");
       updateProgress(10);
 
-      // Easy 모델과 Viz 모델을 동시에 실행
-      const [easyResponse, vizResponse] = await Promise.allSettled([
-        fetch(`${apiBase}/api/upload/send-to-easy`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paper_id: paperId }),
-        }),
-        fetch(`${apiBase}/api/upload/send-to-viz`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paper_id: paperId }),
-        }),
-      ]);
+      const response = await fetch(`${apiBase}/api/upload/run-all-models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paper_id: paperId }),
+      });
 
-      // Easy 모델 결과 처리
-      if (easyResponse.status === "fulfilled" && easyResponse.value.ok) {
-        console.log("✅ [1단계] Easy 모델 전송 성공");
-        updateProgress(20);
-
-        try {
-          await pollForEasyResults(paperId);
-          updateProgress(30);
-          console.log("✅ [1단계] Easy 모델 완료 - 섹션별 쉬운 설명 생성됨");
-        } catch (error) {
-          console.warn("⚠️ [1단계] Easy 모델 폴링 실패, 계속 진행:", error);
-          updateProgress(30);
-        }
-      } else {
-        console.warn("⚠️ [1단계] Easy 모델 처리 실패, 계속 진행");
-        updateProgress(30);
+      if (!response.ok) {
+        throw new Error(`순차 실행 실패: ${response.status}`);
       }
 
-      // Viz 모델 결과 처리
-      if (vizResponse.status === "fulfilled" && vizResponse.value.ok) {
-        console.log("✅ [1단계] Viz 모델 전송 성공");
-
-        try {
-          await pollForVizResults(paperId);
-          updateProgress(40);
-          console.log("✅ [1단계] Viz 모델 완료 - 문단별 시각화 생성됨");
-        } catch (error) {
-          console.warn("⚠️ [1단계] Viz 모델 폴링 실패, 계속 진행:", error);
-          updateProgress(40);
-        }
-      } else {
-        console.warn("⚠️ [1단계] Viz 모델 처리 실패, 계속 진행");
-        updateProgress(40);
-      }
-
-      // 2단계: Math 모델 처리 (수식 해설 생성)
-      console.log("🔢 [2단계] Math 모델 처리 시작...");
-      updateProgress(50);
-
+      const pipelineResult = await response.json();
+      console.log("✅ [PIPELINE] 순차 실행 완료:", pipelineResult);
+      
+      // 통합 결과 로드
+      console.log("🔗 [PIPELINE] 통합 결과 로드 중...");
       try {
-        const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paper_id: paperId }),
-        });
-
-        if (mathResponse.ok) {
-          console.log("✅ [2단계] Math 모델 전송 성공");
-          updateProgress(60);
-
-          // Math 결과 폴링
-          try {
-            await pollForMathResults(paperId || "");
-            updateProgress(75);
-            console.log("✅ [2단계] Math 모델 완료 - 수식 해설 생성됨");
-          } catch (error) {
-            console.warn("⚠️ [2단계] Math 모델 폴링 실패, 계속 진행:", error);
-            updateProgress(70);
-          }
-        } else {
-          console.warn("⚠️ [2단계] Math 모델 처리 실패, 계속 진행");
-          updateProgress(70);
-        }
-      } catch (error) {
-        console.warn("⚠️ [2단계] Math 모델 실행 실패, 계속 진행:", error);
-        updateProgress(70);
-      }
-
-      // 3단계: Viz API 모델 처리 (고급 시각화 생성)
-      console.log("🎨 [3단계] Viz API 모델 처리 시작...");
-      updateProgress(75);
-
-      try {
-        const vizApiResponse = await fetch(
-          `${apiBase}/api/upload/send-to-viz-api`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ paper_id: paperId }),
-          }
-        );
-
-        if (vizApiResponse.ok) {
-          console.log("✅ [3단계] Viz API 모델 전송 성공");
-          updateProgress(80);
-
-          // Viz API 결과 폴링
-          try {
-            await pollForVizApiResults(paperId);
-            updateProgress(90);
-            console.log("✅ [3단계] Viz API 모델 완료 - 고급 시각화 생성됨");
-          } catch (error) {
-            console.warn(
-              "⚠️ [3단계] Viz API 모델 폴링 실패, 계속 진행:",
-              error
-            );
-            updateProgress(85);
-          }
-        } else {
-          console.warn("⚠️ [3단계] Viz API 모델 처리 실패, 계속 진행");
-          updateProgress(85);
-        }
-      } catch (error) {
-        console.warn("⚠️ [3단계] Viz API 모델 실행 실패, 계속 진행:", error);
-        updateProgress(85);
-      }
-
-      // 4단계: 통합 데이터 생성 (Easy + Viz + Math + Viz API 결과 통합)
-      console.log("🔗 [4단계] 통합 데이터 생성 중...");
-      updateProgress(90);
-
-      try {
-        const integratedResponse = await fetch(
-          `${apiBase}/api/integrated-result/${paperId}`
-        );
+        const integratedResponse = await fetch(`${apiBase}/api/integrated-result/${paperId}`);
         if (integratedResponse.ok) {
-          const integratedResult = await integratedResponse.json();
-          setIntegratedData(integratedResult);
-          console.log("✅ [5단계] 통합 데이터 생성 완료");
+          const integratedData = await integratedResponse.json();
+          setIntegratedData(integratedData);
+          console.log("✅ [PIPELINE] 통합 결과 로드 완료");
         } else {
-          console.warn(
-            "⚠️ [5단계] 통합 데이터 생성 실패, 기본 데이터로 계속 진행"
-          );
-          // 기본 데이터 생성
-          setIntegratedData({
-            paper_info: {
-              paper_id: paperId,
-              paper_title: `논문 ${paperId}`,
-              paper_authors: "Unknown",
-              paper_venue: "Unknown",
-              total_sections: 0,
-              total_equations: 0,
-            },
-            easy_sections: [],
-            math_equations: [],
-            model_errors: {
-              easy_model_error: "통합 데이터 생성 실패",
-              math_model_error: null,
-              viz_api_error: null,
-            },
-            processing_logs: ["통합 데이터 생성 중 오류 발생"],
-          });
+          console.warn("⚠️ [PIPELINE] 통합 결과 로드 실패:", integratedResponse.status);
         }
       } catch (error) {
-        console.warn(
-          "⚠️ [5단계] 통합 데이터 생성 중 오류, 기본 데이터로 계속 진행:",
-          error
-        );
-        // 기본 데이터 생성
-        setIntegratedData({
-          paper_info: {
-            paper_id: paperId,
-            paper_title: `논문 ${paperId}`,
-            paper_authors: "Unknown",
-            paper_venue: "Unknown",
-            total_sections: 0,
-            total_equations: 0,
-          },
-          easy_sections: [],
-          math_equations: [],
-          model_errors: {
-            easy_model_error: "통합 데이터 생성 중 오류 발생",
-            math_model_error: null,
-            viz_api_error: null,
-          },
-          processing_logs: [`통합 데이터 생성 중 오류 발생: ${error}`],
-        });
+        console.warn("⚠️ [PIPELINE] 통합 결과 로드 실패:", error);
       }
 
+      // 처리 완료
+      console.log("🎉 [PIPELINE] 모든 처리 완료");
       updateProgress(100);
       setAllProcessingComplete(true);
-      console.log(
-        "🎉 [완료] Easy+Viz 병렬 → Math → Viz API 순서로 모든 처리 완료!"
-      );
-
+      
       // 모든 처리가 완료되면 Result.tsx로 자동 이동
       setTimeout(() => {
         console.log("🚀 [자동 이동] Result.tsx로 이동 중...");
@@ -1120,7 +964,7 @@ export default function Upload() {
   };
 
   // Result.tsx 미리보기 열기
-  const openResultPreview = () => {
+  const openResultPreview = async () => {
     if (integratedData) {
       // Result.tsx로 데이터와 함께 이동
       console.log(
@@ -1134,8 +978,29 @@ export default function Upload() {
         },
       });
     } else {
-      console.warn("⚠️ [데이터 없음] 통합 데이터가 준비되지 않았습니다.");
-      alert("통합 데이터가 준비되지 않았습니다.");
+      // 통합 데이터가 없으면 서버에서 직접 로드
+      console.log("🔄 [데이터 로드] 서버에서 통합 데이터 로드 중...");
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+        const integratedResponse = await fetch(`${apiBase}/api/integrated-result/${result?.doc_id}`);
+        if (integratedResponse.ok) {
+          const data = await integratedResponse.json();
+          setIntegratedData(data);
+          console.log("✅ [데이터 로드] 통합 데이터 로드 완료");
+          navigate(`/result/${result?.doc_id}`, {
+            state: {
+              data: data,
+              paperId: result?.doc_id,
+            },
+          });
+        } else {
+          console.error("❌ [데이터 로드] 통합 데이터 로드 실패:", integratedResponse.status);
+          alert("통합 데이터를 로드할 수 없습니다.");
+        }
+      } catch (error) {
+        console.error("❌ [데이터 로드] 통합 데이터 로드 오류:", error);
+        alert("통합 데이터를 로드하는 중 오류가 발생했습니다.");
+      }
     }
   };
 
