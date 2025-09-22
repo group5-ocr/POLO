@@ -1,12 +1,4 @@
 {
-  "overview": "수학 모델이 생성하는 JSON 구조 - 수식 설명 및 분석",
-  "paper_info": {
-    "paper_id": "yolo_v1_analysis",
-    "paper_title": "You Only Look Once: Unified, Real-Time Object Detection",
-    "paper_authors": "Joseph Redmon, Santosh Divvala, Ross Girshick, Ali Farhadi",
-    "paper_venue": "CVPR 2016",
-    "total_equations": 6
-  },
   "math_equations": [
     {
       "math_equation_id": "math_equation_1",
