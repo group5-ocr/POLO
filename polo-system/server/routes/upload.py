@@ -13,7 +13,8 @@ import shutil
 from pathlib import Path
 import json
 
-from services.database.db import DB
+from services.database.db import DB, Tex
+from sqlalchemy import select
 from services import arxiv_client, preprocess_client
 
 router = APIRouter()
@@ -1248,10 +1249,145 @@ async def send_to_viz_api(request: ModelSendRequest, bg: BackgroundTasks):
         print(f"❌ [SERVER] Viz API 모델 전송 실패: {e}")
         raise HTTPException(status_code=500, detail=f"Viz API 모델 전송 실패: {e}")
 
+
+@router.post("/integrated-result/create")
+async def create_integrated_result(request: ModelSendRequest):
+    """
+    통합 결과 생성 (데이터베이스 저장)
+    """
+    try:
+        paper_id = request.paper_id
+        print(f"🚀 [SERVER] 통합 결과 생성 요청: paper_id={paper_id}")
+        
+        # tex_id 찾기
+        tex_id = int(paper_id)
+        
+        # origin_id 찾기
+        async with DB.session()() as s:
+            tex_result = await s.execute(select(Tex).where(Tex.tex_id == tex_id))
+            tex_record = tex_result.scalar_one_or_none()
+            if not tex_record:
+                raise HTTPException(status_code=404, detail="Tex record not found")
+            origin_id = tex_record.origin_id
+        
+        # 통합 결과 생성
+        result_id = await DB.create_integrated_result(
+            tex_id=tex_id,
+            origin_id=origin_id,
+            paper_id=paper_id,
+            processing_status="processing"
+        )
+        
+        # Easy 결과 로드 및 저장
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        easy_file = server_dir / "data" / "outputs" / paper_id / "easy_outputs" / "easy_results.json"
+        
+        if easy_file.exists():
+            with open(easy_file, 'r', encoding='utf-8') as f:
+                easy_data = json.load(f)
+            
+            # Easy 섹션들 저장
+            if "easy_sections" in easy_data:
+                section_ids = await DB.save_easy_sections(result_id, easy_data["easy_sections"])
+                print(f"✅ [SERVER] Easy 섹션 {len(section_ids)}개 저장 완료")
+            
+            # 논문 정보 업데이트
+            paper_info = easy_data.get("paper_info", {})
+            await DB.update_integrated_result(
+                result_id=result_id,
+                paper_title=paper_info.get("paper_title"),
+                paper_authors=paper_info.get("paper_authors"),
+                paper_venue=paper_info.get("paper_venue"),
+                total_sections=len(easy_data.get("easy_sections", []))
+            )
+        
+        # Math 결과 로드 및 저장
+        math_file = server_dir / "data" / "outputs" / paper_id / "math_outputs" / "equations_explained.json"
+        
+        if math_file.exists():
+            with open(math_file, 'r', encoding='utf-8') as f:
+                math_data = json.load(f)
+            
+            # Math 수식들 저장
+            if "items" in math_data:
+                equations = []
+                for i, item in enumerate(math_data["items"]):
+                    equation = {
+                        "math_equation_id": f"eq_{i+1}",
+                        "math_equation_latex": item.get("latex"),
+                        "math_equation_explanation": item.get("explanation"),
+                        "math_equation_section_ref": item.get("section_ref")
+                    }
+                    equations.append(equation)
+                
+                equation_ids = await DB.save_math_equations(result_id, equations)
+                print(f"✅ [SERVER] Math 수식 {len(equation_ids)}개 저장 완료")
+                
+                # 수식 개수 업데이트
+                await DB.update_integrated_result(
+                    result_id=result_id,
+                    total_equations=len(equations)
+                )
+        
+        # Viz 결과 로드 및 저장
+        viz_file = server_dir / "data" / "outputs" / paper_id / "viz_outputs" / "visualizations.json"
+        
+        if viz_file.exists():
+            with open(viz_file, 'r', encoding='utf-8') as f:
+                viz_data = json.load(f)
+            
+            # 시각화들 저장
+            if "generated_visualizations" in viz_data:
+                visualizations = []
+                for viz in viz_data["generated_visualizations"]:
+                    viz_item = {
+                        "viz_type": viz.get("visualization_type"),
+                        "viz_title": viz.get("title"),
+                        "viz_description": viz.get("description"),
+                        "viz_image_path": viz.get("image_path"),
+                        "viz_metadata": viz.get("metadata")
+                    }
+                    visualizations.append(viz_item)
+                
+                viz_ids = await DB.save_visualizations(result_id, visualizations)
+                print(f"✅ [SERVER] 시각화 {len(viz_ids)}개 저장 완료")
+                
+                # 시각화 개수 업데이트
+                await DB.update_integrated_result(
+                    result_id=result_id,
+                    total_visualizations=len(visualizations)
+                )
+        
+        # 완료 상태로 업데이트
+        await DB.update_integrated_result(
+            result_id=result_id,
+            processing_status="completed"
+        )
+        
+        # tex 테이블 업데이트
+        async with DB.session()() as s:
+            tex_record.integrated_done = True
+            tex_record.integrated_result_id = result_id
+            await s.commit()
+        
+        print(f"✅ [SERVER] 통합 결과 생성 완료: result_id={result_id}")
+        
+        return {
+            "success": True,
+            "result_id": result_id,
+            "paper_id": paper_id,
+            "message": "통합 결과가 성공적으로 생성되었습니다"
+        }
+        
+    except Exception as e:
+        print(f"❌ [SERVER] 통합 결과 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"통합 결과 생성 실패: {e}")
+
 @router.get("/integrated-result/{paper_id}")
 async def get_integrated_result(paper_id: str):
     """
-    통합 결과 조회 (Easy + Math + 시각화)
+    통합 결과 조회 (Easy + Math + 시각화) - 파일 기반 (기존 방식)
     """
     try:
         current_file = Path(__file__).resolve()
