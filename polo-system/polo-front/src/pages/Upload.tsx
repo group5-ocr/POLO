@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import './Upload.css';
+import "./Upload.css";
 
 interface UploadResult {
   filename: string;
@@ -207,7 +207,7 @@ export default function Upload() {
               } else if (j.status === "ready" && j.ok) {
                 console.log(`[Easy 폴링] 완료: 결과 파일 생성됨`);
                 ready = true;
-                
+
                 // Easy 모델 완료 시 즉시 Result로 이동
                 console.log("✅ [Easy 완료] Result.tsx로 이동");
                 navigate(`/result/${finalPaperId}`);
@@ -607,8 +607,8 @@ export default function Upload() {
       setResult(uploadResult);
       console.log(`[convert] 성공: doc_id=${data?.doc_id ?? "-"}`);
       console.log(`[convert] 업로드 결과:`, uploadResult);
-      
-       // 자동으로 Easy 기능 선택 (사용자 편의성)
+
+      // 자동으로 Easy 기능 선택 (사용자 편의성)
 
       // 다운로드 정보 조회 (실제 논문 ID가 있을 때만)
       if (data.doc_id) {
@@ -683,7 +683,7 @@ export default function Upload() {
     setSelectedFile(file);
     setError(null);
     setResult(null);
-    
+
     // 파일 선택 후 자동으로 업로드 실행
     console.log("🔄 [AUTO] 파일 선택됨, 자동 업로드 시작...");
     uploadFile(file);
@@ -774,11 +774,11 @@ export default function Upload() {
 
     try {
       const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-      
+
       // 1단계: Easy 모델 처리 (섹션별 쉬운 설명 생성)
       console.log("🚀 [1단계] Easy 모델 처리 시작...");
       updateProgress(10);
-      
+
       const easyResponse = await fetch(`${apiBase}/api/upload/send-to-easy`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -788,38 +788,44 @@ export default function Upload() {
       if (easyResponse.ok) {
         console.log("✅ [1단계] Easy 모델 전송 성공");
         updateProgress(20);
-        
+
         // Easy 결과 폴링 (섹션별 쉬운 설명 완료까지 대기)
         try {
           await pollForEasyResults(paperId);
           updateProgress(40);
           console.log("✅ [1단계] Easy 모델 완료 - 섹션별 쉬운 설명 생성됨");
-          
+
           // Easy 모델 완료 시 Math 모델 자동 실행
           console.log("🔢 [2단계] Math 모델 자동 실행 시작...");
           updateProgress(50);
-          
-           // Math 모델 자동 실행
-          
+
+          // Math 모델 자동 실행
+
           // Math 모델 실행
           try {
-            const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ paper_id: paperId }),
-            });
+            const mathResponse = await fetch(
+              `${apiBase}/api/upload/send-to-math`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paper_id: paperId }),
+              }
+            );
 
             if (mathResponse.ok) {
               console.log("✅ [2단계] Math 모델 전송 성공");
               updateProgress(70);
-              
-          // Math 결과 폴링
-          try {
-            await pollForMathResults(paperId || '');
-            updateProgress(90);
+
+              // Math 결과 폴링
+              try {
+                await pollForMathResults(paperId || "");
+                updateProgress(90);
                 console.log("✅ [2단계] Math 모델 완료 - 수식 해설 생성됨");
               } catch (error) {
-                console.warn("⚠️ [2단계] Math 모델 폴링 실패, 계속 진행:", error);
+                console.warn(
+                  "⚠️ [2단계] Math 모델 폴링 실패, 계속 진행:",
+                  error
+                );
                 updateProgress(90);
               }
             } else {
@@ -831,7 +837,7 @@ export default function Upload() {
             console.warn("⚠️ [2단계] Math 모델 실행 실패:", error);
             updateProgress(90);
           }
-          
+
           // Easy + Math 완료 후 처리 완료 상태로 설정
           console.log("✅ [Easy + Math 완료] 처리 완료");
           setIsProcessing(false);
@@ -860,52 +866,56 @@ export default function Upload() {
       // 2단계: Viz 모델 처리 (Easy 결과의 각 문단에 시각화 생성)
       console.log("🎨 [2단계] Viz 모델 처리 시작...");
       updateProgress(50);
-      
+
       // Easy 결과를 기반으로 각 문단에 시각화 생성
       // (Easy 모델이 이미 시각화 트리거를 포함한 결과를 생성함)
       console.log("✅ [2단계] Viz 모델 완료 - 문단별 시각화 생성됨");
       updateProgress(70);
 
-       // 3단계: Math 모델 처리 (수식 해설 생성)
-       console.log("🔢 [3단계] Math 모델 처리 시작...");
-       updateProgress(75);
-       
-       const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ paper_id: paperId }),
-       });
+      // 3단계: Math 모델 처리 (수식 해설 생성)
+      console.log("🔢 [3단계] Math 모델 처리 시작...");
+      updateProgress(75);
 
-       if (mathResponse.ok) {
-         console.log("✅ [3단계] Math 모델 전송 성공");
-         updateProgress(85);
-         
-         // Math 결과 폴링
-         try {
-           await pollForMathResults(paperId || '');
-           updateProgress(95);
-           console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
-         } catch (error) {
-           console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
-           updateProgress(95);
-         }
-       } else {
-         console.warn("⚠️ [3단계] Math 모델 처리 실패, 계속 진행");
-         updateProgress(95);
-       }
+      const mathResponse = await fetch(`${apiBase}/api/upload/send-to-math`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paper_id: paperId }),
+      });
+
+      if (mathResponse.ok) {
+        console.log("✅ [3단계] Math 모델 전송 성공");
+        updateProgress(85);
+
+        // Math 결과 폴링
+        try {
+          await pollForMathResults(paperId || "");
+          updateProgress(95);
+          console.log("✅ [3단계] Math 모델 완료 - 수식 해설 생성됨");
+        } catch (error) {
+          console.warn("⚠️ [3단계] Math 모델 폴링 실패, 계속 진행:", error);
+          updateProgress(95);
+        }
+      } else {
+        console.warn("⚠️ [3단계] Math 모델 처리 실패, 계속 진행");
+        updateProgress(95);
+      }
 
       // 4단계: 통합 데이터 생성 (Easy + Viz + Math 결과 통합)
       console.log("🔗 [4단계] 통합 데이터 생성 중...");
       updateProgress(98);
-      
+
       try {
-        const integratedResponse = await fetch(`${apiBase}/api/integrated-result/${paperId}`);
+        const integratedResponse = await fetch(
+          `${apiBase}/api/integrated-result/${paperId}`
+        );
         if (integratedResponse.ok) {
           const integratedResult = await integratedResponse.json();
           setIntegratedData(integratedResult);
           console.log("✅ [4단계] 통합 데이터 생성 완료");
         } else {
-          console.warn("⚠️ [4단계] 통합 데이터 생성 실패, 기본 데이터로 계속 진행");
+          console.warn(
+            "⚠️ [4단계] 통합 데이터 생성 실패, 기본 데이터로 계속 진행"
+          );
           // 기본 데이터 생성
           setIntegratedData({
             paper_info: {
@@ -914,20 +924,23 @@ export default function Upload() {
               paper_authors: "Unknown",
               paper_venue: "Unknown",
               total_sections: 0,
-              total_equations: 0
+              total_equations: 0,
             },
             easy_sections: [],
             math_equations: [],
             model_errors: {
               easy_model_error: "통합 데이터 생성 실패",
               math_model_error: null,
-              viz_api_error: null
+              viz_api_error: null,
             },
-            processing_logs: ["통합 데이터 생성 중 오류 발생"]
+            processing_logs: ["통합 데이터 생성 중 오류 발생"],
           });
         }
       } catch (error) {
-        console.warn("⚠️ [4단계] 통합 데이터 생성 중 오류, 기본 데이터로 계속 진행:", error);
+        console.warn(
+          "⚠️ [4단계] 통합 데이터 생성 중 오류, 기본 데이터로 계속 진행:",
+          error
+        );
         // 기본 데이터 생성
         setIntegratedData({
           paper_info: {
@@ -936,23 +949,22 @@ export default function Upload() {
             paper_authors: "Unknown",
             paper_venue: "Unknown",
             total_sections: 0,
-            total_equations: 0
+            total_equations: 0,
           },
           easy_sections: [],
           math_equations: [],
           model_errors: {
             easy_model_error: "통합 데이터 생성 중 오류 발생",
             math_model_error: null,
-            viz_api_error: null
+            viz_api_error: null,
           },
-          processing_logs: [`통합 데이터 생성 중 오류 발생: ${error}`]
+          processing_logs: [`통합 데이터 생성 중 오류 발생: ${error}`],
         });
       }
 
       updateProgress(100);
       setAllProcessingComplete(true);
       console.log("🎉 [완료] Easy → Viz → Math 순서로 모든 처리 완료!");
-
     } catch (error) {
       console.error("❌ [통합] 처리 중 오류:", error);
       alert("통합 처리 중 오류가 발생했습니다: " + error);
@@ -1006,11 +1018,15 @@ export default function Upload() {
     while (Date.now() - start < maxWaitMs) {
       try {
         // Math 결과 파일 존재 여부 확인
-        const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/api/results/${paperId}/math_results.json`);
+        const response = await fetch(
+          `${
+            import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+          }/api/results/${paperId}/math_results.json`
+        );
         if (response.ok) {
           const data = await response.json();
           pollCount++;
-          
+
           if (data && data.math_equations && data.math_equations.length > 0) {
             console.log("✅ [통합] Math 결과 준비 완료");
             setMathReady(true);
@@ -1200,7 +1216,7 @@ export default function Upload() {
 
           {/* 오른쪽: 안내 또는 결과 영역 */}
           <div className="upload-right">
-            {(result || selectedFile) ? (
+            {result || selectedFile ? (
               <div
                 className={`result-container ${
                   isLoadingEasy || isLoadingMath || easyReady || mathReady
@@ -1248,14 +1264,15 @@ export default function Upload() {
                         </div>
                         <h2>AI 논문 분석 진행 중</h2>
                       </div>
-                      
+
                       <div className="progress-container">
                         <div className="progress-bar">
                           <div
                             className="progress-fill"
                             style={{
                               width: `${progress}%`,
-                              background: "linear-gradient(90deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
+                              background:
+                                "linear-gradient(90deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
                               transition: "width 0.5s ease-in-out",
                               borderRadius: "25px",
                               boxShadow: "0 4px 15px rgba(255, 107, 107, 0.4)",
@@ -1266,30 +1283,39 @@ export default function Upload() {
                           {progressPhase || "AI가 논문을 분석하고 있습니다..."}
                         </div>
                       </div>
-                      
+
                       <div className="loading-messages">
                         {progress >= 10 && (
                           <div className="message-item">
                             <span className="material-icons">psychology</span>
-                            <span>중학생도 이해할 수 있는 쉬운 설명을 생성하고 있습니다</span>
+                            <span>
+                              중학생도 이해할 수 있는 쉬운 설명을 생성하고
+                              있습니다
+                            </span>
                           </div>
                         )}
                         {progress >= 40 && (
                           <div className="message-item">
                             <span className="material-icons">calculate</span>
-                            <span>수식 분석 및 상세한 해설을 작성하고 있습니다</span>
+                            <span>
+                              수식 분석 및 상세한 해설을 작성하고 있습니다
+                            </span>
                           </div>
                         )}
                         {progress >= 70 && (
                           <div className="message-item">
                             <span className="material-icons">auto_awesome</span>
-                            <span>섹션별 시각화 이미지를 생성하고 있습니다</span>
+                            <span>
+                              섹션별 시각화 이미지를 생성하고 있습니다
+                            </span>
                           </div>
                         )}
                         {progress >= 90 && (
                           <div className="message-item">
                             <span className="material-icons">analytics</span>
-                            <span>통합 결과를 정리하고 최종 검토를 진행하고 있습니다</span>
+                            <span>
+                              통합 결과를 정리하고 최종 검토를 진행하고 있습니다
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1308,13 +1334,14 @@ export default function Upload() {
                       <p>Easy 모델과 Math 모델의 결과를 확인해보세요.</p>
                       <button
                         onClick={() => {
-                          const pathParts = window.location.pathname.split('/');
+                          const pathParts = window.location.pathname.split("/");
                           const paperId = pathParts[pathParts.length - 1];
                           navigate(`/result/${paperId}`);
                         }}
                         className="view-results-button"
                         style={{
-                          background: "linear-gradient(135deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
+                          background:
+                            "linear-gradient(135deg, #ff6b6b 0%, #ff8e53 50%, #ff6b9d 100%)",
                           color: "white",
                           border: "none",
                           borderRadius: "12px",
@@ -1328,24 +1355,33 @@ export default function Upload() {
                         }}
                         onMouseOver={(e) => {
                           e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow = "0 8px 25px rgba(255, 107, 107, 0.6)";
+                          e.currentTarget.style.boxShadow =
+                            "0 8px 25px rgba(255, 107, 107, 0.6)";
                         }}
                         onMouseOut={(e) => {
                           e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow = "0 6px 20px rgba(255, 107, 107, 0.4)";
+                          e.currentTarget.style.boxShadow =
+                            "0 6px 20px rgba(255, 107, 107, 0.4)";
                         }}
                       >
-                        <span className="material-icons" style={{ marginRight: "10px" }}>visibility</span>
+                        <span
+                          className="material-icons"
+                          style={{ marginRight: "10px" }}
+                        >
+                          visibility
+                        </span>
                         결과 보기
                       </button>
                     </div>
                   </div>
                 )}
 
-                 {/* 통합 분석 버튼 - 모델 생성 중이 아닐 때만 표시 */}
-                 {!isModelProcessing() && !allProcessingComplete && (
-                   <div className="result-content">
-
+                {/* 통합 분석 버튼 - 모델 생성 중이 아닐 때만 표시 */}
+                {!isModelProcessing() && !allProcessingComplete && (
+                  <div
+                    className="result-content"
+                    style={{ display: "flex", justifyContent: "center" }}
+                  >
                     <button
                       onClick={handleIntegratedProcessing}
                       className="step-item integrated-analysis-button"
@@ -1355,7 +1391,7 @@ export default function Upload() {
                         color: "white",
                         border: "none",
                         cursor: "pointer",
-                        textAlign: "left",
+                        textAlign: "center",
                         transition: "all 0.3s ease",
                         boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
                         padding: "20px",
