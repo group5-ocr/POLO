@@ -23,7 +23,13 @@ def _doc_id_from_path(p: Path) -> str:
 
 def run_pipeline(cfg: dict[str, Any], main_tex: str | None = None, *, sink: str = "json") -> dict[str, Any]:
     root_dir  = Path(cfg.get("root_dir", ".")).resolve()
-    out_root  = Path(cfg.get("out_dir", "./data/out")).resolve()
+    # 절대 경로로 out 디렉토리 설정
+    current_file = Path(__file__).resolve()
+    # preprocessing/texprep/src/texprep/pipeline.py에서 polo-system/server로 이동
+    polo_system_dir = current_file.parent.parent.parent.parent.parent.parent  # polo-system
+    server_dir = polo_system_dir / "server"  # polo-system/server
+    default_out = server_dir / "data" / "out"
+    out_root = Path(cfg.get("out_dir", str(default_out))).resolve()
     drop_envs_base = cfg.get("drop_envs") or ["tikzpicture","minted","lstlisting","verbatim","Verbatim"]
     drop_envs_full = sorted(set([*drop_envs_base, "framed", "mdframed", "tcolorbox"]))
 

@@ -1,0 +1,141 @@
+{
+  "overview": "외부 시각화 API가 반환하는 JSON 구조 - 문단 클릭 시 트리거되는 시각화",
+  "description": "Easy 모델의 문단에서 easy_visualization_trigger가 true인 경우, 외부 시각화 API를 호출하여 생성된 이미지와 메타데이터를 반환합니다.",
+  "api_endpoint": "/api/viz/generate",
+  "request_format": {
+    "paper_id": "string",
+    "section_id": "string", 
+    "paragraph_id": "string",
+    "paragraph_text": "string",
+    "context": "string",
+    "visualization_type": "chart | diagram | graph | table"
+  },
+  "response_examples": [
+    {
+      "viz_id": "viz_1_1_1",
+      "paper_id": "yolo_v1_analysis",
+      "section_id": "easy_section_1",
+      "paragraph_id": "easy_paragraph_1_1",
+      "trigger_text": "YOLO(You Only Look Once)는 **실시간 객체 탐지**를 위한 혁신적인 방법입니다.",
+      "visualization_type": "chart",
+      "title": "YOLO vs 기존 방법 성능 비교",
+      "description": "YOLO와 R-CNN, Fast R-CNN, Faster R-CNN의 속도와 정확도 비교",
+      "image_data": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "format": "png",
+        "width": 800,
+        "height": 600,
+        "dpi": 300
+      },
+      "image_path": "/api/viz/generated/yolo_comparison_1_1_1.png",
+      "metadata": {
+        "generated_at": "2025-01-20T12:05:00Z",
+        "processing_time": 2.3,
+        "model_version": "viz-model-v1.2",
+        "parameters": {
+          "chart_type": "bar_chart",
+          "data_points": 4,
+          "color_scheme": "professional"
+        }
+      },
+      "interactive_features": {
+        "hover_tooltips": true,
+        "zoom_enabled": true,
+        "download_formats": ["png", "svg", "pdf"]
+      }
+    },
+    {
+      "viz_id": "viz_2_1_1",
+      "paper_id": "yolo_v1_analysis", 
+      "section_id": "easy_section_2",
+      "paragraph_id": "easy_paragraph_2_1",
+      "trigger_text": "YOLO는 이미지를 **S×S 격자**로 나누어 처리합니다.",
+      "visualization_type": "diagram",
+      "title": "YOLO 격자 기반 예측 과정",
+      "description": "이미지를 7×7 격자로 나누고 각 셀에서 객체를 예측하는 과정",
+      "image_data": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "format": "png",
+        "width": 1000,
+        "height": 800,
+        "dpi": 300
+      },
+      "image_path": "/api/viz/generated/grid_prediction_2_1_1.png",
+      "metadata": {
+        "generated_at": "2025-01-20T12:07:30Z",
+        "processing_time": 3.1,
+        "model_version": "viz-model-v1.2",
+        "parameters": {
+          "diagram_type": "flowchart",
+          "grid_size": "7x7",
+          "show_bboxes": true
+        }
+      },
+      "interactive_features": {
+        "hover_tooltips": true,
+        "zoom_enabled": true,
+        "download_formats": ["png", "svg", "pdf"]
+      }
+    },
+    {
+      "viz_id": "viz_3_1_1",
+      "paper_id": "yolo_v1_analysis",
+      "section_id": "easy_section_3", 
+      "paragraph_id": "easy_paragraph_3_1",
+      "trigger_text": "YOLO는 **PASCAL VOC 2007** 데이터셋에서 63.4% mAP를 달성했습니다.",
+      "visualization_type": "graph",
+      "title": "YOLO 성능 비교 그래프",
+      "description": "다양한 객체 탐지 방법들의 mAP 성능 비교",
+      "image_data": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "format": "png",
+        "width": 900,
+        "height": 700,
+        "dpi": 300
+      },
+      "image_path": "/api/viz/generated/performance_graph_3_1_1.png",
+      "metadata": {
+        "generated_at": "2025-01-20T12:10:15Z",
+        "processing_time": 2.8,
+        "model_version": "viz-model-v1.2",
+        "parameters": {
+          "graph_type": "line_chart",
+          "datasets": ["YOLO", "R-CNN", "Fast R-CNN", "Faster R-CNN"],
+          "metric": "mAP"
+        }
+      },
+      "interactive_features": {
+        "hover_tooltips": true,
+        "zoom_enabled": true,
+        "download_formats": ["png", "svg", "pdf"]
+      }
+    }
+  ],
+  "error_responses": [
+    {
+      "error_code": "VISUALIZATION_FAILED",
+      "error_message": "시각화 생성에 실패했습니다.",
+      "details": "입력 텍스트가 너무 짧거나 시각화에 적합하지 않습니다.",
+      "fallback_action": "기본 아이콘이나 텍스트 표시"
+    },
+    {
+      "error_code": "MODEL_UNAVAILABLE", 
+      "error_message": "시각화 모델을 사용할 수 없습니다.",
+      "details": "시각화 서버가 다운되었거나 과부하 상태입니다.",
+      "fallback_action": "로딩 스피너 표시 후 재시도"
+    }
+  ],
+  "api_usage": {
+    "rate_limit": "100 requests per minute",
+    "timeout": "30 seconds",
+    "max_image_size": "2048x2048",
+    "supported_formats": ["png", "svg", "pdf"],
+    "caching": "24 hours"
+  },
+  "integration_notes": {
+    "trigger_condition": "easy_visualization_trigger === true",
+    "display_behavior": "클릭 시 시각화 표시, 다시 클릭 시 숨김",
+    "loading_state": "시각화 생성 중 로딩 스피너 표시",
+    "error_handling": "실패 시 기본 아이콘 또는 텍스트 표시"
+  }
+}

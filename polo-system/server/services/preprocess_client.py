@@ -32,6 +32,10 @@ def _find_tex_roots(source_dir: Path) -> List[Path]:
 # ─────────────────────────────────────────────────────────────
 # 메인 오케스트레이션
 # ─────────────────────────────────────────────────────────────
+async def run_async(paper_id: str, source_dir: str, callback: str):
+    """비동기 전처리 실행"""
+    return await run(paper_id, source_dir, callback)
+
 async def run(paper_id: str, source_dir: str, callback: str):
     """
     1) 전처리 호출
@@ -41,7 +45,10 @@ async def run(paper_id: str, source_dir: str, callback: str):
     5) 콜백으로 종합 결과 통지
     """
     source_dir_p = Path(source_dir).resolve()
-    out_dir_p = Path(f"data/outputs/{paper_id}").resolve()
+    # 절대 경로로 outputs 디렉토리 설정
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    out_dir_p = server_dir / "data" / "outputs" / paper_id
     out_dir_p.mkdir(parents=True, exist_ok=True)
 
     preprocess_result: Dict[str, Any] = {}
@@ -52,11 +59,11 @@ async def run(paper_id: str, source_dir: str, callback: str):
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.post(
-                f"{PREPROCESS_URL}/preprocess",
+                f"{PREPROCESS_URL}/process",
                 json={
-                    "input_path": str(source_dir_p),
-                    "output_dir": str(out_dir_p),
-                    "config_path": "configs/default.yaml",
+                    "paper_id": paper_id,
+                    "source_dir": str(source_dir_p),
+                    "callback": callback,
                 },
             )
             resp.raise_for_status()
@@ -72,67 +79,18 @@ async def run(paper_id: str, source_dir: str, callback: str):
         })
         raise
 
-    # 2) 산출물 탐색
-    #   - easy용: jsonl (텍스트 청크)
-    #   - math용: source_dir 에서 tex들 (병합 대상)
-    chunks_jsonl = None
-    if "chunks_path" in preprocess_result:
-        chunks_jsonl = Path(preprocess_result["chunks_path"]).resolve()
-    else:
-        chunks_jsonl = _find_chunks_jsonl(out_dir_p)
-
-    tex_files = _find_tex_roots(source_dir_p)
-
-    # 3) Math: LaTeX 병합 (엔드포인트는 구현에 맞춰 조정)
-    #    가정: POST /merge  body: {"paper_id": ..., "tex_paths": [...], "output_dir": "..."}
-    try:
-        if tex_files:
-            payload = {
-                "paper_id": paper_id,
-                "tex_paths": [str(p) for p in tex_files],
-                "output_dir": str(out_dir_p / "math_merged"),
-            }
-            async with httpx.AsyncClient(timeout=MATH_TIMEOUT) as client:
-                r = await client.post(f"{MATH_MODEL_URL}/merge", json=payload)
-                r.raise_for_status()
-                math_result = r.json()
-                logger.info(f"✅ Math 병합 완료: {math_result}")
-        else:
-            logger.warning("⚠️ 병합할 tex 파일이 없어 math 단계는 건너뜀.")
-            math_result = {"skipped": True, "reason": "no_tex_found"}
-    except Exception as e:
-        logger.error(f"❌ Math 병합 실패: {e}")
-        math_result = {"ok": False, "error": str(e)}
-
-    # 4) Easy: JSONL 배치 (엔드포인트는 구현에 맞춰 조정)
-    #    가정: POST /batch  body: {"paper_id": ..., "chunks_jsonl": "...", "output_dir": "..."}
-    try:
-        if chunks_jsonl and chunks_jsonl.exists():
-            payload = {
-                "paper_id": paper_id,
-                "chunks_jsonl": str(chunks_jsonl),
-                "output_dir": str(out_dir_p / "easy_outputs"),
-            }
-            async with httpx.AsyncClient(timeout=EASY_TIMEOUT) as client:
-                r = await client.post(f"{EASY_MODEL_URL}/batch", json=payload)
-                r.raise_for_status()
-                easy_result = r.json()
-                logger.info(f"✅ Easy 배치 완료: {easy_result}")
-        else:
-            logger.warning("⚠️ JSONL 산출물을 찾지 못해 easy 단계는 건너뜀.")
-            easy_result = {"skipped": True, "reason": "no_jsonl_found"}
-    except Exception as e:
-        logger.error(f"❌ Easy 배치 실패: {e}")
-        easy_result = {"ok": False, "error": str(e)}
-
-    # 5) 콜백 통지
+    # 2) 전처리 서비스에서 math/easy 모델 호출을 이미 처리했으므로
+    #    여기서는 콜백만 호출
+    logger.info(f"✅ 전처리 완료: paper_id={paper_id}")
+    
+    # 3) 콜백 통지
+    # 전처리 서비스가 반환한 transport_path(파일 경로)를 우선 사용
+    tp = preprocess_result.get("transport_path") or str(out_dir_p)
     payload = {
         "paper_id": paper_id,
-        "status": "done",
+        "status": "completed",
         "preprocess": preprocess_result,
-        "math": math_result,
-        "easy": easy_result,
-        "transport_path": str(out_dir_p),  # 네가 쓰는 필드 유지
+        "transport_path": tp,
     }
     await _post_callback(callback, payload)
     return payload

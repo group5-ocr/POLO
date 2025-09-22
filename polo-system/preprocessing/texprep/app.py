@@ -28,8 +28,7 @@ from texprep.pipeline import run_pipeline
 # FastAPI 앱 생성
 app = FastAPI(title="POLO Preprocessing Service", version="1.0.0")
 
-# 환경 변수
-MATH_URL = "http://localhost:5004"
+# 환경 변수 (Easy 모델만 사용)
 EASY_URL = "http://localhost:5003"
 
 # Pydantic 모델
@@ -63,6 +62,13 @@ async def process_paper(request: ProcessRequest):
         config_path = Path(__file__).parent / "configs" / "default.yaml"
         cfg = load_cfg(str(config_path))
         
+        # 절대 경로로 out_dir 설정
+        current_file = Path(__file__).resolve()
+        polo_system_dir = current_file.parent.parent.parent  # polo-system
+        server_dir = polo_system_dir / "server"  # polo-system/server
+        default_out = server_dir / "data" / "out"
+        cfg["out_dir"] = str(default_out)
+        
         # 2) source_dir에서 메인 tex 찾기
         source_path = Path(request.source_dir)
         if not source_path.exists():
@@ -73,7 +79,17 @@ async def process_paper(request: ProcessRequest):
         if not tex_files:
             raise HTTPException(status_code=400, detail="No .tex files found in source directory")
         
-        main_tex = guess_main_tex(tex_files)
+        # 메인 tex 파일 찾기 (간단한 추정)
+        main_tex = None
+        priority_names = ["main.tex", "ms.tex", "paper.tex", "arxiv.tex", "root.tex"]
+        for priority_name in priority_names:
+            for tex_file in tex_files:
+                if tex_file.name.lower() == priority_name:
+                    main_tex = tex_file
+                    break
+            if main_tex:
+                break
+        
         if not main_tex:
             main_tex = tex_files[0]  # 첫 번째 파일 사용
         
@@ -107,29 +123,60 @@ async def process_paper(request: ProcessRequest):
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 async def send_to_models(paper_id: str, payload: dict, out_dir: Path):
-    """math와 easy 모델로 결과 전송"""
+    """easy 모델로 결과 전송 (Math 모델 제외)"""
+    print(f"🔍 [DEBUG] send_to_models 시작: paper_id={paper_id}, out_dir={out_dir}")
+    print(f"🔍 [DEBUG] EASY_URL: {EASY_URL}")
+    
     try:
-        # math 모델로 tex 전송
-        merged_tex_path = out_dir / "merged_body.tex"
-        if merged_tex_path.exists():
-            async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(f"{MATH_URL}/generate", json={
-                    "paper_id": paper_id,
-                    "math_text_path": str(merged_tex_path)
-                })
+        # easy 모델로 JSONL 파일 경로 전송 (배치 처리)
+        chunks_path = out_dir / "chunks.jsonl"
+        if not chunks_path.exists():
+            chunks_path = out_dir / "chunks.jsonl.gz"
         
-        # easy 모델로 chunk 전송
-        chunks_path = out_dir / "chunks.jsonl.gz"
+        print(f"🔍 [DEBUG] chunks_path 확인: {chunks_path}")
+        print(f"🔍 [DEBUG] chunks_path 존재 여부: {chunks_path.exists()}")
+        
         if chunks_path.exists():
-            # chunks 파일을 읽어서 텍스트로 변환
-            chunks_text = read_chunks_as_text(chunks_path)
-            async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(f"{EASY_URL}/generate", json={
-                    "text": chunks_text
-                })
+            print(f"📤 Easy 모델로 전송: {chunks_path}")
+            print(f"🔍 [DEBUG] 전송할 데이터:")
+            print(f"  - paper_id: {paper_id}")
+            print(f"  - chunks_jsonl: {str(chunks_path)}")
+            print(f"  - output_dir: {str(out_dir / 'easy_outputs')}")
+            
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    print(f"🔍 [DEBUG] HTTP 요청 시작: {EASY_URL}/batch")
+                    response = await client.post(f"{EASY_URL}/batch", json={
+                        "paper_id": paper_id,
+                        "chunks_jsonl": str(chunks_path),
+                        "output_dir": str(out_dir / "easy_outputs")
+                    })
+                    print(f"✅ Easy 모델 응답: {response.status_code}")
+                    print(f"🔍 [DEBUG] 응답 내용: {response.text[:500]}...")
+                    
+                    if response.status_code != 200:
+                        print(f"❌ [ERROR] Easy 모델 응답 실패: {response.status_code}")
+                        print(f"❌ [ERROR] 응답 내용: {response.text}")
+                        
+            except httpx.ConnectError as e:
+                print(f"❌ [ERROR] Easy 모델 연결 실패: {e}")
+                print(f"❌ [ERROR] Easy 모델이 실행 중인지 확인하세요: {EASY_URL}")
+            except httpx.TimeoutException as e:
+                print(f"❌ [ERROR] Easy 모델 타임아웃: {e}")
+            except Exception as e:
+                print(f"❌ [ERROR] Easy 모델 요청 실패: {e}")
+                print(f"❌ [ERROR] 에러 타입: {type(e).__name__}")
+        else:
+            print(f"⚠️ chunks.jsonl 파일을 찾을 수 없습니다: {out_dir}")
+            print(f"🔍 [DEBUG] out_dir 내용:")
+            for item in out_dir.iterdir():
+                print(f"  - {item.name} ({'dir' if item.is_dir() else 'file'})")
                 
     except Exception as e:
-        print(f"Warning: Failed to send to models: {e}")
+        print(f"❌ [ERROR] send_to_models 전체 실패: {e}")
+        print(f"❌ [ERROR] 에러 타입: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
 
 async def send_callback(callback_url: str, paper_id: str, transport_path: str):
     """콜백 호출"""
@@ -270,6 +317,13 @@ def main():
     args = ap.parse_args()
 
     cfg = load_cfg(args.config)
+    
+    # 절대 경로로 out_dir 설정
+    current_file = Path(__file__).resolve()
+    polo_system_dir = current_file.parent.parent.parent  # polo-system
+    server_dir = polo_system_dir / "server"  # polo-system/server
+    default_out = server_dir / "data" / "out"
+    cfg["out_dir"] = str(default_out)
 
     # 앵커 결정
     anchor: str | None = None
@@ -350,6 +404,13 @@ def main_with_args(args):
     """main 함수를 args 객체로 실행"""
     # 기존 main 함수 로직을 여기에 구현
     cfg = load_cfg(args.config)
+    
+    # 절대 경로로 out_dir 설정
+    current_file = Path(__file__).resolve()
+    polo_system_dir = current_file.parent.parent.parent  # polo-system
+    server_dir = polo_system_dir / "server"  # polo-system/server
+    default_out = server_dir / "data" / "out"
+    cfg["out_dir"] = str(default_out)
     
     # main 또는 root 결정
     if args.main:

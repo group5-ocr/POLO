@@ -6,7 +6,7 @@ from typing import Optional, TypedDict
 import anyio
 
 # 벤더(외부 스크립트)
-from services.external import arxiv_downloader_back as vendor
+from .external import arxiv_downloader_back as vendor
 
 ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}$")
 
@@ -20,8 +20,15 @@ class ArxivResult(TypedDict):
 
 def _get_out_root(out_root: Optional[str]) -> Path:
     # .env 가 있다면 여기서 읽어도 됨: os.getenv("ARXIV_OUT_ROOT", "server/data/arxiv")
-    base = out_root or os.getenv("ARXIV_OUT_ROOT", "server/data/arxiv")
-    p = Path(base).resolve()
+    if out_root:
+        # 이미 절대 경로인 경우 그대로 사용
+        p = Path(out_root)
+    else:
+        # 상대 경로인 경우 현재 파일 기준으로 절대 경로 생성
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        p = server_dir / "data" / "arxiv"
+    
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -62,11 +69,11 @@ async def fetch_and_extract(
         main_tex = vendor.guess_main_tex(tex_list) if tex_list else None
 
         return (
-            out_dir.resolve(),
-            pdf.resolve(),
-            tar.resolve(),
-            source.resolve(),
-            (str(main_tex.resolve()) if main_tex else None),
+            out_dir,
+            pdf,
+            tar,
+            source,
+            (str(main_tex) if main_tex else None),
         )
 
     out_dir, pdf, tar, source, main_tex = await anyio.to_thread.run_sync(_run)

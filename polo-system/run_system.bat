@@ -11,27 +11,6 @@ if "%ROOT%"=="" set "ROOT=."
 
 goto :main
 
-REM ==============================
-REM UTIL: check if port is in use
-REM ==============================
-:CHECK_PORT_IN_USE
-REM return 0 (in use) / 1 (free)
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%~1 " /C:":%~1$" /C:":%~1:" 2^>NUL') do exit /b 0
-exit /b 1
-
-REM ==============================
-REM UTIL: find free port >= base
-REM ==============================
-:FIND_FREE_PORT
-set /a _p=%~1
-:__find_loop
-call :CHECK_PORT_IN_USE !_p!
-if !errorlevel! EQU 0 (
-  set /a _p=!_p!+1
-  goto :__find_loop
-)
-set "%~2=!_p!"
-exit /b 0
 
 REM ==============================
 REM Patch server\.env with ports
@@ -169,6 +148,13 @@ set "TEMP_BAT=%TEMP%\polo_%TITLE%_%PORT%.bat"
     REM echo set HUGGINGFACE_HUB_CACHE=%%TEMP%%\hf_cache
     echo if defined HUGGINGFACE_TOKEN set HUGGINGFACE_TOKEN=%%HUGGINGFACE_TOKEN%%
   )
+  REM PostgreSQL 환경변수 전달
+  echo if defined POSTGRES_HOST set POSTGRES_HOST=%%POSTGRES_HOST%%
+  echo if defined POSTGRES_PORT set POSTGRES_PORT=%%POSTGRES_PORT%%
+  echo if defined POSTGRES_DB set POSTGRES_DB=%%POSTGRES_DB%%
+  echo if defined POSTGRES_USER set POSTGRES_USER=%%POSTGRES_USER%%
+  echo if defined POSTGRES_PASSWORD set POSTGRES_PASSWORD=%%POSTGRES_PASSWORD%%
+  echo if defined LOCAL_DB_PATH set LOCAL_DB_PATH=%%LOCAL_DB_PATH%%
   echo uvicorn --app-dir "%WORK_DIR%" %MODULE_APP% --host 0.0.0.0 --port %PORT%
   echo echo.
   echo echo [%TITLE%] stopped. Press any key to close...
@@ -191,38 +177,65 @@ where npm    >nul 2>&1 || (echo [WARN] npm not found in PATH. Frontend may not s
 
 set "ENV_FILE=%ROOT%server\.env"
 
-REM free ports
-call :FIND_FREE_PORT 8000 SERVER_PORT
-call :FIND_FREE_PORT 5002 PREPROCESS_PORT
-call :FIND_FREE_PORT 5003 EASY_PORT
-call :FIND_FREE_PORT 5004 MATH_PORT
-call :FIND_FREE_PORT 5005 VIZ_PORT
+REM 고정 포트 사용
+set "SERVER_PORT=8000"
+set "PREPROCESS_PORT=5002"
+set "EASY_PORT=5003"
+set "MATH_PORT=5004"
+set "VIZ_PORT=5005"
 echo [PORTS] Server:%SERVER_PORT% Preprocess:%PREPROCESS_PORT% Easy:%EASY_PORT% Math:%MATH_PORT% Viz:%VIZ_PORT%
 
 REM patch env
 call :PATCH_ENV_FILE "%ENV_FILE%" "%SERVER_PORT%" "%PREPROCESS_PORT%" "%EASY_PORT%" "%MATH_PORT%" "%VIZ_PORT%"
 
 REM also export to current process (so child windows inherit)
-for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
-  if not "%%a"=="" if not "%%a:~0,1%"=="#" (
-    set "%%a=%%b"
+if exist "%ENV_FILE%" (
+  for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    if not "%%a"=="" if not "%%a:~0,1%"=="#" (
+      set "%%a=%%b"
+      echo [ENV] Loaded: %%a=%%b
+    )
   )
+) else (
+  echo [WARN] .env file not found: %ENV_FILE%
 )
 
 REM dirs
 set "SERVER_DIR=%ROOT%server"
 set "EASY_DIR=%ROOT%models\easy"
 set "MATH_DIR=%ROOT%models\math"
+set "PREPROCESS_DIR=%ROOT%preprocessing\texprep"
+set "VIZ_DIR=%ROOT%viz"
 set "FRONTEND_DIR=%ROOT%polo-front"
 
 set "REQ_SERVER=requirements.api.txt"
 set "REQ_EASY=requirements.easy.txt"
 set "REQ_MATH=requirements.math.txt"
+set "REQ_PREPROCESS=requirements.pre.txt"
+set "REQ_VIZ=requirements.viz.txt"
 
 set "FALLBACK_SERVER=fastapi uvicorn httpx pydantic asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
 set "FALLBACK_MATH=fastapi uvicorn transformers torch"
+set "FALLBACK_PREPROCESS=fastapi uvicorn httpx pydantic pyyaml"
+set "FALLBACK_VIZ=fastapi uvicorn matplotlib numpy torch"
 
-echo [1/4] Start Easy Model (Port %EASY_PORT%)
+echo [1/6] Start Preprocess Service (Port %PREPROCESS_PORT%)
+if exist "%PREPROCESS_DIR%" (
+  call :LAUNCH_PY_APP "Preprocess" "%PREPROCESS_DIR%" "%REQ_PREPROCESS%" "app:app" "%PREPROCESS_PORT%" "no" "%FALLBACK_PREPROCESS%"
+) else (
+  echo [ERROR] Preprocess directory not found: %PREPROCESS_DIR%
+  goto :end
+)
+
+echo [2/6] Start Viz Service (Port %VIZ_PORT%)
+if exist "%VIZ_DIR%" (
+  call :LAUNCH_PY_APP "Viz" "%VIZ_DIR%" "%REQ_VIZ%" "app:app" "%VIZ_PORT%" "no" "%FALLBACK_VIZ%"
+) else (
+  echo [ERROR] Viz directory not found: %VIZ_DIR%
+  goto :end
+)
+
+echo [3/6] Start Easy Model (Port %EASY_PORT%)
 if exist "%EASY_DIR%" (
   call :LAUNCH_PY_APP "Easy" "%EASY_DIR%" "%REQ_EASY%" "app:app" "%EASY_PORT%" "yes" "fastapi uvicorn transformers torch peft"
 ) else (
@@ -230,50 +243,31 @@ if exist "%EASY_DIR%" (
   goto :end
 )
 
-echo [2/4] Start Math Model (Port %MATH_PORT%)
+echo [4/6] Start Math Model (Port %MATH_PORT%)
 if exist "%MATH_DIR%" (
-  echo [MATH] Using existing venv in %MATH_DIR%\venv
-  echo [MATH] Installing dependencies in existing venv...
-  cd /d "%MATH_DIR%"
-  call venv\Scripts\activate.bat
-  pip install --upgrade pip
-  pip install accelerate
-  pip install -r requirements.math.txt --force-reinstall
-  echo [MATH] Dependencies installed successfully
-  echo [MATH] Starting Math model directly...
-  
-  REM Math 모델을 직접 실행 (LAUNCH_PY_APP 함수 사용하지 않음)
-  set "TEMP_BAT=%TEMP%\polo_Math_%MATH_PORT%.bat"
-  > "%TEMP_BAT%" (
-    echo @echo off
-    echo setlocal EnableExtensions EnableDelayedExpansion
-    echo chcp 65001 ^>nul
-    echo cd /d "%MATH_DIR%"
-    echo call venv\Scripts\activate.bat
-    echo uvicorn app:app --host 0.0.0.0 --port %MATH_PORT%
-  )
-  start "Math Model" cmd /k "%TEMP_BAT%"
-  echo [MATH] Math model started on port %MATH_PORT%
+  call :LAUNCH_PY_APP "Math" "%MATH_DIR%" "%REQ_MATH%" "app:app" "%MATH_PORT%" "yes" "%FALLBACK_MATH%"
 ) else (
   echo [ERROR] Math directory not found: %MATH_DIR%
   goto :end
 )
 
-echo [3/4] Start Backend Server (Port %SERVER_PORT%)
+echo [5/7] Start Backend Server (Port %SERVER_PORT%)
 if exist "%SERVER_DIR%" (
-  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER%"
+  REM 서버 의존성에 email-validator 추가
+  set "FALLBACK_SERVER_WITH_EMAIL=fastapi uvicorn httpx pydantic[email] asyncpg aiosqlite sqlalchemy bcrypt anyio arxiv"
+  call :LAUNCH_PY_APP "Server" "%SERVER_DIR%" "%REQ_SERVER%" "app:app" "%SERVER_PORT%" "no" "%FALLBACK_SERVER_WITH_EMAIL%"
 ) else (
   echo [ERROR] Server directory not found: %SERVER_DIR%
   goto :end
 )
 
-echo [4/4] Start Frontend (Vite)
+echo [6/7] Start Frontend (Vite)
 if exist "%FRONTEND_DIR%" (
   pushd "%FRONTEND_DIR%"
-  if not exist ".env.local" (
-    echo VITE_API_BASE=http://localhost:%SERVER_PORT%> ".env.local"
-    echo [FRONTEND] wrote .env.local (VITE_API_BASE=http://localhost:%SERVER_PORT%)
-  )
+  
+  REM 루트의 .env 파일에서 VITE_API_BASE 읽기
+  echo [FRONTEND] Using VITE_API_BASE from root .env file
+  
   if not exist "node_modules" (
     echo [FRONTEND] Installing dependencies...
     call npm install
@@ -289,8 +283,12 @@ echo.
 echo ========================================
 echo POLO System Started Successfully!
 echo ========================================
-echo Backend:  http://localhost:%SERVER_PORT%
-echo Frontend: http://localhost:5173
+echo Preprocess: http://localhost:%PREPROCESS_PORT%
+echo Viz:        http://localhost:%VIZ_PORT%
+echo Easy:       http://localhost:%EASY_PORT%
+echo Math:       http://localhost:%MATH_PORT%
+echo Backend:    http://localhost:%SERVER_PORT%
+echo Frontend:   http://localhost:5173
 echo.
 
 :wait_loop

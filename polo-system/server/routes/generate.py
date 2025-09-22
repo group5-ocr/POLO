@@ -54,8 +54,12 @@ async def preprocess_done(
         math_text_path=None,   # 수학은 나중에
     )
 
-    # 2) Easy 배치 시작 (백그라운드)
-    out_dir = os.path.join("data", "outputs", str(tex_id), "easy_outputs")
+    # 2) Easy 배치 시작 (백그라운드) - 절대 경로 고정
+    from pathlib import Path
+    current_file = Path(__file__).resolve()
+    server_dir = current_file.parent.parent  # polo-system/server
+    out_dir = str(server_dir / "data" / "outputs" / str(tex_id) / "easy_outputs")
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
     bg.add_task(_run_easy_batch_and_record, tex_id, payload.jsonl_path, out_dir)
 
     return {"ok": True, "tex_id": tex_id}

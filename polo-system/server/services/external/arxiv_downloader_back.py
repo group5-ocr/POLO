@@ -236,7 +236,7 @@ def run(
     src_tar = out_dir / f"{arxiv_id}_source.tar.gz"
 
     print(f"[INFO] 대상 ID   : {arxiv_id}")
-    print(f"[INFO] 대상 폴더 : {out_dir.resolve()}")
+    print(f"[INFO] 대상 폴더 : {out_dir}")
 
     # 2) urllib 전역 SSL 컨텍스트 설치
     install_global_urllib_ssl_context(corp_ca_pem)
@@ -250,8 +250,8 @@ def run(
         download_direct(arxiv_id, pdf_path, src_tar, corp_ca_pem)
 
     print("\n✅ 다운로드 완료")
-    print("PDF :", pdf_path.resolve())
-    print("SRC :", src_tar.resolve())
+    print("PDF :", pdf_path)
+    print("SRC :", src_tar)
 
     # 4) e-print 해제 및 .tex 탐색
     src_out = out_dir / "source"
@@ -260,7 +260,7 @@ def run(
 
     print("\n[INFO] 압축 해제 중…")
     safe_extract_tar(src_tar, src_out)
-    print(f"[OK]  추출 완료: {src_out.resolve()}")
+    print(f"[OK]  추출 완료: {src_out}")
 
     tex_list = find_all_tex(src_out)
     print(f"[INFO] 찾은 .tex 개수: {len(tex_list)}")
@@ -278,7 +278,7 @@ def run(
 
     main_tex = guess_main_tex(tex_list)
     if main_tex:
-        print(f"\n✅ 메인 .tex 추정: {main_tex.resolve()}")
+        print(f"\n✅ 메인 .tex 추정: {main_tex}")
         try:
             lines = main_tex.read_text(encoding="utf-8", errors="ignore").splitlines()
             preview = "\n".join(lines[:preview_lines])

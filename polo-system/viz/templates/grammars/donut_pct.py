@@ -14,7 +14,7 @@ def render_donut_pct(inputs, out_path):
     ax = plt.gca()
     wedges, texts = ax.pie(values, wedgeprops=dict(width=0.45), startangle=90)
     ax.legend(wedges, [f"{l} ({v:g}%)" for l, v in zip(labels, values)],
-              loc="center left", bbox_to_anchor=(1, 0.5), frameon=False)
+            loc="center left", bbox_to_anchor=(1, 0.5), frameon=False)
     ax.set(aspect="equal")
     plt.title(inputs.get("title", "Composition"))
     plt.tight_layout()
