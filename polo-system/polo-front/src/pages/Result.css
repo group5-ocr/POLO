@@ -16,10 +16,56 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   padding: 16px;              /* 패딩 증가 */
   width: 320px;               /* TOC 컨테이너 너비 증가 */
   min-width: 280px;           /* 최소 너비 보장 */
+  max-height: calc(100vh - 100px); /* 화면 높이에 맞춰 최대 높이 설정 */
+  overflow-y: auto;           /* 세로 스크롤 활성화 */
+  overflow-x: hidden;         /* 가로 스크롤 숨김 */
+  /* 커스텀 스크롤바 스타일링 */
+  scrollbar-width: thin;      /* Firefox */
+  scrollbar-color: #d1d5db #f9fafb; /* Firefox */
+}
+
+/* WebKit 브라우저용 스크롤바 스타일 */
+.table-of-contents::-webkit-scrollbar {
+  width: 6px;
+}
+
+.table-of-contents::-webkit-scrollbar-track {
+  background: #f9fafb;
+  border-radius: 3px;
+}
+
+.table-of-contents::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.table-of-contents::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* 다크모드 WebKit 스크롤바 스타일 */
+.dark-mode .table-of-contents::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+.dark-mode .table-of-contents::-webkit-scrollbar-thumb {
+  background: #374151;
+}
+
+.dark-mode .table-of-contents::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
 }
 .table-of-contents.compact .toc-sections a { font-size: .95rem; }
 .ellipsis-one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.toc-sections { list-style:none; padding:0; margin:0; display:grid; gap:6px; }
+.toc-sections { 
+  list-style:none; 
+  padding:0; 
+  margin:0; 
+  display:grid; 
+  gap:6px; 
+  /* 스크롤이 필요한 경우를 위한 패딩 */
+  padding-right: 4px;
+}
 .toc-item .toc-row { display:flex; align-items:center; gap:8px; }
 .toc-caret { width:18px; height:18px; border:1px solid #e5e7eb; border-radius:4px; background:#fff; cursor:pointer; position:relative; }
 .toc-caret::after { content:""; position:absolute; top:50%; left:50%; width:6px; height:6px; border-right:2px solid #6b7280; border-bottom:2px solid #6b7280; transform: translate(-50%,-60%) rotate(-45deg); transition:.2s; }
@@ -108,6 +154,12 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 .table-of-contents{
   background:#fff; border:1px solid #e5e7eb; border-radius:10px;
   padding:12px;
+  max-height: calc(100vh - 100px); /* 화면 높이에 맞춰 최대 높이 설정 */
+  overflow-y: auto;           /* 세로 스크롤 활성화 */
+  overflow-x: hidden;         /* 가로 스크롤 숨김 */
+  /* 커스텀 스크롤바 스타일링 */
+  scrollbar-width: thin;      /* Firefox */
+  scrollbar-color: #d1d5db #f9fafb; /* Firefox */
 }
 .toc-title{ margin:0 0 8px; font-size:1rem; font-weight:700; }
 .toc-sections{ list-style:none; margin:0; padding:0; display:grid; gap:6px; }
@@ -571,7 +623,12 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 .dark-mode .equation-explain{ background:#0c1222; border-color:#1f2a44; color:#cbd5e1; }
 
 /* 다크모드 보완 */
-.dark-mode .table-of-contents{ background:#0f172a; border-color:#1f2a44; }
+.dark-mode .table-of-contents{ 
+  background:#0f172a; 
+  border-color:#1f2a44; 
+  /* 다크모드 스크롤바 */
+  scrollbar-color: #374151 #1f2937; /* Firefox */
+}
 .dark-mode .toc-link{ color:#e5e7eb; }
 .dark-mode .toc-link:hover{ background:#1b2438; }
 .dark-mode .toc-link.active{ background:#7c3aed; }
@@ -624,9 +681,14 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   padding: 20px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
   height: fit-content;
-  /* 텍스트 오버플로우 방지 */
-  overflow: hidden;
+  /* 스크롤 가능한 목차 */
+  max-height: calc(100vh - 100px); /* 화면 높이에 맞춰 최대 높이 설정 */
+  overflow-y: auto;           /* 세로 스크롤 활성화 */
+  overflow-x: hidden;         /* 가로 스크롤 숨김 */
   box-sizing: border-box;
+  /* 커스텀 스크롤바 스타일링 */
+  scrollbar-width: thin;      /* Firefox */
+  scrollbar-color: #d1d5db #f9fafb; /* Firefox */
 }
 
 .table-of-contents h3 {

@@ -419,6 +419,24 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     }
   }, [integratedData, activeEquation]);
 
+  // 수식 설명이 표시될 때 MathJax 재타입셋팅
+  useEffect(() => {
+    if (activeEquation) {
+      // 약간의 지연을 두고 MathJax 실행 (DOM 업데이트 후)
+      const timeoutId = setTimeout(() => {
+        const win = window as any;
+        if (win?.MathJax?.typesetPromise) {
+          const explanationNodes = Array.from(document.querySelectorAll('.explanation-content.mathjax'));
+          if (explanationNodes.length > 0) {
+            win.MathJax.typesetPromise(explanationNodes).catch(console.warn);
+          }
+        }
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [activeEquation]);
+
   // TOC: 현재 섹션 하이라이트
   useEffect(() => {
     if (!integratedData?.easy_sections) return;
@@ -964,7 +982,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                           <span className="explanation-title">수식 설명</span>
                         </div>
                         <div
-                          className="explanation-content"
+                          className="explanation-content mathjax"
                           dangerouslySetInnerHTML={{
                             __html: formatText(
                               (paragraph as any).math_equation.equation_explanation || ""
@@ -1112,7 +1130,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                         <span className="explanation-title">수식 설명</span>
                       </div>
                       <div
-                        className="explanation-content"
+                        className="explanation-content mathjax"
                         dangerouslySetInnerHTML={{ __html: formatText(equation.math_equation_explanation) }}
                       />
                     </div>
@@ -1127,9 +1145,39 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
   const formatText = (text: string) => {
     if (!text) return "";
+    
+    // LaTeX 수식 처리 먼저 수행
+    let processed = text;
+    
+    // 인라인 수식 $...$ 처리
+    processed = processed.replace(/\$([^$]+)\$/g, (match, content) => {
+      return `$${preprocessLatex(content)}$`;
+    });
+    
+    // 블록 수식 $$...$$ 처리
+    processed = processed.replace(/\$\$([^$]+)\$\$/g, (match, content) => {
+      return `$$${preprocessLatex(content)}$$`;
+    });
+    
+    // LaTeX 수식 환경 처리
+    processed = processed.replace(/\\begin\{([^}]+)\}([\s\S]*?)\\end\{\1\}/g, (match, env, content) => {
+      return `$$\\begin{${env}}${preprocessLatex(content)}\\end{${env}}$$`;
+    });
+    
+    // 인라인 LaTeX 수식 \(...\) 처리
+    processed = processed.replace(/\\\(([^)]+)\\\)/g, (match, content) => {
+      return `$${preprocessLatex(content)}$`;
+    });
+    
+    // 블록 LaTeX 수식 \[...\] 처리
+    processed = processed.replace(/\\\[([^\]]+)\\\]/g, (match, content) => {
+      return `$$${preprocessLatex(content)}$$`;
+    });
+    
     // **강조**는 굵게만, ==중요문장== 은 은은한 형광펜으로
-    let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    let html = processed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/==([^=]+)==/g, '<mark style="background:#fff3b0; color:inherit;">$1</mark>');
+    
     return html;
   };
 
