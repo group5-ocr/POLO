@@ -2205,6 +2205,101 @@ async def send_to_viz_api(request: ModelSendRequest, bg: BackgroundTasks):
         raise HTTPException(status_code=500, detail=f"Viz API 모델 전송 실패: {e}")
 
 
+@router.post("/external-viz-api")
+async def call_external_viz_api(request: dict):
+    """
+    외부 시각화 API 호출 (팀원 제공 클라우드타입 서버)
+    """
+    try:
+        paper_id = request.get("paper_id")
+        arxiv_id = request.get("arxiv_id")
+        
+        if not arxiv_id:
+            raise HTTPException(status_code=400, detail="arxiv_id가 필요합니다")
+        
+        print(f"🎨 [EXT VIZ] 외부 시각화 API 호출: arxiv_id={arxiv_id}")
+        
+        # 외부 API URL (팀원 제공, 포트 8010)
+        external_viz_url = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app:8010"
+        api_endpoint = f"{external_viz_url}/api/viz-api/generate-zip/{arxiv_id}"
+        
+        # 출력 디렉토리 설정
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        output_dir = server_dir / "data" / "outputs" / paper_id / "external_viz"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        async with httpx.AsyncClient(timeout=300) as client:  # 5분 타임아웃
+            print(f"🌐 [EXT VIZ] POST 요청: {api_endpoint}")
+            
+            # POST 요청으로 ZIP 파일 요청 (외부 API는 POST만 지원)
+            response = await client.post(api_endpoint)
+            
+            if response.status_code == 200:
+                print(f"✅ [EXT VIZ] 외부 API 응답 성공 ({len(response.content)} bytes)")
+                
+                # ZIP 파일을 로컬에 저장하고 압축 해제
+                import zipfile
+                import io
+                
+                zip_path = output_dir / f"{arxiv_id}_external_viz.zip"
+                extract_path = output_dir / f"slides_{arxiv_id}"
+                
+                # ZIP 파일 저장
+                with open(zip_path, "wb") as f:
+                    f.write(response.content)
+                
+                # ZIP 압축 해제
+                with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                    z.extractall(extract_path)
+                
+                # PNG 파일명 변경 (0_Introduction.png → 0.png)
+                png_files = list(extract_path.glob("**/*.png"))
+                renamed_files = []
+                
+                for png_file in png_files:
+                    # 파일명에서 숫자 추출 (0_Introduction.png → 0)
+                    import re
+                    match = re.match(r'^(\d+)_', png_file.name)
+                    if match:
+                        new_name = f"{match.group(1)}.png"
+                        new_path = png_file.parent / new_name
+                        
+                        # 파일명 변경
+                        png_file.rename(new_path)
+                        renamed_files.append(new_path)
+                        print(f"📝 [EXT VIZ] 파일명 변경: {png_file.name} → {new_name}")
+                    else:
+                        renamed_files.append(png_file)
+                
+                # 최종 PNG 파일 개수 확인
+                final_png_files = list(extract_path.glob("**/*.png"))
+                
+                print(f"🎉 [EXT VIZ] 외부 시각화 완료: {len(final_png_files)}개 PNG 파일 생성")
+                
+                return {
+                    "message": "외부 시각화 API 호출 성공",
+                    "arxiv_id": arxiv_id,
+                    "paper_id": paper_id,
+                    "zip_path": str(zip_path),
+                    "extract_path": str(extract_path),
+                    "png_count": len(final_png_files),
+                    "status": "completed"
+                }
+            else:
+                print(f"❌ [EXT VIZ] 외부 API 응답 실패: {response.status_code}")
+                raise HTTPException(
+                    status_code=502, 
+                    detail=f"외부 시각화 API 오류: {response.status_code}"
+                )
+                
+    except httpx.TimeoutException:
+        print(f"⏰ [EXT VIZ] 외부 API 타임아웃")
+        raise HTTPException(status_code=504, detail="외부 시각화 API 타임아웃")
+    except Exception as e:
+        print(f"❌ [EXT VIZ] 외부 시각화 API 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"외부 시각화 API 오류: {e}")
+
 @router.post("/integrated-result/create")
 async def create_integrated_result(request: ModelSendRequest):
     """
@@ -2671,3 +2766,32 @@ async def check_results_ready(paper_id: str):
         return {"status": "ready", "ok": True, "message": "모든 결과가 준비되었습니다"}
     except Exception as e:
         return {"status": "error", "ok": False, "message": f"오류 발생: {str(e)}"}
+
+
+# [ADD] 외부 API 이미지 정적 파일 서빙
+@router.get("/static/outputs/{paper_id}/external_viz/slides_{arxiv_id}/{filename}")
+async def serve_external_viz_image(paper_id: str, arxiv_id: str, filename: str):
+    """외부 API로 생성된 이미지 파일을 서빙합니다."""
+    try:
+        from fastapi.responses import FileResponse
+        from pathlib import Path
+        
+        # 이미지 파일 경로 구성
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent
+        image_path = server_dir / "data" / "outputs" / paper_id / "external_viz" / f"slides_{arxiv_id}" / filename
+        
+        # 파일 존재 확인
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail=f"이미지 파일을 찾을 수 없습니다: {filename}")
+        
+        # 이미지 파일 서빙
+        return FileResponse(
+            path=str(image_path),
+            media_type="image/png",
+            filename=filename
+        )
+        
+    except Exception as e:
+        print(f"❌ [STATIC] 외부 API 이미지 서빙 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"이미지 서빙 실패: {str(e)}")

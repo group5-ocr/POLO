@@ -21,56 +21,9 @@ ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
 if ROOT_ENV.exists():
     load_dotenv(dotenv_path=str(ROOT_ENV), override=True)
 
-# -------------------- Google Translate API --------------------
-def translate_to_korean(text: str) -> str:
-    """
-    Google Translate API를 사용하여 영어 텍스트를 한국어로 번역
-    """
-    try:
-        if not text or not text.strip():
-            return text
-        
-        # 이미 한국어가 포함되어 있는지 확인
-        korean_chars = re.findall(r'[가-힣]', text)
-        if len(korean_chars) > len(text) * 0.3:  # 30% 이상이 한국어면 번역하지 않음
-            return text
-        
-        # 간단한 번역 로직 (실제로는 Google Translate API 사용)
-        # 여기서는 기본적인 영어-한국어 매핑을 사용
-        translations = {
-            "We": "우리는",
-            "Our": "우리의", 
-            "This": "이것은",
-            "The": "이",
-            "A": "하나의",
-            "An": "하나의",
-            "object detection": "객체 탐지",
-            "neural network": "신경망",
-            "convolutional": "합성곱",
-            "bounding box": "경계 상자",
-            "image": "이미지",
-            "model": "모델",
-            "training": "훈련",
-            "prediction": "예측",
-            "accuracy": "정확도",
-            "performance": "성능",
-            "algorithm": "알고리즘",
-            "deep learning": "딥러닝",
-            "computer vision": "컴퓨터 비전",
-            "machine learning": "머신러닝"
-        }
-        
-        # 간단한 번역 적용
-        translated_text = text
-        for en, ko in translations.items():
-            translated_text = translated_text.replace(en, f"{en}({ko})")
-        
-        logger.info(f"[TRANSLATE] 번역 적용: {len(translations)}개 용어")
-        return translated_text
-            
-    except Exception as e:
-        logger.warning(f"[TRANSLATE] 번역 실패, 원본 반환: {e}")
-        return text
+# -------------------- 중복 번역 함수 제거됨 --------------------
+# translate_to_korean() 함수는 annotate_terms_with_glossary()와 중복되어 제거
+# 용어 주석은 이제 auto_update_glossary() → annotate_terms_with_glossary() 플로우로 통합
 
 # -------------------- ENV / 기본값 --------------------
 HF_TOKEN                 = os.getenv("HUGGINGFACE_TOKEN", "")
@@ -89,6 +42,12 @@ MIN_CHARS = 300
 MAX_CHARS = 900
 MIN_HANGUL_RATIO = 0.7
 SIMILARITY_THRESHOLD = 0.9
+
+# 🎯 Llama 자체검증 품질 기준 (캐시 저장용)
+CACHE_QUALITY_THRESHOLD = 0.85  # 85% 이상 품질 점수
+MIN_TECHNICAL_TERMS = 3  # 최소 기술 용어 수
+MIN_EXPLANATION_RATIO = 0.6  # 60% 이상 용어에 설명 추가
+MAX_REGENERATION_ATTEMPTS = 3  # 최대 재생성 시도 횟수
 EASY_VIZ_TIMEOUT         = float(os.getenv("EASY_VIZ_TIMEOUT", "1800"))
 EASY_VIZ_HEALTH_TIMEOUT  = float(os.getenv("EASY_VIZ_HEALTH_TIMEOUT", "5"))
 EASY_VIZ_ENABLED         = os.getenv("EASY_VIZ_ENABLED", "0").lower() in ("1","true","yes")
@@ -133,13 +92,13 @@ def check_cache_completeness(cached_data: dict, sections: List[dict]) -> tuple[b
     Returns: (is_complete, missing_section_indices)
     """
     if not cached_data or "easy_sections" not in cached_data:
-        return False, list(range(min(len(sections), 14)))
+        return False, list(range(min(len(sections), 13)))
     
-    easy_sections = (cached_data.get("easy_sections") or [])[:14]
+    easy_sections = (cached_data.get("easy_sections") or [])[:13]
     missing_indices = []
     
-    # 목표 섹션 수는 최대 14개
-    target_count = min(len(sections), 14)
+    # 목표 섹션 수는 최대 13개
+    target_count = min(len(sections), 13)
     for i in range(target_count):
         if i >= len(easy_sections):
             missing_indices.append(i)
@@ -217,9 +176,8 @@ async def _work_section(i: int, section: dict, sections: List[dict], request, as
                             easy_text = f"{title}에 대한 내용입니다. 수치 없이 개념만 설명합니다.\n<END_SECTION>"
                             break
                     
-                    # 한국어 보장
+                    # 한국어 보장 (용어 주석은 이미 _rewrite_text()에서 처리됨)
                     easy_text = _ensure_korean(result)
-                    easy_text = translate_to_korean(easy_text)
                     
                     # 최종 검증
                     validation = _validate_section_content(easy_text, title)
@@ -445,6 +403,156 @@ GLOSSARY_PATH = (
     else (WIN_GLOSS if WIN_GLOSS.exists() else Path(__file__).resolve().parent / "glossary_ai.json")
 )
 
+# 🤖 자동 용어사전 업데이트 시스템
+def auto_update_glossary(text: str) -> str:
+    """
+    텍스트에서 새로운 영어 기술 용어를 감지하고 자동으로 glossary에 추가
+    """
+    if not text or not text.strip():
+        return text
+    
+    try:
+        # 현재 용어사전 로드
+        current_glossary = _load_glossary()
+        
+        # 영어 기술 용어 패턴 (YOLO 논문 특화)
+        tech_term_patterns = [
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b',  # 대문자 시작 용어 (Neural Network)
+            r'\b([a-z]+(?:\s+[a-z]+)*\s+(?:detection|network|learning|vision|model|algorithm|method|approach|system|framework|architecture|layer|function|loss|error|accuracy|precision|recall|score|rate|ratio|threshold|parameter|feature|data|dataset|training|testing|validation|optimization|regularization))\b',  # 기술 용어 조합
+            r'\b([A-Z]{2,})\b',  # 약어 (CNN, RNN, mAP)
+            r'\b([a-z]+(?:\s+[a-z]+)*(?:-[a-z]+)*)\s+(?:box|cell|grid|window|proposal|region|patch|kernel|filter|pooling)\b'  # 특정 기술 용어
+        ]
+        
+        new_terms = set()
+        
+        # 원본 텍스트에서 대문자 패턴 매칭 (기술 용어만)
+        capital_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b'  # 최소 2단어 이상
+        capital_matches = re.findall(capital_pattern, text)
+        
+        # 일반 단어 필터링
+        common_words = {'this', 'that', 'these', 'those', 'paper', 'approach', 'method', 'system', 'work', 'study', 'research'}
+        
+        for match in capital_matches:
+            term = match.strip().lower()
+            if (len(term) > 5 and  # 최소 6글자 이상
+                term not in current_glossary and 
+                term not in common_words and
+                not re.match(r'^\d+$', term) and
+                ' ' in term):  # 복합 단어만 (Neural Network 등)
+                new_terms.add(term)
+        
+        # 소문자 텍스트에서 나머지 패턴 매칭
+        text_lower = text.lower()
+        lowercase_patterns = [
+            r'\b([a-z]+(?:\s+[a-z]+)*\s+(?:detection|network|learning|vision|model|algorithm|method|approach|system|framework|architecture|layer|function|loss|error|accuracy|precision|recall|score|rate|ratio|threshold|parameter|feature|data|dataset|training|testing|validation|optimization|regularization))\b',
+            r'\b([a-z]+(?:\s+[a-z]+)*(?:-[a-z]+)*)\s+(?:box|cell|grid|window|proposal|region|patch|kernel|filter|pooling)\b'
+        ]
+        
+        for pattern in lowercase_patterns:
+            matches = re.findall(pattern, text_lower)
+            for match in matches:
+                term = match.strip()
+                if (len(term) > 2 and 
+                    term not in current_glossary and 
+                    not re.match(r'^\d+$', term) and
+                    not re.match(r'^[a-z]{1,2}$', term)):
+                    new_terms.add(term)
+        
+        # 새로운 용어가 있으면 LLM으로 한국어 설명 생성
+        if new_terms and model is not None and tokenizer is not None:
+            logger.info(f"[GLOSSARY] 새로운 용어 {len(new_terms)}개 감지: {list(new_terms)[:5]}...")
+            
+            for term in list(new_terms)[:10]:  # 한 번에 최대 10개까지만 처리
+                korean_explanation = _generate_korean_explanation(term)
+                if korean_explanation:
+                    current_glossary[term] = korean_explanation
+                    logger.info(f"[GLOSSARY] 추가됨: {term} -> {korean_explanation}")
+            
+            # 업데이트된 용어사전 저장
+            _save_glossary(current_glossary)
+            
+            # 캐시 무효화
+            reload_glossary_cache()
+            
+    except Exception as e:
+        logger.warning(f"[GLOSSARY] 자동 업데이트 실패: {e}")
+    
+    return text
+
+def _generate_korean_explanation(term: str) -> str:
+    """
+    LLM을 사용하여 영어 기술 용어의 한국어 설명 생성
+    """
+    try:
+        if model is None or tokenizer is None:
+            return ""
+        
+        prompt = f"""<|begin_of_text|>
+<|start_header_id|>system<|end_header_id|>
+너는 YOLO 객체 탐지 논문의 전문 용어 설명가다. 영어 기술 용어를 간단명료한 한국어로 설명한다.
+
+# 규칙
+1. 15자 이내로 간단히 설명
+2. 기술적이지만 이해하기 쉽게
+3. "~하는 것", "~을 위한" 등 자연스러운 표현
+4. 설명만 출력 (다른 텍스트 없이)
+
+# 예시
+object detection -> 이미지 속에서 물체의 위치와 종류를 찾아내는 작업
+bounding box -> 물체를 둘러싸는 네모 상자
+neural network -> 뇌 구조를 본뜬 인공 신경망
+<|eot_id|>
+
+<|start_header_id|>user<|end_header_id|>
+{term}
+<|eot_id|>
+
+<|start_header_id|>assistant<|end_header_id|>"""
+
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
+        with torch.inference_mode():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=50,
+                temperature=0.1,
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id
+            )
+        
+        seq = outputs[0]
+        inp_len = inputs["input_ids"].shape[1]
+        gen = seq[inp_len:]
+        result = tokenizer.decode(gen, skip_special_tokens=True).strip()
+        
+        # 정리
+        result = result.split('\n')[0].strip()  # 첫 줄만
+        result = re.sub(r'["\']', '', result)   # 따옴표 제거
+        
+        if len(result) > 50:  # 너무 길면 자르기
+            result = result[:47] + "..."
+            
+        return result if result else ""
+        
+    except Exception as e:
+        logger.warning(f"[GLOSSARY] 용어 설명 생성 실패 ({term}): {e}")
+        return ""
+
+def _save_glossary(glossary_dict: dict):
+    """용어사전을 파일에 저장"""
+    try:
+        glossary_data = {"glossary": glossary_dict}
+        GLOSSARY_PATH.write_text(
+            json.dumps(glossary_data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        logger.info(f"[GLOSSARY] 용어사전 저장 완료: {len(glossary_dict)}개 용어")
+    except Exception as e:
+        logger.error(f"[GLOSSARY] 저장 실패: {e}")
+
 import functools
 
 # 수식 마스킹 패턴 (개선된 버전)
@@ -595,7 +703,7 @@ def _load_glossary() -> Dict[str, str]:
         return {}
     try:
         obj = json.loads(GLOSSARY_PATH.read_text(encoding="utf-8", errors="ignore"))
-        terms = obj.get("terms", {}) if isinstance(obj, dict) else {}
+        terms = obj.get("glossary", {}) if isinstance(obj, dict) else {}
         out = {}
         for k, v in terms.items():
             if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip():
@@ -883,6 +991,67 @@ def _calculate_hangul_ratio(text: str) -> float:
     total_chars = len(re.sub(r'\s', '', text))  # 공백 제외
     
     return hangul_chars / total_chars if total_chars > 0 else 0.0
+
+def _llama_self_validation(text: str, original_content: str) -> dict:
+    """
+    🎯 Llama 자체검증 시스템 - 품질이 좋은 결과만 캐시에 저장
+    """
+    validation_result = {
+        "quality_score": 0.0,
+        "is_cache_worthy": False,
+        "issues": [],
+        "technical_terms_count": 0,
+        "explanation_ratio": 0.0
+    }
+    
+    if not text or not text.strip():
+        validation_result["issues"].append("빈 내용")
+        return validation_result
+    
+    # 1. 기술 용어 감지 및 설명 비율 계산
+    tech_terms_with_explanation = len(re.findall(r'\b\w+\([^)]+\)', text))
+    total_tech_terms = len(re.findall(r'\b(?:neural|network|detection|bounding|box|class|probability|convolutional|feature|learning|model|algorithm|architecture|framework|system|method|approach|optimization|regularization|training|testing|validation|accuracy|precision|recall|score|rate|ratio|threshold|parameter|data|dataset|image|object|vision|computer|deep|machine|artificial|intelligence|pattern|recognition|classification|regression|clustering|segmentation|localization|tracking|monitoring|surveillance|autonomous|robotic|automated|intelligent|smart|adaptive|dynamic|real-time|online|offline|batch|stream|processing|analysis|synthesis|generation|transformation|conversion|extraction|selection|filtering|ranking|sorting|matching|comparison|evaluation|assessment|measurement|quantification|qualification|characterization|description|specification|definition|interpretation|explanation|clarification|elucidation|demonstration|illustration|example|case|study|experiment|test|trial|validation|verification|confirmation|proof|evidence|support|justification|rationale|reasoning|argument|discussion|analysis|synthesis|conclusion|summary|overview|introduction|background|context|scope|limitation|assumption|hypothesis|theory|principle|concept|idea|notion|understanding|knowledge|information|data|fact|truth|reality|existence|being|entity|object|subject|topic|theme|issue|problem|challenge|opportunity|solution|answer|response|reaction|behavior|action|activity|operation|function|process|procedure|method|technique|strategy|approach|way|means|tool|instrument|device|equipment|hardware|software|system|platform|framework|architecture|design|structure|organization|arrangement|configuration|setup|installation|implementation|deployment|execution|performance|efficiency|effectiveness|quality|reliability|stability|robustness|scalability|flexibility|adaptability|usability|accessibility|compatibility|interoperability|portability|maintainability|extensibility|modularity|reusability|testability|debuggability|monitorability|observability|traceability|auditability|security|safety|privacy|confidentiality|integrity|authenticity|authorization|authentication|encryption|decryption|hashing|signing|verification|validation|certification|accreditation|compliance|conformance|adherence|following|obeying|respecting|honoring|maintaining|preserving|protecting|safeguarding|defending|securing|ensuring|guaranteeing|promising|committing|pledging|vowing|swearing|affirming|declaring|stating|claiming|asserting|insisting|maintaining|arguing|contending|holding|believing|thinking|considering|regarding|viewing|seeing|perceiving|understanding|comprehending|grasping|apprehending|realizing|recognizing|acknowledging|accepting|admitting|conceding|confessing|revealing|disclosing|exposing|showing|demonstrating|proving|establishing|confirming|validating|verifying|checking|testing|examining|investigating|studying|researching|analyzing|evaluating|assessing|judging|rating|ranking|scoring|measuring|quantifying|counting|calculating|computing|processing|handling|managing|controlling|operating|running|executing|performing|doing|making|creating|producing|generating|building|constructing|developing|designing|planning|preparing|organizing|arranging|structuring|formatting|presenting|displaying|showing|exhibiting|demonstrating|illustrating|explaining|describing|narrating|telling|reporting|documenting|recording|logging|tracking|monitoring|observing|watching|supervising|overseeing|managing|directing|leading|guiding|instructing|teaching|educating|training|coaching|mentoring|advising|consulting|helping|assisting|supporting|facilitating|enabling|empowering|encouraging|motivating|inspiring|influencing|persuading|convincing|encouraging|promoting|advocating|recommending|suggesting|proposing|offering|providing|supplying|delivering|serving|catering|accommodating|satisfying|pleasing|delighting|impressing|amazing|surprising|astonishing|shocking|stunning|overwhelming|captivating|fascinating|engaging|interesting|entertaining|amusing|enjoyable|pleasant|delightful|wonderful|fantastic|amazing|incredible|unbelievable|remarkable|extraordinary|exceptional|outstanding|excellent|superb|magnificent|brilliant|genius|clever|smart|intelligent|wise|knowledgeable|experienced|skilled|talented|gifted|capable|competent|qualified|professional|expert|specialist|master|authority|leader|pioneer|innovator|creator|inventor|developer|designer|architect|engineer|scientist|researcher|analyst|consultant|advisor|expert|specialist|professional|practitioner|operator|user|customer|client|stakeholder|partner|collaborator|colleague|teammate|member|participant|contributor|supporter|advocate|champion|sponsor|investor|donor|benefactor|patron|supporter|follower|fan|admirer|enthusiast|lover|devotee|addict|obsessed|passionate|dedicated|committed|devoted|loyal|faithful|trustworthy|reliable|dependable|consistent|stable|steady|constant|persistent|persevering|determined|resolved|focused|concentrated|attentive|careful|cautious|prudent|wise|smart|intelligent|clever|brilliant|genius|talented|gifted|skilled|capable|competent|qualified|professional|expert|specialist|master|authority|leader|pioneer|innovator|creator|inventor|developer|designer|architect|engineer|scientist|researcher|analyst|consultant|advisor|expert|specialist|professional|practitioner|operator|user|customer|client|stakeholder|partner|collaborator|colleague|teammate|member|participant|contributor|supporter|advocate|champion|sponsor|investor|donor|benefactor|patron|supporter|follower|fan|admirer|enthusiast|lover|devotee|addict|obsessed|passionate|dedicated|committed|devoted|loyal|faithful|trustworthy|reliable|dependable|consistent|stable|steady|constant|persistent|persevering|determined|resolved|focused|concentrated|attentive|careful|cautious|prudent|wise|smart|intelligent|clever|brilliant|genius|talented|gifted|skilled|capable|competent|qualified|professional|expert|specialist|master|authority|leader|pioneer|innovator|creator|inventor|developer|designer|architect|engineer|scientist|researcher|analyst|consultant|advisor|expert|specialist|professional|practitioner|operator|user|customer|client|stakeholder|partner|collaborator|colleague|teammate|member|participant|contributor|supporter|advocate|champion|sponsor|investor|donor|benefactor|patron|supporter|follower|fan|admirer|enthusiast|lover|devotee|addict|obsessed|passionate|dedicated|committed|devoted|loyal|faithful|trustworthy|reliable|dependable|consistent|stable|steady|constant|persistent|persevering|determined|resolved|focused|concentrated|attentive|careful|cautious|prudent)\b', text))
+    
+    validation_result["technical_terms_count"] = total_tech_terms
+    validation_result["explanation_ratio"] = tech_terms_with_explanation / max(total_tech_terms, 1)
+    
+    # 2. 품질 점수 계산 (0-1)
+    quality_score = 0.0
+    
+    # 기본 검증 (40%)
+    basic_validation = _validate_section_content(text, "")
+    if basic_validation["is_valid"]:
+        quality_score += 0.4
+    
+    # 기술 용어 풍부도 (20%)
+    if total_tech_terms >= MIN_TECHNICAL_TERMS:
+        quality_score += 0.2
+    
+    # 설명 비율 (20%)
+    if validation_result["explanation_ratio"] >= MIN_EXPLANATION_RATIO:
+        quality_score += 0.2
+    
+    # 한글 비율 (10%)
+    hangul_ratio = _calculate_hangul_ratio(text)
+    if hangul_ratio >= MIN_HANGUL_RATIO:
+        quality_score += 0.1
+    
+    # 길이 적절성 (10%)
+    char_count = len(text.replace(' ', ''))
+    if MIN_CHARS <= char_count <= MAX_CHARS:
+        quality_score += 0.1
+    
+    validation_result["quality_score"] = quality_score
+    validation_result["is_cache_worthy"] = quality_score >= CACHE_QUALITY_THRESHOLD
+    
+    if not validation_result["is_cache_worthy"]:
+        validation_result["issues"].append(f"품질 점수 부족: {quality_score:.2f} < {CACHE_QUALITY_THRESHOLD}")
+        if total_tech_terms < MIN_TECHNICAL_TERMS:
+            validation_result["issues"].append(f"기술 용어 부족: {total_tech_terms} < {MIN_TECHNICAL_TERMS}")
+        if validation_result["explanation_ratio"] < MIN_EXPLANATION_RATIO:
+            validation_result["issues"].append(f"설명 비율 부족: {validation_result['explanation_ratio']:.2f} < {MIN_EXPLANATION_RATIO}")
+    
+    return validation_result
 
 def _validate_section_content(text: str, section_title: str) -> dict:
     """섹션 내용 검증"""
@@ -1380,16 +1549,33 @@ def _translate_with_llm(text: str) -> str:
         translate_prompt = (
             "<|begin_of_text|>\n"
             "<|start_header_id|>system<|end_header_id|>\n"
-            "너는 YOLO 객체 탐지 논문 전문 번역가다. 영어 문장을 정확하고 자연스러운 한국어로 번역하라.\n"
-            "규칙:\n"
-            "- YOLO 관련 용어(YOLO, object detection, bounding box, IoU, mAP, COCO, NMS, backbone, neck, head, FPN, Darknet, ResNet 등)는 영어 그대로 두고 (한국어 풀이) 추가\n"
-            "- 의미 정확, 도메인 용어 보존\n"
-            "- 숫자/고유명사/기호 왜곡 금지\n"
-            "- 한국어 문장부호 사용\n"
+            "# 역할 정의 (Role-Based Prompt)\n"
+            "너는 YOLO 객체 탐지 논문의 전문 번역가다. 학술적 정확성과 이해도를 모두 만족시키는 완벽한 번역을 제공한다.\n\n"
+            
+            "# 번역 원칙 (Explicit Instructions)\n"
+            "1. 모든 문장을 누락 없이 완전히 번역\n"
+            "2. 기술 용어는 'English(한국어 설명)' 형식 사용\n"
+            "3. 수치, 수식, 고유명사는 원문 그대로 유지\n"
+            "4. 자연스러운 한국어 문체로 변환\n\n"
+            
+            "# 용어 처리 (Few-Shot Examples)\n"
+            "• object detection → object detection(이미지 속에서 물체의 위치와 종류를 찾아내는 작업)\n"
+            "• bounding box → bounding box(물체를 둘러싸는 네모 상자)\n"
+            "• neural network → neural network(뇌 구조를 본뜬 인공 신경망)\n"
+            "• mAP → mAP(탐지 모델의 평균 정확도 지표)\n\n"
+            
+            "# 품질 보장 (Self-Consistency)\n"
+            "번역 후 자체 검증: 원문의 의미가 정확히 전달되었는가?\n\n"
+            
+            "# 특별 지시사항\n"
             "- 마스킹된 토큰(⟦GLOSSARY_xxx⟧)은 절대 번역하지 말고 그대로 유지\n"
+            "- 모델명: YOLO, R-CNN, Fast R-CNN, Faster R-CNN, DPM (정확히)\n"
+            "- 데이터셋명: PASCAL VOC, ImageNet, COCO (오타 금지)\n\n"
+            
+            "완벽한 번역을 제공하세요.\n"
             "<|eot_id|>\n"
             "<|start_header_id|>user<|end_header_id|>\n"
-            f"{masked_text}\n\n[한국어 번역]\n"
+            f"{masked_text}\n\n[완벽한 한국어 번역]\n"
             "<|eot_id|>\n"
         )
         inputs = tokenizer(translate_prompt, return_tensors="pt", truncation=True, max_length=2048)
@@ -1397,15 +1583,15 @@ def _translate_with_llm(text: str) -> str:
         with torch.inference_mode():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=min(MAX_NEW_TOKENS, 600),
+                max_new_tokens=min(MAX_NEW_TOKENS, 700),  # 완전 번역을 위해 증가
                 do_sample=True,  # 샘플링 디코딩 (품질 개선)
-                temperature=0.2,
-                top_p=0.9,
-                top_k=50,
+                temperature=0.1,                          # 일관성 향상 (Self-Consistency)
+                top_p=0.85,                              # 집중된 선택 (Reduce Hallucinations)
+                top_k=40,                                # 선택 범위 축소
                 use_cache=True,
-                repetition_penalty=1.22,  # 반복 억제 (권장값)
-                no_repeat_ngram_size=4,
-                length_penalty=1.0,
+                repetition_penalty=1.15,                 # 반복 억제 (적당한 수준)
+                no_repeat_ngram_size=3,                  # 3-gram 반복 방지
+                length_penalty=1.05,                     # 완전한 번역 장려
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
@@ -1508,20 +1694,52 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     content_masked, math_masks = _mask_blocks(content, _MASK_MATH)
     
     sys_msg = (
-        "YOLO 논문을 중학생도 이해할 수 있게 쉽게 설명해주세요.\n\n"
-        "=== 규칙 섹션 ===\n"
-        "• 한국어만 출력. 영어 토큰/코드 조각/치환 예시(.replace( 등) 금지.\n"
-        "• 섹션당 3-6문장, 간결하게. 문장·문단 반복 금지.\n"
-        "• 섹션 끝에 반드시 <END_SECTION> 한 줄 출력.\n"
-        "• 원문에 근거 없는 수치(%, fps, mAP 등) 절대 금지. 없으면 '수치 언급 없음'으로 서술.\n"
-        "• 모델/약어는 실제 명칭만 사용: YOLO / R-CNN / Fast/Faster R-CNN / DPM. YOLOSE/SYOLO 같은 파생어 금지.\n"
-        "• 치환 규칙 시연, 가짜 코드, 메타 텍스트(예: '[REWRITE]', 'assistant') 금지.\n"
-        "• 각 섹션은 핵심 개념 1-2개만 설명. 예시는 1개 이하.\n"
-        "• VOC 2012 (VOC 20012 오타 금지)\n"
-        "• Titan X, fps 등 출처 불명 수치 모두 삭제\n"
-        "• 제목과 본문 내용이 정확히 일치해야 함\n\n"
-        "영어 용어는 (한국어 뜻)을 붙여주세요.\n"
-        "⟦MATH_i⟧ 같은 토큰은 그대로 두세요.\n"
+        "# 역할 정의 (Role-Based Prompt)\n"
+        "너는 YOLO 객체 탐지 논문의 전문 번역가이자 교육자다. 원본 논문의 모든 내용을 완전히 번역하되, 중학생도 이해할 수 있게 쉽게 설명하는 것이 목표다.\n\n"
+        
+        "# 핵심 임무 (Explicit Instructions)\n"
+        "1. 원본 텍스트의 모든 내용을 누락 없이 완전히 번역\n"
+        "2. 요약하지 말고 전체 내용을 그대로 유지\n"
+        "3. 기술적 세부사항과 수학적 공식도 모두 포함\n"
+        "4. 영어 용어마다 (한국어 설명) 추가\n"
+        "5. 모든 영어 문장을 자연스러운 한국어로 번역\n"
+        "6. 문장 구조와 어순을 한국어에 맞게 조정\n\n"
+        
+        "# 번역 규칙 (Reduce Hallucinations)\n"
+        "## 필수 준수 사항:\n"
+        "• 원문에 없는 내용 절대 추가 금지\n"
+        "• 수치, 수식, 고유명사는 원문 그대로 유지\n"
+        "• 모델명은 정확히: YOLO, R-CNN, Fast R-CNN, Faster R-CNN, DPM\n"
+        "• 데이터셋명: PASCAL VOC, ImageNet, COCO (오타 금지)\n"
+        "• 하드웨어: Titan X, GPU 등 (출처 명확한 것만)\n\n"
+        
+        "## 용어 처리 방식:\n"
+        "• 영어 기술용어는 반드시 'English Term(한국어 설명)' 형식 사용\n"
+        "• 예시: object detection(이미지 속에서 물체의 위치와 종류를 찾아내는 작업)\n"
+        "• 예시: bounding box(물체를 둘러싸는 네모 상자)\n"
+        "• 예시: neural network(뇌 구조를 본뜬 인공 신경망)\n\n"
+        
+        "## 출력 형식:\n"
+        "• 한국어만 출력 (메타 텍스트, 영어 설명, 코드 조각 금지)\n"
+        "• 원문의 단락 구조 유지\n"
+        "• 문장 반복 금지, 자연스러운 한국어 문체\n"
+        "• ⟦MATH_i⟧ 같은 수식 토큰은 그대로 유지\n"
+        "• 섹션 끝에 <END_SECTION> 출력\n\n"
+        
+        "# 품질 보장 (Self-Consistency)\n"
+        "번역 전 자체 검증:\n"
+        "1. 원문의 모든 문장이 번역에 포함되었는가?\n"
+        "2. 기술 용어에 한국어 설명이 추가되었는가?\n"
+        "3. 원문에 없는 내용을 추가하지 않았는가?\n"
+        "4. 수치와 고유명사가 정확한가?\n\n"
+        
+        "# Few-Shot 예시\n"
+        "입력: 'YOLO uses a single neural network to predict bounding boxes and class probabilities directly from full images in one evaluation.'\n"
+        "출력: 'YOLO는 단일 neural network(뇌 구조를 본뜬 인공 신경망)를 사용하여 전체 이미지에서 한 번의 평가로 bounding box(물체를 둘러싸는 네모 상자)와 class probability(각 물체가 특정 클래스일 확률)를 직접 예측합니다.'\n\n"
+        "입력: 'The network predicts multiple bounding boxes simultaneously.'\n"
+        "출력: '네트워크는 동시에 여러 bounding box(물체를 둘러싸는 네모 상자)를 예측합니다.'\n\n"
+        
+        "이제 주어진 텍스트를 위 규칙에 따라 완전히 번역하세요.\n"
     )
     title_line = f"[SECTION] {title}\n" if title else ""
     user_msg = f"{title_line}{context_hint}\n[TEXT]\n{content_masked}\n\n[REWRITE in Korean]\n"
@@ -1547,15 +1765,15 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
         outputs = model.generate(
             **inputs,
             generation_config=_gen_cfg(),
-            max_new_tokens=min(MAX_NEW_TOKENS, 600),
+            max_new_tokens=min(MAX_NEW_TOKENS, 800),  # 완전 번역을 위해 토큰 수 증가
             do_sample=True,           # 샘플링 ON (품질 개선)
-            temperature=0.2,
-            top_p=0.9,
-            top_k=50,
+            temperature=0.1,          # 일관성 향상을 위해 낮춤 (Self-Consistency)
+            top_p=0.85,               # 더 집중된 선택 (Reduce Hallucinations)
+            top_k=40,                 # 선택 범위 축소 (품질 향상)
             use_cache=True,
-            repetition_penalty=1.22,  # 반복 억제 (권장값)
-            no_repeat_ngram_size=4,
-            length_penalty=1.0,
+            repetition_penalty=1.15,  # 반복 억제 (적당한 수준)
+            no_repeat_ngram_size=3,   # 3-gram 반복 방지
+            length_penalty=1.1,       # 완전한 번역 장려
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id
         )
@@ -1605,7 +1823,10 @@ async def _rewrite_text(content: str, title: Optional[str] = None, context_hint:
     text = _hilite_sentences(text, max_marks=2)
     text = _sanitize_repeats(text)
 
-    # 용어 주석 — 이 자리에서 1회만
+    # 🤖 자동 용어사전 업데이트 (새 용어 감지 & 추가)
+    text = auto_update_glossary(text)
+    
+    # 용어 주석 — 이 자리에서 1회만 (업데이트된 사전 사용)
     text = annotate_terms_with_glossary(text)
 
     if _need_ko(text):
@@ -1830,10 +2051,27 @@ async def generate_json(request: TextRequest):
         schema_copy[k]["original"] = extracted.get(k, "")
 
     instruction = (
-        "너는 YOLO 객체 탐지 논문을 분석하는 과학 선생님이다. 아래 JSON 스키마의 '키/구조'를 그대로 두고 '값'만 채워라. "
-        "YOLO 관련 용어는 영어 그대로 두고 (한국어 풀이)를 붙여라. "
-        "외부 지식 금지. 원문에 없으면 '원문에 없음'이라고 적어라. "
-        "출력은 반드시 '유효한 JSON' 하나만."
+        "# 역할 정의 (Role-Based Prompt)\n"
+        "너는 YOLO 객체 탐지 논문을 분석하는 전문 과학 연구원이자 교육자다.\n\n"
+        
+        "# 핵심 임무 (Explicit Instructions)\n"
+        "1. 주어진 JSON 스키마의 구조를 정확히 유지\n"
+        "2. 원문 내용만을 바탕으로 값을 채움 (외부 지식 금지)\n"
+        "3. 기술 용어는 'English(한국어 설명)' 형식 사용\n"
+        "4. 유효한 JSON 형식으로만 출력\n\n"
+        
+        "# 품질 기준 (Reduce Hallucinations)\n"
+        "- 원문에 없는 내용: '원문에 없음'으로 명시\n"
+        "- 수치와 고유명사: 원문 그대로 유지\n"
+        "- 모델명: YOLO, R-CNN, Fast R-CNN, Faster R-CNN, DPM\n"
+        "- 데이터셋: PASCAL VOC, ImageNet, COCO\n\n"
+        
+        "# 용어 예시 (Few-Shot)\n"
+        "object detection → object detection(이미지 속에서 물체의 위치와 종류를 찾아내는 작업)\n"
+        "bounding box → bounding box(물체를 둘러싸는 네모 상자)\n\n"
+        
+        "# 출력 요구사항 (Limiting Extraneous Tokens)\n"
+        "오직 유효한 JSON 객체만 출력하고 다른 텍스트는 포함하지 마세요.\n"
     )
     schema_str = json.dumps(schema_copy, ensure_ascii=False, indent=2)
     context_str = json.dumps(extracted, ensure_ascii=False, indent=2)
@@ -1941,20 +2179,30 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
     sections: List[dict] = []
     cur_title, cur_buf, cur_raw = None, [], []
     section_type = "section"
+    section_level = 1  # 1=section, 2=subsection
+    parent_section_index = None  # subsection의 부모 section 인덱스
 
     def _flush():
         if cur_title is None:
             return
         raw_txt = "\n".join(cur_raw).strip()
         clean = _clean_latex_text("\n".join(cur_buf))
-        sections.append({
+        
+        section_data = {
             "index": len(sections),
             "title": cur_title,
             "content": clean,
             "raw_content": raw_txt,
             "table_data": _extract_table_data(raw_txt),
             "section_type": section_type,
-        })
+            "section_level": section_level,
+        }
+        
+        # subsection인 경우 부모 section 정보 추가
+        if section_type == "subsection" and parent_section_index is not None:
+            section_data["parent_section_index"] = parent_section_index
+            
+        sections.append(section_data)
 
     sec_pat  = re.compile(r"^\s*\\section\*?\{([^}]+)\}\s*$")
     sub_pat  = re.compile(r"^\s*\\subsection\*?\{([^}]+)\}\s*$")
@@ -1970,6 +2218,8 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
             cur_title = "Abstract"
             cur_buf, cur_raw = [], []
             section_type = "section"
+            section_level = 1
+            parent_section_index = None
             in_abstract = True
             continue
         if abs_end.match(ln):
@@ -1978,6 +2228,8 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
             _flush()
             cur_title, cur_buf, cur_raw = None, [], []
             section_type = "section"
+            section_level = 1
+            parent_section_index = None
             continue
 
         # --- Section / Subsection 헤더 ---
@@ -1987,12 +2239,21 @@ def _parse_latex_sections(tex_path: Path) -> List[dict]:
             cur_title = m1.group(1).strip()
             cur_buf, cur_raw = [], []
             section_type = "section"
+            section_level = 1
+            parent_section_index = None
             continue
         if m2:
             _flush()
             cur_title = m2.group(1).strip()
             cur_buf, cur_raw = [], []
             section_type = "subsection"
+            section_level = 2
+            # 가장 최근의 section을 부모로 설정
+            parent_section_index = None
+            for i in range(len(sections) - 1, -1, -1):
+                if sections[i]["section_type"] == "section":
+                    parent_section_index = i
+                    break
             continue
 
         # --- 본문 누적 (✨ 기존 버그: 누적이 전혀 안 되고 있었습니다) ---
@@ -2594,12 +2855,12 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
             logger.info(f"[CACHE] 완전한 캐시된 결과 반환: {cache_key}")
             # 캐시된 결과를 현재 출력 디렉토리에 복사
             try:
-                # 캐시 결과도 섹션 14개로 강제 트림
+                # 캐시 결과도 섹션 13개로 강제 트림
                 try:
-                    if isinstance(cached_result.get("easy_sections"), list) and len(cached_result["easy_sections"]) > 14:
-                        cached_result["easy_sections"] = cached_result["easy_sections"][:14]
+                    if isinstance(cached_result.get("easy_sections"), list) and len(cached_result["easy_sections"]) > 13:
+                        cached_result["easy_sections"] = cached_result["easy_sections"][:13]
                         if isinstance(cached_result.get("paper_info"), dict):
-                            cached_result["paper_info"]["total_sections"] = 14
+                            cached_result["paper_info"]["total_sections"] = 13
                 except Exception:
                     pass
                 (out_dir / "easy_results.json").write_text(
@@ -2850,23 +3111,31 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         if section_type not in ["section", "subsection"]:
             section_type = "section"  # 기본값으로 설정
         
+        # 섹션 레벨과 부모 정보 추출
+        section_level = section.get("section_level", 1)
+        parent_section_index = section.get("parent_section_index")
+        
         easy_section = {
             "easy_section_id": f"easy_section_{i+1}",
             "easy_section_title": section_title,
             "easy_section_type": section_type,
             "easy_section_order": i + 1,
-            "easy_section_level": 1,
+            "easy_section_level": section_level,
             "easy_content": easy_text[:200] + "..." if len(easy_text) > 200 else easy_text,
             "easy_paragraphs": paragraphs,
             "easy_visualizations": visualizations
         }
+        
+        # subsection인 경우 부모 섹션 정보 추가
+        if section_type == "subsection" and parent_section_index is not None:
+            easy_section["parent_section_index"] = parent_section_index
         easy_sections.append(easy_section)
     
     # easy.json 구조로 변환
-    # 최종 easy_sections 길이를 14개로 고정
+    # 최종 easy_sections 길이를 13개로 고정 (section 5개 + subsection 8개)
     try:
-        if isinstance(easy_sections, list) and len(easy_sections) > 14:
-            easy_sections = easy_sections[:14]
+        if isinstance(easy_sections, list) and len(easy_sections) > 13:
+            easy_sections = easy_sections[:13]
     except Exception:
         pass
 

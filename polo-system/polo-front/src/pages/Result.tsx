@@ -279,6 +279,28 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   // 불필요: 검색/보통모드/펼침 상태는 제거
   const [activeTocId, setActiveTocId] = useState<string>("");
   
+  // [ADD] 외부 API 이미지 팝업 상태
+  const [externalImagePopup, setExternalImagePopup] = useState<{
+    isOpen: boolean;
+    imageUrl: string;
+    sectionTitle: string;
+  }>({
+    isOpen: false,
+    imageUrl: "",
+    sectionTitle: ""
+  });
+  
+  // [ADD] 목차 토글 상태 (섹션별 subsection 펼침/접힘)
+  const [tocToggleState, setTocToggleState] = useState<{ [key: string]: boolean }>({});
+  
+  // [ADD] 목차 토글 함수
+  const toggleTocSection = (sectionId: string) => {
+    setTocToggleState(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
+  };
+  
   // [ADD] Figure 사이드카 상태 (옵션)
   const [figQueue, setFigQueue] = useState<FigureItem[]>([]);
   
@@ -881,6 +903,30 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     }
   };
 
+  // [ADD] 외부 API 이미지 팝업 열기 함수
+  const openExternalImage = (sectionOrder: number, sectionTitle: string) => {
+    if (!integratedData?.paper_info?.paper_id) return;
+    
+    // 외부 API 이미지 경로 구성
+    const paperId = integratedData.paper_info.paper_id;
+    const imageUrl = `/api/static/outputs/${paperId}/external_viz/slides_1506.02640/${sectionOrder}.png`;
+    
+    setExternalImagePopup({
+      isOpen: true,
+      imageUrl: imageUrl,
+      sectionTitle: sectionTitle
+    });
+  };
+
+  // [ADD] 외부 API 이미지 팝업 닫기 함수
+  const closeExternalImage = () => {
+    setExternalImagePopup({
+      isOpen: false,
+      imageUrl: "",
+      sectionTitle: ""
+    });
+  };
+
 
   const createSectionElement = (section: EasySection, index: number) => {
     const level = section.easy_section_level ?? (section.easy_section_type === "subsection" ? 2 : 1);
@@ -919,6 +965,26 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               >
                 {loadingVizApi[section.easy_section_id] ? '생성중…' : '시각화 생성'}
               </button>
+              {/* [ADD] 외부 API 이미지 버튼 (섹션별) */}
+              {!isSubsection && (
+                <button
+                  onClick={() => openExternalImage(section.easy_section_order, displayTitle)}
+                  className="external-image-btn"
+                  style={{ 
+                    marginLeft: 8, 
+                    padding: '6px 10px', 
+                    fontSize: 12,
+                    backgroundColor: '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  title="외부 API로 생성된 이미지 보기"
+                >
+                  📊 이미지
+                </button>
+              )}
             </>
           )}
         </div>
@@ -1537,17 +1603,56 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
           <div className="table-of-contents">
             <h3 className="toc-title">목차</h3>
             <ul className="toc-sections">
-              {groups.map(({ parent }) => (
-                <li key={parent.easy_section_id}>
-                  <a href={`#${parent.easy_section_id}`}
-                     className={`toc-link ${activeTocId===parent.easy_section_id?'active':''}`}
-                     title={parent.easy_section_title}
-                     onClick={(e) => {
-                       e.preventDefault();
-                       scrollToSection(parent.easy_section_id);
-                     }}>
-                    {parent.easy_section_title}
-                  </a>
+              {groups.map(({ parent, children }) => (
+                <li key={parent.easy_section_id} className="toc-item">
+                  <div className="toc-row">
+                    {children.length > 0 && (
+                      <div 
+                        className={`toc-caret ${tocToggleState[parent.easy_section_id] ? 'open' : ''}`}
+                        onClick={() => toggleTocSection(parent.easy_section_id)}
+                      />
+                    )}
+                    <a href={`#${parent.easy_section_id}`}
+                       className={`toc-link ${activeTocId===parent.easy_section_id?'active':''}`}
+                       title={parent.easy_section_title}
+                       style={{ 
+                         marginLeft: children.length === 0 ? '26px' : '0',
+                         flex: 1,
+                         overflow: 'hidden',
+                         textOverflow: 'ellipsis',
+                         whiteSpace: 'nowrap'
+                       }}
+                       onClick={(e) => {
+                         e.preventDefault();
+                         scrollToSection(parent.easy_section_id);
+                       }}>
+                      {parent.easy_section_title}
+                    </a>
+                  </div>
+                  
+                  {/* Subsections */}
+                  {children.length > 0 && tocToggleState[parent.easy_section_id] && (
+                    <ul className="toc-sub">
+                      {children.map((child) => (
+                        <li key={child.easy_section_id}>
+                          <a href={`#${child.easy_section_id}`}
+                             className={`toc-link ${activeTocId===child.easy_section_id?'active':''}`}
+                             title={child.easy_section_title}
+                             style={{
+                               overflow: 'hidden',
+                               textOverflow: 'ellipsis',
+                               whiteSpace: 'nowrap'
+                             }}
+                             onClick={(e) => {
+                               e.preventDefault();
+                               scrollToSection(child.easy_section_id);
+                             }}>
+                            {child.easy_section_title}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1677,6 +1782,106 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
         {/* 오른쪽 패널 없음 — 수식은 문단 인라인만 */}
       </main>
+      
+      {/* [ADD] 외부 API 이미지 팝업 */}
+      {externalImagePopup.isOpen && (
+        <div 
+          className="external-image-popup-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            cursor: 'pointer'
+          }}
+          onClick={closeExternalImage}
+        >
+          <div 
+            className="external-image-popup-content"
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '20px',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              position: 'relative',
+              cursor: 'default'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 닫기 버튼 */}
+            <button
+              onClick={closeExternalImage}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '15px',
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#666'
+              }}
+            >
+              ×
+            </button>
+            
+            {/* 섹션 제목 */}
+            <h3 style={{ 
+              margin: '0 0 15px 0', 
+              fontSize: '18px',
+              color: '#333',
+              textAlign: 'center'
+            }}>
+              {externalImagePopup.sectionTitle}
+            </h3>
+            
+            {/* 이미지 */}
+            <img
+              src={externalImagePopup.imageUrl}
+              alt={`${externalImagePopup.sectionTitle} 시각화`}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '70vh',
+                objectFit: 'contain',
+                borderRadius: '4px',
+                boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+              }}
+              onError={(e) => {
+                console.warn('외부 API 이미지 로드 실패:', externalImagePopup.imageUrl);
+                (e.target as HTMLImageElement).style.display = 'none';
+                const errorDiv = document.createElement('div');
+                errorDiv.innerHTML = `
+                  <div style="text-align: center; padding: 40px; color: #666;">
+                    <p>📊 이미지를 불러올 수 없습니다</p>
+                    <p style="font-size: 14px; margin-top: 10px;">
+                      외부 API로 생성된 이미지가 아직 준비되지 않았거나<br/>
+                      경로를 찾을 수 없습니다.
+                    </p>
+                  </div>
+                `;
+                (e.target as HTMLImageElement).parentNode?.appendChild(errorDiv);
+              }}
+            />
+            
+            {/* 이미지 정보 */}
+            <div style={{
+              marginTop: '10px',
+              textAlign: 'center',
+              fontSize: '14px',
+              color: '#666'
+            }}>
+              외부 API로 생성된 시각화 이미지
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
