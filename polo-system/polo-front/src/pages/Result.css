@@ -248,6 +248,120 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   margin: 12px 0;
 }
 
+/* 사이드카 Figure 스타일 */
+.sidecar-figure {
+  border-left: 3px solid #3b82f6;
+  background: #fafbff;
+}
+
+.inline-figure {
+  margin: 16px 0;
+  display: block;
+}
+
+.text-chunks {
+  line-height: 1.7;
+}
+
+.text-chunks span {
+  display: inline;
+}
+
+.legacy-figure {
+  border-left: 3px solid #10b981;
+  background: #f0fdf4;
+}
+
+.viz-figure {
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
+}
+
+/* 남은 figures 스타일 */
+.remaining-figures {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 2px solid #e5e7eb;
+}
+
+.remaining-figures-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.remaining-figure {
+  border-left: 3px solid #8b5cf6;
+  background: #faf5ff;
+}
+
+/* 하드코딩 매핑된 Figure 스타일 (크기 조정) */
+.mapped-figure {
+  border-left: 4px solid #059669;
+  background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.15);
+  margin: 20px 0;
+  max-width: 100%;
+}
+
+.mapped-figure img {
+  border-radius: 6px;
+  transition: transform 0.2s ease;
+  /* 크기 제한 및 반응형 */
+  max-width: 80%;
+  max-height: 500px;
+  width: auto;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.mapped-figure img:hover {
+  transform: scale(1.01);
+}
+
+.mapped-figure figcaption {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(5, 150, 105, 0.05);
+  border-radius: 4px;
+}
+
+.mapped-figure figcaption strong {
+  color: #059669;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.cursor-zoom-in {
+  cursor: zoom-in;
+}
+
+/* 반응형 Figure 크기 조정 */
+@media (max-width: 768px) {
+  .mapped-figure img {
+    max-width: 95%;
+    max-height: 400px;
+  }
+  
+  .mapped-figure {
+    padding: 12px;
+    margin: 16px 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .mapped-figure img {
+    max-width: 70%;
+    max-height: 600px;
+  }
+}
+
 /* 섹션 카드 */
 .paper-section-card {
   background: var(--card, #fff);

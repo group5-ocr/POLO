@@ -169,17 +169,17 @@ export function analyzeFigureTokens(sections: any[]): {
     const paragraphs = section.easy_paragraphs || [];
     for (const paragraph of paragraphs) {
       const paragraphText = paragraph.easy_paragraph_text || '';
-      const paragraphTokens = countFigureTokens(paragraphText);
+      const paragraphTokenCount = countFigureTokens(paragraphText);
       
-      if (paragraphTokens > 0) {
+      if (paragraphTokenCount > 0) {
         paragraphTokens.push({
           paragraphId: paragraph.easy_paragraph_id,
           sectionId: section.easy_section_id,
-          tokens: paragraphTokens
+          tokens: paragraphTokenCount
         });
       }
       
-      sectionCount += paragraphTokens;
+      sectionCount += paragraphTokenCount;
     }
     
     if (sectionCount > 0) {

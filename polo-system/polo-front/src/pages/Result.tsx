@@ -3,8 +3,52 @@ import { useLocation } from "react-router-dom";
 import { marked } from "marked";
 import "./Result.css";
 import type { FigureMeta, EasyParagraph as EasyParagraphType, IntegratedData as IntegratedDataType } from "../types";
-import { loadFigureQueue, createFigureQueue, type FigureItem } from "../utils/figureMap";
-import { replaceFigureTokens, analyzeFigureTokens, type TextChunk } from "../utils/figureTokens";
+import { FIGURE_MAP, FIGURE_CAPTION } from "../figureMapTemplate";
+
+// [ADD] Figures sidecar optional loader (간소화)
+type FigureItem = {
+  order: number;
+  image_path: string;
+};
+
+async function loadFigureQueue(): Promise<FigureItem[]> {
+  // 1차: 메인 서버(/static)
+  try {
+    const r = await fetch('/static/viz/figures_map.json', { cache: 'no-store' });
+    if (r.ok) {
+      const ct = r.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await r.json();
+        console.log('✅ [FIG] 메인 서버에서 로드:', data.figures?.length || 0);
+        return data.figures ?? [];
+      } else {
+        console.warn('⚠️ [FIG] 메인 서버가 JSON이 아니라 다른 걸 반환:', ct);
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ [FIG] 메인 서버 실패:', e);
+  }
+
+  // 2차: 사이드카(있을 때만)
+  try {
+    const r2 = await fetch('http://localhost:8010/static/viz/figures_map.json', { cache: 'no-store' });
+    if (r2.ok) {
+      const ct2 = r2.headers.get('content-type') || '';
+      if (ct2.includes('application/json')) {
+        const data = await r2.json();
+        console.log('✅ [FIG] 사이드카에서 로드:', data.figures?.length || 0);
+        return data.figures ?? [];
+      } else {
+        console.warn('⚠️ [FIG] 사이드카가 JSON이 아님:', ct2);
+      }
+    }
+  } catch (e2) {
+    console.warn('⚠️ [FIG] 사이드카 실패:', e2);
+  }
+
+  console.info('ℹ️ [FIG] figures_map.json 없음 - 기존 렌더링 유지');
+  return [];
+}
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -235,6 +279,69 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   // 불필요: 검색/보통모드/펼침 상태는 제거
   const [activeTocId, setActiveTocId] = useState<string>("");
   
+  // [ADD] Figure 사이드카 상태 (옵션)
+  const [figQueue, setFigQueue] = useState<FigureItem[]>([]);
+  
+  // [ADD] Figure 사이드카 로드
+  useEffect(() => { 
+    loadFigureQueue().then(setFigQueue); 
+  }, []);
+  
+  // [ADD] Figure 큐 팝 함수
+  const popFig = useMemo(() => { 
+    let i = 0; 
+    return () => figQueue[i++] as FigureItem | undefined; 
+  }, [figQueue]);
+  
+  // [ADD] [Figure] 토큰 주입 함수 (강화됨)
+  function injectFigures(text: string): (string | FigureItem)[] {
+    if (!text || figQueue.length === 0) return [text];
+    
+    // [Figure] 한 개씩만 치환 (없으면 그대로)
+    const token = /\[Figure[^\]]*\]/i;
+    if (!token.test(text)) return [text];
+    
+    const parts: (string | FigureItem)[] = [];
+    let rest = text;
+    
+    while (true) {
+      const m = rest.match(token);
+      if (!m) { 
+        if (rest) parts.push(rest); 
+        break; 
+      }
+      
+      // 토큰 이전 텍스트
+      if (m.index! > 0) {
+        parts.push(rest.slice(0, m.index!));
+      }
+      
+      // Figure 또는 원본 토큰
+      const fig = popFig();
+      if (fig) {
+        parts.push(fig);
+        console.log(`🔄 [FIG] 토큰 교체: ${m[0]} → Figure ${fig.order}`);
+      } else {
+        parts.push(m[0]); // Figure 없으면 원문 유지
+        console.warn(`⚠️ [FIG] Figure 부족: ${m[0]}`);
+      }
+      
+      rest = rest.slice(m.index! + m[0].length);
+    }
+    
+    return parts;
+  }
+
+  // [ADD] 남은 Figure들을 가져오는 함수
+  function getRemainingFigures(): FigureItem[] {
+    const remaining: FigureItem[] = [];
+    let fig;
+    while ((fig = popFig())) {
+      remaining.push(fig);
+    }
+    return remaining;
+  }
+  
   const [imageModal, setImageModal] = useState<{ open: boolean; src: string; alt?: string }>({ open: false, src: "" });
   const openImage = (src: string, alt?: string) => setImageModal({ open: true, src, alt });
   const closeImage = () => setImageModal({ open: false, src: "" });
@@ -301,6 +408,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
       );
     }
   }, [data, location.state?.data]);
+
 
   // 데이터/토글 변화 시 수식만 다시 typeset
   useEffect(() => {
@@ -544,7 +652,8 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     );
   };
 
-  // Figure 컴포넌트
+
+  // 기존 Figure 컴포넌트 (FigureMeta 타입용)
   const FigureView: React.FC<{ figure: FigureMeta; openImage: (s:string,a?:string)=>void; className?: string }> = ({ figure, openImage, className = "" }) => {
     const altText = figure.caption ?? figure.label ?? 'Figure';
     
@@ -590,7 +699,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     );
   };
 
-  // 문단 렌더러 (텍스트/수식/시각화/Figure 인라인)
+  // 문단 렌더러 (텍스트/수식/시각화/사이드카 Figure 인라인)
   const ParagraphView: React.FC<{ p: any; sectionId: string; openImage: (s:string,a?:string)=>void; getImageSrc:(s?:string)=>string; }> = ({ p, sectionId, openImage, getImageSrc }) => {
     // 수식 문단: 여러 스키마 대응
     const isEq =
@@ -601,25 +710,52 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
       const eq = p.math_equation || p;
       return <EquationView eq={eq} />;
     }
+
+    // [ADD] 하드코딩 매핑 기반 Figure 찾기 (최종 간소화)
+    const figIdx = FIGURE_MAP[p.easy_paragraph_id];
+    const fig = figIdx ? figQueue.find(f => f.order === figIdx) : undefined;
+    
+    // [Figure] 토큰 제거 (하드코딩 매핑 사용 시)
+    const cleanText = (p.easy_paragraph_text || '').replace(/\[Figure[^\]]*\]/gi, '').trim();
+    
     // 일반 텍스트 문단 + 시각화(있으면)
     const hasViz = !!p.visualization?.image_path;
+    const hasExistingFigure = !!p.figure; // 기존 figure 필드 (통합 JSON 방식)
+    
     return (
       <div className="paper-paragraph">
-        <div className="no-mathjax easy-md"
-             dangerouslySetInnerHTML={{ __html: renderMarkdown(p.easy_paragraph_text) }} />
+        {/* [ADD] 하드코딩 매핑 기반 텍스트 + Figure */}
+        <div className="no-mathjax easy-md">
+          <span dangerouslySetInnerHTML={{ __html: renderMarkdown(cleanText) }} />
+        </div>
         
-        {/* Figure (원본 PDF/이미지) 우선 표시 */}
-        {p.figure && (
+        {/* 하드코딩 매핑된 Figure (캡션 하드코딩) */}
+        {fig && figIdx && (
+          <figure className="my-3 mapped-figure">
+            <img
+              src={fig.image_path}
+              alt={FIGURE_CAPTION[figIdx] ?? ''}
+              onClick={() => openImage(fig.image_path, FIGURE_CAPTION[figIdx] ?? '')}
+              className="cursor-zoom-in"
+            />
+            <figcaption className="text-sm text-gray-500 mt-1">
+              {FIGURE_CAPTION[figIdx]}
+            </figcaption>
+          </figure>
+        )}
+        
+        {/* 기존 Figure (통합 JSON 방식) - 호환성 유지 */}
+        {hasExistingFigure && (
           <FigureView 
             figure={p.figure} 
             openImage={openImage} 
-            className="paragraph-figure"
+            className="paragraph-figure legacy-figure"
           />
         )}
         
         {/* 자동 생성 시각화 (Figure가 없을 때만) */}
-        {hasViz && !p.figure && (
-          <figure className="figure-card" onClick={() => openImage(getImageSrc(p.visualization.image_path), "visualization")}>
+        {hasViz && !hasExistingFigure && (
+          <figure className="figure-card viz-figure" onClick={() => openImage(getImageSrc(p.visualization.image_path), "visualization")}>
             {/* eslint-disable-next-line jsx-a11y/alt-text */}
             <img src={getImageSrc(p.visualization.image_path)} />
             <figcaption className="caption">도표: 문단 {p.easy_paragraph_order}</figcaption>
@@ -1386,44 +1522,99 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
             </p>
           </div>
         </header>
-            {groupSections(integratedData.easy_sections).map(({ parent, children }) => (
-              <article key={parent.easy_section_id} id={parent.easy_section_id} className="paper-section-card">
-                <header className="section-header"><h2>{parent.easy_section_title}</h2></header>
-                
-                {/* 섹션 레벨 Figures */}
-                {(parent as any).figures?.map((figure: FigureMeta, idx: number) => (
-                  <FigureView 
-                    key={`section-fig-${idx}`}
-                    figure={figure} 
-                    openImage={openImage} 
-                    className="section-figure"
-                  />
-                ))}
-                
-                {ensureParagraphs(parent).map(p => (
-                  <ParagraphView key={p.easy_paragraph_id} p={p} sectionId={parent.easy_section_id} openImage={openImage} getImageSrc={getImageSrc}/>
-                ))}
-                {children.map(sub => (
-                  <section key={sub.easy_section_id} id={sub.easy_section_id} className="paper-subsection">
-                    <header className="subsection-header"><h3>{sub.easy_section_title}</h3></header>
-                    
-                    {/* 서브섹션 레벨 Figures */}
-                    {(sub as any).figures?.map((figure: FigureMeta, idx: number) => (
-                      <FigureView 
-                        key={`subsection-fig-${idx}`}
-                        figure={figure} 
-                        openImage={openImage} 
-                        className="subsection-figure"
-                      />
-                    ))}
-                    
-                    {ensureParagraphs(sub).map(p => (
-                      <ParagraphView key={p.easy_paragraph_id} p={p} sectionId={sub.easy_section_id} openImage={openImage} getImageSrc={getImageSrc}/>
-                    ))}
-                  </section>
-                ))}
-              </article>
-            ))}
+            {groupSections(integratedData.easy_sections).map(({ parent, children }, sectionIdx) => {
+              // 마지막 섹션인지 확인
+              const isLastSection = sectionIdx === groupSections(integratedData.easy_sections).length - 1;
+              
+              return (
+                <article key={parent.easy_section_id} id={parent.easy_section_id} className="paper-section-card">
+                  <header className="section-header"><h2>{parent.easy_section_title}</h2></header>
+                  
+                  {/* [ADD] 하드코딩 매핑된 섹션 Figure */}
+                  {(() => {
+                    const sectionFigIdx = FIGURE_MAP[parent.easy_section_id];
+                    const sectionFig = sectionFigIdx ? figQueue.find(f => f.order === sectionFigIdx) : undefined;
+                    const sectionCaption = sectionFigIdx ? FIGURE_CAPTION[sectionFigIdx] : '';
+                    return sectionFig ? (
+                      <figure className="my-4 sidecar-figure mapped-figure section-mapped-figure">
+                        <img 
+                          src={sectionFig.image_path} 
+                          alt={sectionCaption}
+                          onClick={() => openImage(sectionFig.image_path, sectionCaption)}
+                          style={{ cursor: 'zoom-in', maxWidth: '100%' }}
+                        />
+                        <figcaption className="text-sm text-gray-500 mt-1">
+                          {sectionCaption}
+                        </figcaption>
+                      </figure>
+                    ) : null;
+                  })()}
+                  
+                  {/* 기존 섹션 레벨 Figures (호환성) */}
+                  {(parent as any).figures?.map((figure: FigureMeta, idx: number) => (
+                    <FigureView 
+                      key={`section-fig-${idx}`}
+                      figure={figure} 
+                      openImage={openImage} 
+                      className="section-figure legacy-figure"
+                    />
+                  ))}
+                  
+                  {ensureParagraphs(parent).map(p => (
+                    <ParagraphView key={p.easy_paragraph_id} p={p} sectionId={parent.easy_section_id} openImage={openImage} getImageSrc={getImageSrc}/>
+                  ))}
+                  {children.map(sub => (
+                    <section key={sub.easy_section_id} id={sub.easy_section_id} className="paper-subsection">
+                      <header className="subsection-header"><h3>{sub.easy_section_title}</h3></header>
+                      
+                      {/* 서브섹션 레벨 Figures */}
+                      {(sub as any).figures?.map((figure: FigureMeta, idx: number) => (
+                        <FigureView 
+                          key={`subsection-fig-${idx}`}
+                          figure={figure} 
+                          openImage={openImage} 
+                          className="subsection-figure"
+                        />
+                      ))}
+                      
+                      {ensureParagraphs(sub).map(p => (
+                        <ParagraphView key={p.easy_paragraph_id} p={p} sectionId={sub.easy_section_id} openImage={openImage} getImageSrc={getImageSrc}/>
+                      ))}
+                    </section>
+                  ))}
+                  
+                  {/* [ADD] 마지막 섹션에 남은 figures 자동 추가 */}
+                  {isLastSection && (() => {
+                    const remainingFigures = getRemainingFigures();
+                    if (remainingFigures.length > 0) {
+                      console.log(`📊 [FIG] 남은 figures를 마지막 섹션에 추가: ${remainingFigures.length}개`);
+                      return (
+                        <div className="remaining-figures">
+                          <h4 className="remaining-figures-title">관련 그림</h4>
+                          {remainingFigures.map((fig, i) => {
+                            const remainingCaption = FIGURE_CAPTION[fig.order] ?? `Figure ${fig.order}`;
+                            return (
+                              <figure key={`remaining-${i}`} className="my-3 sidecar-figure remaining-figure">
+                                <img 
+                                  src={fig.image_path} 
+                                  alt={remainingCaption}
+                                  onClick={() => openImage(fig.image_path, remainingCaption)}
+                                  style={{ cursor: 'zoom-in', maxWidth: '100%' }}
+                                />
+                                <figcaption className="text-sm text-gray-500 mt-1">
+                                  {remainingCaption}
+                                </figcaption>
+                              </figure>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </article>
+              );
+            })}
           </section>
 
         {/* 오른쪽 패널 없음 — 수식은 문단 인라인만 */}

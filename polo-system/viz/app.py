@@ -281,11 +281,11 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
             # 기존 방식
             out_path = os.path.join(outdir, f"{item['id']}.png")
         
-        tmp_path = os.path.join(outdir, f".~{item['id']}.png")
-        g.renderer(inputs, tmp_path)
-        os.replace(tmp_path, out_path)
-        now = time.time()
-        os.utime(out_path, (now, now))
+            tmp_path = os.path.join(outdir, f".~{item['id']}.png")
+            g.renderer(inputs, tmp_path)
+            os.replace(tmp_path, out_path)
+            now = time.time()
+            os.utime(out_path, (now, now))
         
         if use_hash_names:
             print(f"✅ [VIZ] 새 파일 생성: {os.path.basename(out_path)}")
