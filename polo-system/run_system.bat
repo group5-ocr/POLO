@@ -301,7 +301,7 @@ if exist "%FIG_TEMPLATE_PY%" (
 REM [FIG] 사이드카 정적 서버 실행 (선택적 - 메인 서버에 /static이 없을 때만)
 set FIG_SIDECAR_PY=%~dp0tools\figsidecar_app.py
 set FIG_STATIC_ROOT=C:\POLO\POLO\polo-system\server\data\outputs
-set FIG_SIDECAR_PORT=8010
+set FIG_SIDECAR_PORT=8020
 
 if exist "%FIG_SIDECAR_PY%" (
   echo [FIG] Start static sidecar on port %FIG_SIDECAR_PORT% ...

@@ -31,7 +31,7 @@ async function loadFigureQueue(): Promise<FigureItem[]> {
 
   // 2차: 사이드카(있을 때만)
   try {
-    const r2 = await fetch('http://localhost:8010/static/viz/figures_map.json', { cache: 'no-store' });
+    const r2 = await fetch('http://localhost:8020/static/viz/figures_map.json', { cache: 'no-store' });
     if (r2.ok) {
       const ct2 = r2.headers.get('content-type') || '';
       if (ct2.includes('application/json')) {
