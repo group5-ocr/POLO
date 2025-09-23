@@ -853,7 +853,13 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
-      element.scrollIntoView({ behavior: "smooth" });
+      element.scrollIntoView({ 
+        behavior: "smooth",
+        block: "start",
+        inline: "nearest"
+      });
+      // 활성 목차 아이템 업데이트
+      setActiveTocId(sectionId);
     }
   };
 
@@ -1486,8 +1492,12 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               {groups.map(({ parent }) => (
                 <li key={parent.easy_section_id}>
                   <a href={`#${parent.easy_section_id}`}
-                     className={`toc-link ellipsis-one ${activeTocId===parent.easy_section_id?'active':''}`}
-                     title={parent.easy_section_title}>
+                     className={`toc-link ${activeTocId===parent.easy_section_id?'active':''}`}
+                     title={parent.easy_section_title}
+                     onClick={(e) => {
+                       e.preventDefault();
+                       scrollToSection(parent.easy_section_id);
+                     }}>
                     {parent.easy_section_title}
                   </a>
                 </li>

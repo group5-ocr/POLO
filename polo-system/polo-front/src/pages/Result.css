@@ -13,8 +13,9 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  padding: 12px;
-  width: 280px;              /* TOC 컨테이너 고정 너비 */
+  padding: 16px;              /* 패딩 증가 */
+  width: 320px;               /* TOC 컨테이너 너비 증가 */
+  min-width: 280px;           /* 최소 너비 보장 */
 }
 .table-of-contents.compact .toc-sections a { font-size: .95rem; }
 .ellipsis-one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -31,12 +32,14 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   border-radius:6px; 
   display:block; 
   font-size:.92rem;
-  /* 핵심: 한 줄로, 넘치면 … 으로 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 수정: 긴 텍스트는 다음 줄로 넘어가도록 */
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: keep-all;
+  overflow-wrap: break-word;
   box-sizing: border-box;
   max-width: 100%;
+  line-height: 1.4;
 }
 .toc-sections a:hover { background:#f3f4f6; }
 .toc-sections a.active { background:#f59e0b; color:#fff; }
@@ -94,7 +97,7 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 /* 2-컬럼 레이아웃 */
 .result-main{
   display:grid;
-  grid-template-columns: 300px 1fr;   /* 좌:목차 고정 (280px + 여유), 우:본문 */
+  grid-template-columns: 340px 1fr;   /* 좌:목차 고정 (320px + 여유), 우:본문 */
   column-gap:24px;
   align-items:start;
   justify-content:center;
@@ -111,12 +114,14 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 .toc-link{
   display:block; padding:6px 8px; border-radius:6px;
   color:#374151; text-decoration:none; font-size:.92rem;
-  /* 핵심: 한 줄로, 넘치면 … 으로 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 수정: 긴 텍스트는 다음 줄로 넘어가도록 */
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: keep-all;
+  overflow-wrap: break-word;
   box-sizing: border-box;
   max-width: 100%;
+  line-height: 1.4;
 }
 .toc-link:hover{ background:#f3f4f6; }
 .toc-link.active{ background:#f59e0b; color:#fff; }
@@ -602,7 +607,7 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 
 /* 사이드바 스타일 */
 .sidebar {
-  width: 250px;
+  width: 320px;               /* 사이드바 너비 증가 */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -619,6 +624,9 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   padding: 20px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
   height: fit-content;
+  /* 텍스트 오버플로우 방지 */
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .table-of-contents h3 {
@@ -647,6 +655,12 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   padding: 8px 12px;
   border-radius: 4px;
   transition: background-color 0.2s;
+  /* 긴 텍스트는 다음 줄로 넘어가도록 */
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  line-height: 1.4;
 }
 
 .table-of-contents a:hover {
