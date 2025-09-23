@@ -133,16 +133,17 @@ def check_cache_completeness(cached_data: dict, sections: List[dict]) -> tuple[b
     Returns: (is_complete, missing_section_indices)
     """
     if not cached_data or "easy_sections" not in cached_data:
-        return False, list(range(len(sections)))
+        return False, list(range(min(len(sections), 14)))
     
-    easy_sections = cached_data["easy_sections"]
+    easy_sections = (cached_data.get("easy_sections") or [])[:14]
     missing_indices = []
     
-    for i, section in enumerate(sections):
+    # 목표 섹션 수는 최대 14개
+    target_count = min(len(sections), 14)
+    for i in range(target_count):
         if i >= len(easy_sections):
             missing_indices.append(i)
             continue
-            
         easy_section = easy_sections[i]
         # 빈 내용이나 에러가 있는 섹션 확인
         if (not easy_section.get("easy_content", "").strip() or 
@@ -151,7 +152,7 @@ def check_cache_completeness(cached_data: dict, sections: List[dict]) -> tuple[b
             missing_indices.append(i)
     
     is_complete = len(missing_indices) == 0
-    logger.info(f"[CACHE] 완성도 체크: 완료={is_complete}, 누락 섹션={len(missing_indices)}개")
+    logger.info(f"[CACHE] 완성도 체크: 완료={is_complete}, 누락 섹션={len(missing_indices)}개 (대상={target_count})")
     return is_complete, missing_indices
 
 def save_to_cache(cache_key: str, data: dict) -> None:
@@ -2143,6 +2144,23 @@ def _render_rich_html(text: str) -> str:
     html_text = re.sub(r' +', ' ', html_text)
     return html_text
 
+def unescape_once(s: str) -> str:
+    """
+    역슬래시 이스케이프 복원 함수
+    "\\leq" -> "\leq", "\\phi" -> "\phi" 등
+    """
+    if not s:
+        return s
+    return s.replace('\\\\', '\\')
+
+def preprocess_latex_math(s: str) -> str:
+    """
+    LaTeX 수식 전처리 (이스케이프 복원)
+    """
+    if not s:
+        return s
+    return unescape_once(s)
+
 def _convert_to_markdown(text: str, math_masks: List[Tuple[str, str]] = None) -> str:
     """
     JSON 전달용: 수식 마스킹 토큰을 마크다운 형식으로 변환
@@ -2152,24 +2170,29 @@ def _convert_to_markdown(text: str, math_masks: List[Tuple[str, str]] = None) ->
     # 수식 마스킹 토큰을 마크다운 수식으로 변환
     if math_masks:
         for token, original in math_masks:
+            # LaTeX 수식 전처리 적용
+            processed_original = preprocess_latex_math(original)
+            
             # LaTeX 수식을 마크다운 형식으로 변환
             if original.startswith('$') and original.endswith('$'):
                 # 인라인 수식: $...$ → $...$
-                text = text.replace(token, original)
+                math_content = processed_original[1:-1] if len(processed_original) > 2 else processed_original
+                text = text.replace(token, f"${math_content}$")
             elif original.startswith('$$') and original.endswith('$$'):
                 # 블록 수식: $$...$$ → $$...$$
-                text = text.replace(token, original)
+                math_content = processed_original[2:-2] if len(processed_original) > 4 else processed_original
+                text = text.replace(token, f"$${math_content}$$")
             elif original.startswith('\\[') and original.endswith('\\]'):
                 # 블록 수식: \[...\] → $$...$$
-                math_content = original[2:-2]
-                text = text.replace(token, f"$${math_content}$$")
+                math_content = processed_original[2:-2]
+                text = text.replace(token, f"$${preprocess_latex_math(math_content)}$$")
             elif original.startswith('\\(') and original.endswith('\\)'):
                 # 인라인 수식: \(...\) → $...$
-                math_content = original[2:-2]
-                text = text.replace(token, f"${math_content}$")
+                math_content = processed_original[2:-2]
+                text = text.replace(token, f"${preprocess_latex_math(math_content)}$")
             else:
                 # 기타 수식 환경
-                text = text.replace(token, f"$${original}$$")
+                text = text.replace(token, f"$${processed_original}$$")
     
     # LaTeX 수식 명령을 마크다운으로 변환
     text = re.sub(r'\\textbf\{([^}]+)\}', r'**\1**', text)
@@ -2251,9 +2274,17 @@ def _save_html_results(sections: List[dict], results: List['VizResult'], output_
     .subtitle{opacity:.95; font-weight:600; margin-top:6px}
     .meta{opacity:.9; font-size:14px; margin-top:10px}
 
-    .toc-sidebar{background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:18px; position:sticky; top:24px}
+    .toc-sidebar{background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:18px; position:sticky; top:24px; width:280px}
     .toc-title{font-weight:800; color:#0b1220; font-size:18px; margin-bottom:10px}
-    .toc-link{color:#0b1220; text-decoration:none; display:block; padding:8px 10px; border-radius:8px}
+    .toc-link{
+      color:#0b1220; text-decoration:none; display:block; padding:8px 10px; border-radius:8px;
+      /* 핵심: 한 줄로, 넘치면 … 으로 */
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-sizing: border-box;
+      max-width: 100%;
+    }
     .toc-link:hover{background:#eef2ff}
     .num{opacity:.65; font-weight:700; margin-right:6px}
 
@@ -2544,6 +2575,13 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         error_info["warnings"].append("처리할 섹션이 없어 빈 섹션을 생성합니다")
         sections = [{"title": "빈 섹션", "content": "처리할 내용이 없습니다", "index": 0}]
 
+    # 섹션 수 상한: 최대 14개로 제한 (캐시/신규 공통)
+    try:
+        if isinstance(sections, list) and len(sections) > 14:
+            sections = sections[:14]
+    except Exception:
+        pass
+
     # 캐시 키 생성 및 캐시 체크
     cache_key = get_cache_key(paper_id, sections)
     cached_result = load_from_cache(cache_key)
@@ -2556,6 +2594,14 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
             logger.info(f"[CACHE] 완전한 캐시된 결과 반환: {cache_key}")
             # 캐시된 결과를 현재 출력 디렉토리에 복사
             try:
+                # 캐시 결과도 섹션 14개로 강제 트림
+                try:
+                    if isinstance(cached_result.get("easy_sections"), list) and len(cached_result["easy_sections"]) > 14:
+                        cached_result["easy_sections"] = cached_result["easy_sections"][:14]
+                        if isinstance(cached_result.get("paper_info"), dict):
+                            cached_result["paper_info"]["total_sections"] = 14
+                except Exception:
+                    pass
                 (out_dir / "easy_results.json").write_text(
                     json.dumps(cached_result, ensure_ascii=False, indent=2), 
                     encoding="utf-8"
@@ -2817,13 +2863,20 @@ async def run_batch(request: BatchRequest, assets_metadata: Optional[Dict[str, A
         easy_sections.append(easy_section)
     
     # easy.json 구조로 변환
+    # 최종 easy_sections 길이를 14개로 고정
+    try:
+        if isinstance(easy_sections, list) and len(easy_sections) > 14:
+            easy_sections = easy_sections[:14]
+    except Exception:
+        pass
+
     easy_json = {
         "paper_info": {
             "paper_id": paper_id,
             "paper_title": f"논문 {paper_id}",
             "paper_authors": "Unknown",
             "paper_venue": "Unknown",
-            "total_sections": len(sections)
+            "total_sections": min(len(sections), 14)
         },
         "easy_sections": easy_sections,
         "metadata": {

@@ -753,6 +753,203 @@ def _dedup(spec):
         seen.add(it["id"]); out.append(it)
     return out
 
+def _to_id_set(mentions) -> set:
+    """mentions가 dict/list/tuple 어느 형태든 안전하게 id set으로 변환."""
+    if isinstance(mentions, dict):
+        return set(map(str, mentions.keys()))
+    if isinstance(mentions, (list, tuple, set)):
+        return set(map(str, mentions))
+    try:
+        return set(map(str, mentions or []))
+    except Exception:
+        return set()
+
+def _norm_value(v):
+    """중복 판정을 위한 정규화(더 강하게)."""
+    if isinstance(v, (int, float)):
+        return round(float(v), 3)              # 소수 3자리
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, (list, tuple)):
+        return tuple(_norm_value(x) for x in v)
+    if isinstance(v, dict):
+        # 키 순서 영향 제거
+        return tuple(sorted((str(k), _norm_value(x)) for k, x in v.items()))
+    return v
+
+def _canonical_bar_series(series):
+    """
+    bar_group의 series를 시그니처 계산/스케일 보정이 쉬운 통일 구조로 변환.
+    반환: ("dict", {name: [values...]}) 또는 ("list", [{"name":..., "values":[...]}])
+    """
+    if isinstance(series, dict):
+        # {"A":[...], "B":[...]}
+        return "dict", {str(k): list(v) if isinstance(v,(list,tuple)) else v for k, v in series.items()}
+    if isinstance(series, list):
+        # [{"name":"A","values":[...]} ...]
+        out = []
+        for s in series:
+            if isinstance(s, dict):
+                name = str(s.get("name", ""))
+                vals = s.get("values")
+                if isinstance(vals, (list, tuple)):
+                    out.append({"name": name, "values": list(vals)})
+        return "list", out
+    return "unknown", series
+
+def _looks_like_ratio_0to1(vals):
+    try:
+        nums = [float(x) for x in vals if isinstance(x, (int, float))]
+        if not nums:
+            return False
+        mn, mx = min(nums), max(nums)
+        # (0,1) 사이 값이 하나라도 있고 전체가 0~1 사이면 비율로 간주
+        return (0 <= mn <= 1) and (0 <= mx <= 1) and any(0 < x < 1 for x in nums)
+    except Exception:
+        return False
+
+def _scale_bar_group_percent_if_needed(item: dict):
+    """bar_group 값이 0~1이면 100배 + y라벨 (%) 보정. dict/list series 모두 지원."""
+    if item.get("type") != "bar_group":
+        return item
+    inp = item.get("inputs", {}) or {}
+    mode, canon = _canonical_bar_series(inp.get("series"))
+
+    # 모든 값 수집
+    all_vals = []
+    if mode == "dict":
+        for vals in canon.values():
+            if isinstance(vals, list):
+                all_vals += [x for x in vals if isinstance(x, (int, float))]
+    elif mode == "list":
+        for s in canon:
+            all_vals += [x for x in s.get("values", []) if isinstance(x, (int, float))]
+    else:
+        return item
+
+    if not all_vals or not _looks_like_ratio_0to1(all_vals):
+        return item
+
+    # 100배 보정
+    if mode == "dict":
+        new_series = {}
+        for name, vals in canon.items():
+            if isinstance(vals, list):
+                new_series[name] = [(float(x) * 100.0) for x in vals]
+            else:
+                new_series[name] = vals
+        inp["series"] = new_series
+    elif mode == "list":
+        new_series = []
+        for s in canon:
+            vals = s.get("values", [])
+            new_series.append({"name": s.get("name",""), "values": [(float(x) * 100.0) for x in vals]})
+        inp["series"] = new_series
+
+    yl = inp.get("y_label") or inp.get("ylabel") or ""
+    if "%" not in str(yl):
+        inp["y_label"] = (str(yl) + " (%)").strip() if yl else "정규화 점수(%)"
+    item["inputs"] = inp
+    return item
+
+def _ensure_activation_fallback(mentions_set: set, spec_list: list):
+    """
+    activation_panel 트리거가 '실제'로 잡혔는데, 활성화 관련 스펙이 하나도 없으면
+    안전한 curve_generic 1장을 추가. (트리거가 없으면 절대 추가 안 함)
+    """
+    if "viz.trigger.activation_panel" not in mentions_set:
+        return spec_list
+    if any(s.get("type") in {"activation_curve", "curve_generic"} for s in (spec_list or [])):
+        return spec_list
+
+    xs = list(range(-6, 7))
+    def _sigmoid(x): 
+        import math
+        return 1.0 / (1.0 + math.e**(-x))
+
+    spec_list = list(spec_list or [])
+    spec_list.append({
+        "type": "curve_generic",
+        "labels": {"ko": "활성화 함수 예시", "en": "Activation examples"},
+        "inputs": {
+            "series": [
+                {"name": "Sigmoid", "x": xs, "y": [_sigmoid(x) for x in xs]}
+            ],
+            "ylabel": {"ko": "출력", "en": "Output"},
+            # caption은 grammar가 없으면 무시해도 됨
+            "caption": {"ko": "여러 시리즈 비교는 범례 참고", "en": "Multiple series: see legend"}
+        }
+    })
+    return spec_list
+
+SEEN_GLOBAL_TYPES = set()
+SEEN_METRIC_SIGNATURES = set()   # (type, inputs 시그니처) 전역 중복 제거
+
+def postprocess_specs(text: str, spec_list: list, mentions) -> list:
+    global SEEN_GLOBAL_TYPES, SEEN_METRIC_SIGNATURES
+
+    ids = _to_id_set(mentions)
+
+    allow_cell_scale = True
+
+    EXAMPLE_ONE_SHOT_TYPES = {
+        # 예시/개념으로만 한정 (필요 최소만 유지)
+        "cell_scale",        # 같은 예시 반복 방지
+        # "activation_curve", "curve_generic" 는 실제 데이터 기반일 수 있어 제외
+        # generic concept 도식 타입이 따로 있다면 여기에 추가
+    }
+
+    METRIC_CONTENT_TYPES = {
+        "metric_table", "bar_group", "donut_pct",
+        "stack_bar", "histogram", "dist_scatter",
+        "ber_vs_snr", "ber_vs_rounds",
+        "curve_generic", "iou_overlap"
+    }
+
+    seen_sig = set()  # (문단 내) 동일 시그니처 중복 제거
+    out = []
+
+    for it in (spec_list or []):
+        if not isinstance(it, dict):
+            continue
+
+        t = it.get("type")
+        inp = it.get("inputs", {}) or {}
+
+        # cell_scale 트리거 없으면 제외
+        if t == "cell_scale" and not allow_cell_scale:
+            continue
+
+        # bar_group 0~1 → % 보정
+        if t == "bar_group":
+            it = _scale_bar_group_percent_if_needed(it)
+            inp = it.get("inputs", {}) or {}
+
+        # 예시/개념: 타입 단위 전역 1회
+        if t in EXAMPLE_ONE_SHOT_TYPES:
+            if t in SEEN_GLOBAL_TYPES:
+                continue
+            SEEN_GLOBAL_TYPES.add(t)
+
+        # 지표/표/그래프: 내용이 같으면 전역 1회
+        if t in METRIC_CONTENT_TYPES:
+            sig_global = (t, _norm_value(inp))  # 내용 시그니처(정규화 입력값)
+            if sig_global in SEEN_METRIC_SIGNATURES:
+                continue
+            SEEN_METRIC_SIGNATURES.add(sig_global)
+
+        # (문단 범위) 동일 시그니처 중복 제거
+        sig_local = (t, _norm_value(inp))
+        if sig_local in seen_sig:
+            continue
+        seen_sig.add(sig_local)
+
+        out.append(it)
+
+    # activation fallback (트리거 있을 때만, 이미 있으면 추가 X)
+    out = _ensure_activation_fallback(ids, out)
+    return out
+
 # 빌더
 def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
     gl   = load_glossary_any(glossary_path) # glossary 매칭/인덱스 생성
@@ -910,7 +1107,10 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         # values가 없으면 아무 것도 append 하지 않음 (예시/템플릿 금지)
 
     # 개념/예시 도식들
-    spec += build_concept_specs(text, spec, mentions, numeric_cids, concept_idx=cidx)
+    try:
+        spec += build_concept_specs(text, spec, mentions, numeric_cids, concept_idx=cidx)
+    except Exception as e:
+        print(f"[WARN] build_concept_specs skipped: {e}")
 
     # 학습곡선/ROC/PR 등 curve_generic — 실제 수치가 여러 개 있을 때만
     # 더미/임퓨트 금지
@@ -978,5 +1178,11 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
                 "labels": {"ko": "BER 대 라운드수", "en": "BER vs Rounds"},
                 "inputs": r_spec
             })
-    return _dedup(spec)
+    # postprocess에서 트리거/중복/보정 처리
+    misc = set()
+    if _has_trigger(cidx, "viz.trigger.cell_scale", text):
+        misc.add("viz.trigger.cell_scale")
+    if _has_trigger(cidx, "viz.trigger.activation_panel", text):
+        misc.add("viz.trigger.activation_panel")
 
+    return postprocess_specs(text, spec, mentions)

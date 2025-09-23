@@ -1,6 +1,56 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
+import { marked } from "marked";
 import "./Result.css";
+import type { FigureMeta, EasyParagraph as EasyParagraphType, IntegratedData as IntegratedDataType } from "../types";
+import { FIGURE_MAP, FIGURE_CAPTION } from "../figureMapTemplate";
+
+// [ADD] Figures sidecar optional loader (간소화)
+type FigureItem = {
+  order: number;
+  image_path: string;
+};
+
+async function loadFigureQueue(): Promise<FigureItem[]> {
+  // 1차: 메인 서버(/static)
+  try {
+    const r = await fetch('/static/viz/figures_map.json', { cache: 'no-store' });
+    if (r.ok) {
+      const ct = r.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await r.json();
+        console.log('✅ [FIG] 메인 서버에서 로드:', data.figures?.length || 0);
+        return data.figures ?? [];
+      } else {
+        console.warn('⚠️ [FIG] 메인 서버가 JSON이 아니라 다른 걸 반환:', ct);
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ [FIG] 메인 서버 실패:', e);
+  }
+
+  // 2차: 사이드카(있을 때만)
+  try {
+    const r2 = await fetch('http://localhost:8010/static/viz/figures_map.json', { cache: 'no-store' });
+    if (r2.ok) {
+      const ct2 = r2.headers.get('content-type') || '';
+      if (ct2.includes('application/json')) {
+        const data = await r2.json();
+        console.log('✅ [FIG] 사이드카에서 로드:', data.figures?.length || 0);
+        return data.figures ?? [];
+      } else {
+        console.warn('⚠️ [FIG] 사이드카가 JSON이 아님:', ct2);
+      }
+    }
+  } catch (e2) {
+    console.warn('⚠️ [FIG] 사이드카 실패:', e2);
+  }
+
+  console.info('ℹ️ [FIG] figures_map.json 없음 - 기존 렌더링 유지');
+  return [];
+}
+
+marked.setOptions({ gfm: true, breaks: true });
 
 interface PaperInfo {
   paper_id: string;
@@ -32,6 +82,9 @@ interface EasyParagraph {
   easy_paragraph_text: string;
   easy_paragraph_order: number;
   easy_visualization_trigger?: boolean; // 클릭 시 시각화 표시 여부
+  paragraph_type?: string; // "math_equation" for math paragraphs
+  math_equation?: any; // Math equation data
+  visualization?: { image_path?: string }; // Visualization data
 }
 
 interface EasyVisualization {
@@ -59,6 +112,7 @@ interface MathEquation {
   math_equation_explanation: string;
   math_equation_context?: string;
   math_equation_section_ref?: string; // 어떤 섹션에 속하는지
+  math_equation_env?: string; // 수식 환경 (cases, aligned 등)
 }
 
 interface IntegratedData {
@@ -79,6 +133,131 @@ interface ResultProps {
   onPreview?: () => void;
 }
 
+// 파일 상단 utils 인근에 추가
+const renderMarkdown = (t?: string) => {
+  if (!t) return "";
+  
+  // 마크다운 텍스트 내의 LaTeX 수식 전처리
+  let processed = t;
+  
+  // 인라인 수식 $...$ 전처리
+  processed = processed.replace(/\$([^$]+)\$/g, (match, content) => {
+    return `$${preprocessLatex(content)}$`;
+  });
+  
+  // 블록 수식 $$...$$ 전처리
+  processed = processed.replace(/\$\$([^$]+)\$\$/g, (match, content) => {
+    return `$$${preprocessLatex(content)}$$`;
+  });
+  
+  return marked.parse(processed);
+};
+
+// 역슬래시 이스케이프 복원 함수
+const unescapeOnce = (s: string): string => {
+  if (!s) return s;
+  // "\\(" -> "\(" , "\\leq" -> "\leq", "\\phi" -> "\phi" 등
+  return s.replace(/\\\\/g, '\\');
+};
+
+// LaTeX 텍스트에서 MathJax가 지원하지 않는 매크로를 지원되는 형태로 치환
+const fixLatexMacros = (s: string): string => {
+  if (!s) return s;
+  
+  // \mathlarger{...} -> \large{...}로 대체 또는 제거
+  s = s.replace(/\\mathlarger\s*\{([^}]+)\}/g, '\\large{$1}');
+  s = s.replace(/\\mathlarger\s+/g, '');  // 인수 없는 경우 제거
+  
+  // \mathbbm{1} -> \mathbf{1} (지표함수용), 다른 문자는 \mathbb로
+  s = s.replace(/\\mathbbm\{1\}/g, '\\mathbf{1}');
+  s = s.replace(/\\mathbbm\{([^}]+)\}/g, '\\mathbb{$1}');
+  
+  return s;
+};
+
+// LaTeX 수식 전처리 파이프라인 (이스케이프 복원 + 매크로 수정)
+const preprocessLatex = (s: string): string => {
+  if (!s) return s;
+  
+  // 1. 역슬래시 이스케이프 복원
+  let processed = unescapeOnce(s);
+  
+  // 2. 매크로 수정
+  processed = fixLatexMacros(processed);
+  
+  return processed;
+};
+
+// 설명 텍스트 정리(접두 제거 + 군더더기 제거)
+const sanitizeExplain = (t?:string) =>
+  (t ?? "")
+    .replace(/^\s*(조수|assistant)\s*[:：\-]?\s*/i, "")
+    .replace(/^\s*(조수|assistant)\s*[:：\-]?\s*/gmi, "")
+    .replace(/\[?\s*수학\s*\d+\s*\]?/g, "")   // [수학0] 등 제거
+    .replace(/^\s*보조\s*:?/gmi, "")          // '보조' 접두 제거
+    .trim();
+
+// 파일 상단 utils 근처에 보조 함수 2개 추가
+const coalesce = <T,>(...vals: (T | undefined | null)[]) => vals.find(v => v !== undefined && v !== null);
+
+const pickEquation = (raw: any) => {
+  const id    = coalesce(raw?.math_equation_id, raw?.equation_id, raw?.id);
+  const latex = coalesce(raw?.math_equation_latex, raw?.equation_latex, raw?.latex) || "";
+  const env   = coalesce(raw?.math_equation_env,   raw?.equation_env,   raw?.env);
+  const expl  = coalesce(raw?.math_equation_explanation, raw?.equation_explanation, raw?.explanation);
+  const idx   = coalesce(raw?.math_equation_index, raw?.equation_index);
+  return { id, latex, env, explanation: expl, index: idx };
+};
+
+// MathJax 준비 보장 후 typeset
+const typesetNodes = async (nodes: Element[]) => {
+  const w:any = window as any;
+  if (!w.MathJax) return;
+  // MathJax v3는 startup.promise 대기 후 typesetPromise 권장
+  if (w.MathJax.startup?.promise) { try { await w.MathJax.startup.promise; } catch {} }
+  if (w.MathJax.typesetPromise)  { try { await w.MathJax.typesetPromise(nodes); } catch {} }
+};
+
+// 섹션을 그룹화: 상위 section 뒤에 나오는 subsections를 묶음
+function groupSections(sections: EasySection[]) {
+  const groups: { parent: EasySection; children: EasySection[] }[] = [];
+  let current: { parent: EasySection; children: EasySection[] } | null = null;
+
+  for (const sec of sections.sort((a,b)=>a.easy_section_order-b.easy_section_order)) {
+    if (sec.easy_section_type === "section") {
+      current = { parent: sec, children: [] };
+      groups.push(current);
+    } else if (sec.easy_section_type === "subsection") {
+      if (!current) {
+        current = { parent: sec, children: [] };
+        groups.push(current);
+      } else {
+        current.children.push(sec);
+      }
+    } else {
+      // 기타 타입 대비
+      if (!current) {
+        current = { parent: sec, children: [] };
+        groups.push(current);
+      } else {
+        current.children.push(sec);
+      }
+    }
+  }
+  return groups;
+}
+
+// easy_paragraphs가 없거나 빈 경우, easy_content를 빈줄 기준으로 문단화
+function ensureParagraphs(sec: EasySection): EasyParagraph[] {
+  if (sec.easy_paragraphs && sec.easy_paragraphs.length) return sec.easy_paragraphs;
+  const chunks = (sec.easy_content || "").split(/\n{2,}/).map(s=>s.trim()).filter(Boolean);
+  return chunks.map((t, i) => ({
+    easy_paragraph_id: `${sec.easy_section_id}_p${i+1}`,
+    easy_paragraph_text: t,
+    easy_paragraph_order: i+1
+  }));
+}
+
 const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   const location = useLocation();
   const [integratedData, setIntegratedData] = useState<IntegratedData | null>(
@@ -96,6 +275,128 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   }>({});
   const [isDownloading, setIsDownloading] = useState(false);
   const mathJaxRef = useRef<HTMLDivElement>(null);
+  // 미니-TOC만 사용 (현재/이전/다음 섹션)
+  // 불필요: 검색/보통모드/펼침 상태는 제거
+  const [activeTocId, setActiveTocId] = useState<string>("");
+  
+  // [ADD] Figure 사이드카 상태 (옵션)
+  const [figQueue, setFigQueue] = useState<FigureItem[]>([]);
+  
+  // [ADD] Figure 사이드카 로드
+  useEffect(() => { 
+    loadFigureQueue().then(setFigQueue); 
+  }, []);
+  
+  // [ADD] Figure 큐 팝 함수
+  const popFig = useMemo(() => { 
+    let i = 0; 
+    return () => figQueue[i++] as FigureItem | undefined; 
+  }, [figQueue]);
+  
+  // [ADD] [Figure] 토큰 주입 함수 (강화됨)
+  function injectFigures(text: string): (string | FigureItem)[] {
+    if (!text || figQueue.length === 0) return [text];
+    
+    // [Figure] 한 개씩만 치환 (없으면 그대로)
+    const token = /\[Figure[^\]]*\]/i;
+    if (!token.test(text)) return [text];
+    
+    const parts: (string | FigureItem)[] = [];
+    let rest = text;
+    
+    while (true) {
+      const m = rest.match(token);
+      if (!m) { 
+        if (rest) parts.push(rest); 
+        break; 
+      }
+      
+      // 토큰 이전 텍스트
+      if (m.index! > 0) {
+        parts.push(rest.slice(0, m.index!));
+      }
+      
+      // Figure 또는 원본 토큰
+      const fig = popFig();
+      if (fig) {
+        parts.push(fig);
+        console.log(`🔄 [FIG] 토큰 교체: ${m[0]} → Figure ${fig.order}`);
+      } else {
+        parts.push(m[0]); // Figure 없으면 원문 유지
+        console.warn(`⚠️ [FIG] Figure 부족: ${m[0]}`);
+      }
+      
+      rest = rest.slice(m.index! + m[0].length);
+    }
+    
+    return parts;
+  }
+
+  // [ADD] 남은 Figure들을 가져오는 함수
+  function getRemainingFigures(): FigureItem[] {
+    const remaining: FigureItem[] = [];
+    let fig;
+    while ((fig = popFig())) {
+      remaining.push(fig);
+    }
+    return remaining;
+  }
+  
+  const [imageModal, setImageModal] = useState<{ open: boolean; src: string; alt?: string }>({ open: false, src: "" });
+  const openImage = (src: string, alt?: string) => setImageModal({ open: true, src, alt });
+  const closeImage = () => setImageModal({ open: false, src: "" });
+  const [dark, setDark] = useState<boolean>(false);
+  useEffect(() => {
+    // body에 다크모드 클래스 토글 → CSS가 전체 적용
+    const cls = document.documentElement.classList;
+    if (dark) cls.add("dark-mode"); else cls.remove("dark-mode");
+  }, [dark]);
+
+  // MathJax 설정: 수식만 렌더(mathjax), Easy 본문은 제외(no-mathjax)
+  useEffect(() => {
+    const win = window as any;
+    if (win.MathJax) return;
+    const config = document.createElement("script");
+    config.type = "text/javascript";
+    config.text = `
+      window.MathJax = {
+        loader: { load: ['[tex]/ams', '[tex]/mathtools', '[tex]/physics'] },
+        tex: {
+          inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+          displayMath: [['$$','$$'], ['\\\\[','\\\\]']],
+          packages: { '[+]': ['ams','mathtools','physics'] },
+          processEscapes: true,
+          tags: 'none',
+          macros: {
+            mathlarger: ['{\\\\large #1}', 1],
+            mathbbm: ['{\\\\mathbb{#1}}', 1],
+            wt: ['{\\\\widetilde{#1}}', 1],
+            wh: ['{\\\\widehat{#1}}', 1],
+            dfn: '{\\\\triangleq}',
+            dB: '{\\\\mathrm{dB}}',
+            snr: '{\\\\mathrm{SNR}}',
+            bsnr: '{\\\\mathrm{S}\\\\widetilde{\\\\mathrm{N}}\\\\mathrm{R}}',
+            dsnr: '{\\\\Delta\\\\snr}'
+          }
+        },
+        options: {
+          ignoreHtmlClass: 'no-mathjax',
+          processHtmlClass: 'mathjax'
+        },
+        svg: { fontCache: 'global', scale: 1 }   /* 줄바꿈/축소 없음 → CSS로 스크롤 */
+      };
+    `;
+    document.head.appendChild(config);
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js";
+    script.async = true;
+    script.onload = () => {
+      if (win.MathJax && typeof win.MathJax.typeset === 'function') {
+        win.MathJax.typeset();
+      }
+    };
+    document.head.appendChild(script);
+  }, []);
 
   useEffect(() => {
     if (!data && !location.state?.data) {
@@ -108,11 +409,37 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     }
   }, [data, location.state?.data]);
 
+
+  // 데이터/토글 변화 시 수식만 다시 typeset
   useEffect(() => {
-    if (integratedData) {
-      renderMathJax();
+    const win = window as any;
+    if (win?.MathJax?.typesetPromise) {
+      const nodes = Array.from(document.querySelectorAll('.mathjax'));
+      win.MathJax.typesetPromise(nodes).catch(console.warn);
     }
   }, [integratedData, activeEquation]);
+
+  // TOC: 현재 섹션 하이라이트
+  useEffect(() => {
+    if (!integratedData?.easy_sections) return;
+    const ids = integratedData.easy_sections.map(s=>s.easy_section_id);
+    const obs = new IntersectionObserver(entries=>{
+      const visible = entries.filter(e=>e.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top);
+      if (visible[0]) setActiveTocId(visible[0].target.id);
+    }, { rootMargin:"0px 0px -75% 0px", threshold:0 });
+    ids.forEach(id => { const el = document.getElementById(id); if (el) obs.observe(el); });
+    return () => obs.disconnect();
+  }, [integratedData]);
+
+  const groups = groupSections(integratedData?.easy_sections || []);
+  const currentGroupIdx = Math.max(
+    0,
+    groups.findIndex(g =>
+      g.parent.easy_section_id === activeTocId || g.children.some(s=>s.easy_section_id===activeTocId)
+    )
+  );
+  const miniSlice = groups.slice(Math.max(0, currentGroupIdx-1), Math.min(groups.length, currentGroupIdx+2));
+  const tocGroups = miniSlice; // 항상 미니-TOC만
 
   const loadIntegratedData = async () => {
     try {
@@ -208,6 +535,54 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     }
   };
 
+  // Easy 텍스트는 MathJax 대상에서 제외
+  const EasyText: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <div className="easy-content no-mathjax">{children}</div>
+  );
+
+  // 현재 paperId 추출 (state → URL 순)
+  const getCurrentPaperId = () => {
+    return (
+      integratedData?.paper_info?.paper_id ||
+      (typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : '') ||
+      ''
+    );
+  };
+
+  // 이미지 경로 정규화: 다양한 경로 형식 지원
+  const getImageSrc = (raw?: string) => {
+    if (!raw) return "";
+    
+    // 이미 완전한 URL이거나 절대 경로인 경우
+    if (/^https?:\/\//.test(raw) || raw.startsWith("/")) {
+      // Windows 역슬래시를 슬래시로 정규화
+      return raw.replace(/\\\\/g, "/");
+    }
+    
+    // 상대 경로인 경우 /outputs/{paperId}/ 프리픽스 부여
+    const pid = getCurrentPaperId();
+    const normalizedPath = raw.replace(/\\\\/g, "/"); // Windows 경로 정규화
+    const web = `/outputs/${pid}/${normalizedPath}`;
+    return web;
+  };
+
+  // 수식 라텍스 정규화: 부분식·정렬기호 보정
+  const normalizeLatex = (latex: string, env?: string) => {
+    const src = (latex || "").trim();
+    if (!src) return src;
+    const hasBegin = /\\begin\{[a-zA-Z*]+\}/.test(src);
+    if (env === 'cases' && !/\\begin\{cases\}/.test(src)) {
+      return `\\begin{cases}\n${src}\n\\end{cases}`;
+    }
+    // 정렬 기호 &가 있으나 정렬 환경이 없으면 aligned로 감싸기
+    const hasAlignChar = /(^|[^\\])&/.test(src);
+    const inAlignEnv = /(aligned|align|align\*|split)/.test(src);
+    if (hasAlignChar && !hasBegin && !inAlignEnv) {
+      return `\\begin{aligned}\n${src}\n\\end{aligned}`;
+    }
+    return src;
+  };
+
   const toggleVisualization = (sectionId: string, paragraphId: string) => {
     const key = `${sectionId}-${paragraphId}`;
     setActiveViz((prev) => ({
@@ -224,7 +599,170 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   };
 
   const toggleEquation = (equationId: string) => {
-    setActiveEquation((prev) => (prev === equationId ? null : equationId));
+    setActiveEquation(prev => (prev === equationId ? null : equationId));
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); } catch {}
+  };
+
+  // 수식 전용: MathJax 대상으로만(typesetPromise)
+  const EquationView: React.FC<{ eq: any }> = ({ eq }) => {
+    const ref = useRef<HTMLDivElement>(null);     // 수식 본문
+    const expRef = useRef<HTMLDivElement>(null);  // 설명 박스
+    const picked = pickEquation(eq);
+    const id = picked.id!;
+    const latex = normalizeLatex(picked.latex, picked.env);
+    const explain = sanitizeExplain(picked.explanation);
+    const open = activeEquation === id;
+
+    useEffect(() => {
+      const nodes:Element[] = [];
+      if (ref.current) nodes.push(ref.current);
+      if (open && expRef.current) nodes.push(expRef.current);
+      if (nodes.length) typesetNodes(nodes);
+    }, [id, latex, open]);
+    return (
+      <div className={`equation-item ${open ? "open":""}`} id={id}>
+        <div className="equation-toolbar">
+          {/* 형광등 토글 */}
+          <button
+            type="button"
+            aria-label="수학 설명 토글"
+            className={`bulb-btn ${open ? "on" : "off"}`}
+            onClick={() => toggleEquation(id)}
+            title={open ? "설명 끄기" : "설명 켜기"}
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+              <path d="M9 21h6a1 1 0 0 0 1-1v-1h-8v1a1 1 0 0 0 1 1zM12 2c-4.1 0-7 3.02-7 6.75 0 2.37 1.25 4.08 3.23 5.62.38.3.77.9.85 1.38h5.84c.08-.49.47-1.08.85-1.38C17.75 12.83 19 11.12 19 8.75 19 5.02 16.1 2 12 2z"/>
+              <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
+                <path d="M12 .8v2.4M3.6 5.6l1.7 1M20.4 5.6l-1.7 1M1.8 11.2h2.4M19.8 11.2h2.4M3.6 16.8l1.7-1M20.4 16.8l-1.7-1"/>
+              </g>
+            </svg>
+          </button>
+        </div>
+        <div ref={ref} className="equation-body mathjax">
+          <div dangerouslySetInnerHTML={{ __html: `$$${preprocessLatex(latex)}$$` }} />
+        </div>
+        {open && !!explain && (
+          <div ref={expRef} className="equation-explain mathjax"
+               dangerouslySetInnerHTML={{ __html: renderMarkdown(explain) }} />
+        )}
+      </div>
+    );
+  };
+
+
+  // 기존 Figure 컴포넌트 (FigureMeta 타입용)
+  const FigureView: React.FC<{ figure: FigureMeta; openImage: (s:string,a?:string)=>void; className?: string }> = ({ figure, openImage, className = "" }) => {
+    const altText = figure.caption ?? figure.label ?? 'Figure';
+    
+    return (
+      <figure className={`figure-card ${className}`}>
+        <img 
+          src={figure.image_path} 
+          alt={altText}
+          className="figure-image"
+          onClick={() => openImage(figure.image_path, altText)}
+          style={{ cursor: 'zoom-in' }}
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.style.display = "none";
+            console.warn(`Figure 로드 실패: ${figure.image_path}`);
+          }}
+        />
+        {(figure.caption || figure.label) && (
+          <figcaption className="figure-caption">
+            {figure.label && <strong>{figure.label}</strong>}
+            {figure.label && figure.caption && ': '}
+            {figure.caption}
+          </figcaption>
+        )}
+        
+        {/* 멀티페이지 지원 */}
+        {figure.all_pages && figure.all_pages.length > 1 && (
+          <div className="figure-pages">
+            <span className="pages-label">Pages: </span>
+            {figure.all_pages.map((pageUrl, idx) => (
+              <button
+                key={idx}
+                className="page-btn"
+                onClick={() => openImage(pageUrl, `${altText} - Page ${idx + 1}`)}
+                title={`Page ${idx + 1}`}
+              >
+                {idx + 1}
+              </button>
+            ))}
+          </div>
+        )}
+      </figure>
+    );
+  };
+
+  // 문단 렌더러 (텍스트/수식/시각화/사이드카 Figure 인라인)
+  const ParagraphView: React.FC<{ p: any; sectionId: string; openImage: (s:string,a?:string)=>void; getImageSrc:(s?:string)=>string; }> = ({ p, sectionId, openImage, getImageSrc }) => {
+    // 수식 문단: 여러 스키마 대응
+    const isEq =
+      p.paragraph_type === "math_equation" ||
+      !!p.math_equation ||
+      !!p.equation_latex || !!p.math_equation_latex;
+    if (isEq) {
+      const eq = p.math_equation || p;
+      return <EquationView eq={eq} />;
+    }
+
+    // [ADD] 하드코딩 매핑 기반 Figure 찾기 (최종 간소화)
+    const figIdx = FIGURE_MAP[p.easy_paragraph_id];
+    const fig = figIdx ? figQueue.find(f => f.order === figIdx) : undefined;
+    
+    // [Figure] 토큰 제거 (하드코딩 매핑 사용 시)
+    const cleanText = (p.easy_paragraph_text || '').replace(/\[Figure[^\]]*\]/gi, '').trim();
+    
+    // 일반 텍스트 문단 + 시각화(있으면)
+    const hasViz = !!p.visualization?.image_path;
+    const hasExistingFigure = !!p.figure; // 기존 figure 필드 (통합 JSON 방식)
+    
+    return (
+      <div className="paper-paragraph">
+        {/* [ADD] 하드코딩 매핑 기반 텍스트 + Figure */}
+        <div className="no-mathjax easy-md">
+          <span dangerouslySetInnerHTML={{ __html: renderMarkdown(cleanText) }} />
+        </div>
+        
+        {/* 하드코딩 매핑된 Figure (캡션 하드코딩) */}
+        {fig && figIdx && (
+          <figure className="my-3 mapped-figure">
+            <img
+              src={fig.image_path}
+              alt={FIGURE_CAPTION[figIdx] ?? ''}
+              onClick={() => openImage(fig.image_path, FIGURE_CAPTION[figIdx] ?? '')}
+              className="cursor-zoom-in"
+            />
+            <figcaption className="text-sm text-gray-500 mt-1">
+              {FIGURE_CAPTION[figIdx]}
+            </figcaption>
+          </figure>
+        )}
+        
+        {/* 기존 Figure (통합 JSON 방식) - 호환성 유지 */}
+        {hasExistingFigure && (
+          <FigureView 
+            figure={p.figure} 
+            openImage={openImage} 
+            className="paragraph-figure legacy-figure"
+          />
+        )}
+        
+        {/* 자동 생성 시각화 (Figure가 없을 때만) */}
+        {hasViz && !hasExistingFigure && (
+          <figure className="figure-card viz-figure" onClick={() => openImage(getImageSrc(p.visualization.image_path), "visualization")}>
+            {/* eslint-disable-next-line jsx-a11y/alt-text */}
+            <img src={getImageSrc(p.visualization.image_path)} />
+            <figcaption className="caption">도표: 문단 {p.easy_paragraph_order}</figcaption>
+          </figure>
+        )}
+      </div>
+    );
   };
 
   // Viz API 호출 함수 (임시)
@@ -319,68 +857,19 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
     }
   };
 
-  const createTableOfContents = () => {
-    if (!integratedData?.easy_sections) return null;
-
-    const renderTocItem = (section: EasySection, level: number = 0) => {
-      const indentClass =
-        level > 0 ? `toc-subsection toc-level-${level}` : "toc-section";
-
-      return (
-        <li key={section.easy_section_id} className={indentClass}>
-          <a
-            href={`#${section.easy_section_id}`}
-            onClick={(e) => {
-              e.preventDefault();
-              scrollToSection(section.easy_section_id);
-            }}
-          >
-            {level > 0 && <span className="toc-indent">└ </span>}
-            {section.easy_section_title}
-          </a>
-          {section.easy_subsections && section.easy_subsections.length > 0 && (
-            <ul className="toc-sublist">
-              {section.easy_subsections.map((subsection) =>
-                renderTocItem(subsection, level + 1)
-              )}
-            </ul>
-          )}
-        </li>
-      );
-    };
-
-    return (
-      <div className="sidebar">
-        <nav className="table-of-contents" id="table-of-contents">
-          <h3>목차</h3>
-          <ul id="toc-list">
-            {integratedData.easy_sections.map((section) =>
-              renderTocItem(section)
-            )}
-          </ul>
-        </nav>
-
-        {/* HTML 다운로드 버튼 */}
-        <div className="download-section">
-          <button
-            id="download-html-btn"
-            className="download-btn"
-            onClick={downloadAsHTML}
-            disabled={isDownloading}
-          >
-            <span className="download-icon">🌐</span>
-            {isDownloading ? "HTML 생성 중..." : "HTML로 다운로드"}
-          </button>
-        </div>
-      </div>
-    );
-  };
 
   const createSectionElement = (section: EasySection, index: number) => {
-    const isSubsection = section.easy_section_type === "subsection";
+    const level = section.easy_section_level ?? (section.easy_section_type === "subsection" ? 2 : 1);
+    const isSubsection = level > 1;
     const sectionClass = isSubsection ? "paper-subsection" : "paper-section";
     const headerClass = isSubsection ? "subsection-header" : "section-header";
-    const titleClass = isSubsection ? "subsection-title" : "section-title";
+    const titleTag = level > 1 ? "h4" : "h2";
+    const displayTitle = section.easy_section_title && section.easy_section_title.trim().length > 0
+      ? section.easy_section_title
+      : `(제목 없음)`;
+    const sectionPlainText = (section.easy_paragraphs || [])
+      .map(p => (p.easy_paragraph_text || "").replace(/<[^>]+>/g, "").trim())
+      .join("\n");
 
     return (
       <div
@@ -389,48 +878,24 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         id={section.easy_section_id}
       >
         <div className={headerClass}>
-          <div className={titleClass}>
-            <span className="section-order">
-              {isSubsection
-                ? `${section.easy_section_order}.`
-                : section.easy_section_order}
-            </span>
-            <span>{section.easy_section_title}</span>
-          </div>
-
-          {/* Viz API 버튼 (섹션에만 표시) */}
-          {!isSubsection && (
-            <div className="section-actions">
+          {React.createElement(
+            titleTag as any,
+            { className: "section-title", style: { margin: 0 } },
+            <>
+              <span className="section-order">
+                {section.easy_section_order}
+              </span>
+              <span style={{ marginLeft: 8 }}>{displayTitle}</span>
               <button
-                className="viz-api-button"
-                onClick={() => {
-                  if (!section.viz_api_result) {
-                    // 첫 호출 시 Viz API 호출
-                    callVizApi(
-                      section.easy_section_id,
-                      section.easy_section_title,
-                      section.easy_content
-                    );
-                  }
-                  toggleVizApi(section.easy_section_id);
-                }}
-                disabled={loadingVizApi[section.easy_section_id]}
+                onClick={() => callVizApi(section.easy_section_id, displayTitle, sectionPlainText)}
+                disabled={!!loadingVizApi[section.easy_section_id]}
+                className="vizapi-btn"
+                style={{ marginLeft: 12, padding: '6px 10px', fontSize: 12 }}
+                title="이 섹션을 Viz API로 시각화"
               >
-                {loadingVizApi[section.easy_section_id] ? (
-                  <>
-                    <span className="spinner-small"></span>
-                    생성 중...
-                  </>
-                ) : (
-                  <>
-                    🎨{" "}
-                    {activeVizApi[section.easy_section_id]
-                      ? "시각화 숨기기"
-                      : "시각화 보기"}
-                  </>
-                )}
+                {loadingVizApi[section.easy_section_id] ? '생성중…' : '시각화 생성'}
               </button>
-            </div>
+            </>
           )}
         </div>
 
@@ -441,59 +906,108 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               className="paragraph-container"
             >
               <p
-                className={`paragraph-text ${
-                  paragraph.easy_visualization_trigger
-                    ? "clickable-paragraph"
-                    : ""
-                }`}
-                onClick={() => {
-                  if (paragraph.easy_visualization_trigger) {
-                    toggleVisualization(
-                      section.easy_section_id,
-                      paragraph.easy_paragraph_id
-                    );
-                  }
-                }}
+                className="paragraph-text"
                 dangerouslySetInnerHTML={{
                   __html: formatText(paragraph.easy_paragraph_text),
                 }}
               />
 
-              {/* 시각화 표시 영역 */}
-              {paragraph.easy_visualization_trigger &&
-                activeViz[
-                  `${section.easy_section_id}-${paragraph.easy_paragraph_id}`
-                ] && (
-                  <div className="visualization-container">
-                    {section.easy_visualizations?.map((viz) => (
-                      <div key={viz.easy_viz_id} className="visualization-item">
-                        <h4>{viz.easy_viz_title}</h4>
-                        {viz.easy_viz_description && (
-                          <p className="viz-description">
-                            {viz.easy_viz_description}
-                          </p>
-                        )}
-                        {viz.easy_viz_image_path && (
-                          <img
-                            src={viz.easy_viz_image_path}
-                            alt={viz.easy_viz_title}
-                            className="viz-image"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = "none";
-                              const fallback = document.createElement("div");
-                              fallback.className = "image-fallback";
-                              fallback.textContent = viz.easy_viz_title;
-                              fallback.style.cssText =
-                                "padding: 40px; text-align: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; color: #6c757d;";
-                              target.parentNode?.appendChild(fallback);
-                            }}
-                          />
-                        )}
+              {/* 문단에 삽입된 수식 렌더링 및 토글 설명 */}
+              {(paragraph as any).paragraph_type === "math_equation" &&
+                (paragraph as any).math_equation && (
+                  <div className="equation-item">
+                    <div className="equation-header">
+                      <div className="equation-index">
+                        {(paragraph as any).math_equation.equation_index}
                       </div>
-                    ))}
+                      <div className="equation-title">
+                        {(paragraph as any).math_equation.equation_context || "수식"}
+                      </div>
+                      <button
+                        className="equation-toggle"
+                        onClick={() =>
+                          toggleEquation((paragraph as any).math_equation.equation_id)
+                        }
+                      >
+                        {activeEquation === (paragraph as any).math_equation.equation_id
+                          ? "숨기기"
+                          : "설명 보기"}
+                      </button>
+                    </div>
+
+                    <div
+                      className={`equation mathjax ${
+                        activeEquation === (paragraph as any).math_equation.equation_id
+                          ? "equation-active"
+                          : ""
+                      }`}
+                      ref={mathJaxRef}
+                      onClick={() =>
+                        toggleEquation((paragraph as any).math_equation.equation_id)
+                      }
+                      style={{ cursor: "pointer" }}
+                      title="수식을 클릭하면 설명을 볼 수 있습니다"
+                    >
+                      {`$$${normalizeLatex((paragraph as any).math_equation.equation_latex, (paragraph as any).math_equation.equation_env)}$$`}
+                    </div>
+
+                    {activeEquation === (paragraph as any).math_equation.equation_id && (
+                      <div className="equation-explanation">
+                        <div className="explanation-header">
+                          <span className="explanation-icon">💡</span>
+                          <span className="explanation-title">수식 설명</span>
+                        </div>
+                        <div
+                          className="explanation-content"
+                          dangerouslySetInnerHTML={{
+                            __html: formatText(
+                              (paragraph as any).math_equation.equation_explanation || ""
+                            ),
+                          }}
+                        />
+                        {(paragraph as any).math_equation.equation_variables &&
+                          (paragraph as any).math_equation.equation_variables.length > 0 && (
+                            <div className="equation-variables">
+                              <div className="explanation-header">
+                                <span className="explanation-icon">🔠</span>
+                                <span className="explanation-title">변수 설명</span>
+                              </div>
+                              <ul>
+                                {(paragraph as any).math_equation.equation_variables.map(
+                                  (v: any, idx: number) => (
+                                    <li key={idx}>{typeof v === "string" ? v : JSON.stringify(v)}</li>
+                                  )
+                                )}
+                              </ul>
+                            </div>
+                          )}
+                      </div>
+                    )}
                   </div>
                 )}
+
+              {/* 시각화 항상 표시 (존재 시) */}
+              {(paragraph as any).visualization?.image_path && (
+                <div className="visualization-container">
+                  <img
+                    src={getImageSrc((paragraph as any).visualization.image_path)}
+                    alt={section.easy_section_title}
+                    className="viz-image"
+                    onClick={() => openImage(getImageSrc((paragraph as any).visualization.image_path), section.easy_section_title)}
+                    style={{ cursor: 'zoom-in' }}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = "none";
+                      const fallback = document.createElement("div");
+                      fallback.className = "image-fallback";
+                      fallback.textContent = "이미지를 불러올 수 없습니다";
+                      fallback.style.cssText =
+                        "padding: 40px; text-align: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; color: #6c757d;";
+                      target.parentNode?.appendChild(fallback);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -558,52 +1072,33 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
         )}
 
         {/* 수식 섹션 */}
-        {integratedData?.math_equations && (
+        {integratedData?.math_equations && integratedData.math_equations.length > 0 && (
           <div className="math-equations">
+            <h3 style={{margin:'0 0 10px 0'}}>수식</h3>
             {integratedData.math_equations
-              .filter((eq) => {
-                // easy_section_id와 math_equation_section_ref 매핑
-                // Math 모델에서 생성된 수식들을 해당 섹션에 맞게 필터링
-                return (
-                  eq.math_equation_section_ref === section.easy_section_id ||
-                  eq.math_equation_section_ref ===
-                    `section_${section.easy_section_order}` ||
-                  eq.math_equation_section_ref === section.easy_section_title
-                );
-              })
+              .filter((eq) => eq.math_equation_section_ref === section.easy_section_id)
               .map((equation) => (
                 <div key={equation.math_equation_id} className="equation-item">
                   <div className="equation-header">
-                    <div className="equation-index">
-                      {equation.math_equation_index}
-                    </div>
-                    <div className="equation-title">
-                      수식 {equation.math_equation_index}
-                    </div>
+                    <span className="equation-index">{equation.math_equation_index?.replace(/[()]/g,'') || '?'}</span>
+                    <span className="equation-title">{equation.math_equation_context || '수식'}</span>
                     <button
-                      className="equation-toggle"
+                      className="toggle-explanation"
                       onClick={() => toggleEquation(equation.math_equation_id)}
+                      style={{ marginLeft: 'auto' }}
                     >
-                      {activeEquation === equation.math_equation_id
-                        ? "숨기기"
-                        : "설명 보기"}
+                      {activeEquation === equation.math_equation_id ? '숨기기' : '설명 보기'}
                     </button>
                   </div>
-
                   <div
-                    className={`equation ${
-                      activeEquation === equation.math_equation_id
-                        ? "equation-active"
-                        : ""
-                    }`}
+                    className={`equation mathjax ${activeEquation === equation.math_equation_id ? 'equation-active' : ''}`}
                     ref={mathJaxRef}
                     onClick={() => toggleEquation(equation.math_equation_id)}
-                    style={{ cursor: "pointer" }}
+                    style={{ cursor: 'pointer', fontSize: '0.9em' }}
                     title="수식을 클릭하면 설명을 볼 수 있습니다"
                   >
-                    {`$$${equation.math_equation_latex}$$`}
+                    {`$$${normalizeLatex(equation.math_equation_latex, equation.math_equation_env)}$$`}
                   </div>
-
                   {activeEquation === equation.math_equation_id && (
                     <div className="equation-explanation">
                       <div className="explanation-header">
@@ -612,11 +1107,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                       </div>
                       <div
                         className="explanation-content"
-                        dangerouslySetInnerHTML={{
-                          __html: formatText(
-                            equation.math_equation_explanation
-                          ),
-                        }}
+                        dangerouslySetInnerHTML={{ __html: formatText(equation.math_equation_explanation) }}
                       />
                     </div>
                   )}
@@ -630,7 +1121,10 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
 
   const formatText = (text: string) => {
     if (!text) return "";
-    return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    // **강조**는 굵게만, ==중요문장== 은 은은한 형광펜으로
+    let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/==([^=]+)==/g, '<mark style="background:#fff3b0; color:inherit;">$1</mark>');
+    return html;
   };
 
   const downloadAsHTML = async () => {
@@ -836,7 +1330,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   const getInlineStyles = () => {
     return `
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f8f9fa; }
+      body { font-family: 'Pretendard','Spoqa Han Sans Neo','Noto Sans KR','Apple SD Gothic Neo','Inter','Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif; line-height: 1.8; color: #222; background-color: #f8f9fa; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
       .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
       .main-content { flex: 1; min-width: 0; }
       .paper-header { background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
@@ -850,10 +1344,11 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
       .paper-section:hover { background-color: #f8f9fa; }
       .paper-section:last-child { border-bottom: none; }
       .section-header { margin-bottom: 30px; padding-bottom: 15px; border-bottom: 2px solid #f59e0b; }
-      .section-title { font-size: 2em; color: #2c3e50; margin-bottom: 10px; font-weight: 600; }
+      .section-title { font-size: 1.75em; color: #1f2937; margin-bottom: 10px; font-weight: 700; letter-spacing: .2px; }
       .section-order { display: inline-block; background: #f59e0b; color: white; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-weight: bold; margin-right: 15px; vertical-align: middle; }
-      .easy-content { margin-bottom: 30px; padding: 25px; background: #fef3c7; border-radius: 8px; border-left: 4px solid #f59e0b; }
-      .easy-content p { font-size: 1.1em; line-height: 1.8; color: #424242; }
+      .easy-content { margin-bottom: 30px; padding: 24px; background: #fff8e1; border-radius: 10px; border-left: 4px solid #f59e0b; }
+      .easy-content p { font-size: 1.03em; line-height: 1.95; color: #222; letter-spacing: 0.1px; }
+      .easy-content p + p { margin-top: 10px; }
       .easy-content strong { color: #d97706; font-weight: 600; }
       .math-equations { margin-top: 30px; }
       .equation-item { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); transition: box-shadow 0.3s ease; }
@@ -959,11 +1454,52 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   }
 
   return (
-    <div className="container">
-      {createTableOfContents()}
+    <div className={`container${dark ? ' dark-mode' : ''}`} style={{ fontFamily: "'Pretendard','Spoqa Han Sans Neo','Noto Sans KR','Apple SD Gothic Neo','Inter','Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" }}>
+      {dark && (
+        <style>{`
+          .dark-mode { background-color: #0b1220; color: #e5e7eb; }
+          .dark-mode .paper-header { background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%); }
+          .dark-mode .section-title { color: #e5e7eb; }
+          .dark-mode .paper-section, .dark-mode .paper-subsection { background-color: #0f172a; border-color: #1f2a44; }
+          .dark-mode .easy-content { background: #0c1222; border-left-color: #38bdf8; }
+          .dark-mode .equation { background: #0c1222; border-color: #1f2a44; }
+          .dark-mode .paper-footer { background: #0b1220; color: #94a3b8; }
+          .dark-mode a { color: #93c5fd; }
+          .dark-mode .table-of-contents { background: #0f172a; border-color: #1f2a44; }
+          .dark-mode .toc-search { background:#0b1220; color:#e5e7eb; border:1px solid #1f2a44; }
+          .dark-mode .download-btn { background:#111827; color:#e5e7eb; border:1px solid #374151; }
+          .dark-mode .viz-image { box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+        `}</style>
+      )}
+      <main className="result-main">
+        {imageModal.open && (
+          <div className="image-modal" onClick={closeImage} style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999}}>
+            <img src={imageModal.src} alt={imageModal.alt || ''} style={{maxWidth:'90vw', maxHeight:'90vh', borderRadius:8, boxShadow:'0 10px 30px rgba(0,0,0,0.4)'}} />
+          </div>
+        )}
 
-      <div className="main-content">
-        <header className="paper-header">
+        {/* 좌측 세로 목차 */}
+        <aside className="sidebar">
+          <div className="table-of-contents">
+            <h3 className="toc-title">목차</h3>
+            <ul className="toc-sections">
+              {groups.map(({ parent }) => (
+                <li key={parent.easy_section_id}>
+                  <a href={`#${parent.easy_section_id}`}
+                     className={`toc-link ellipsis-one ${activeTocId===parent.easy_section_id?'active':''}`}
+                     title={parent.easy_section_title}>
+                    {parent.easy_section_title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
+
+        {/* 우측 본문(히어로 + 섹션들) */}
+        <section className="content">
+          {/* 히어로 카드(제목) */}
+          <header className="paper-header">
           <h1 id="paper-title">{integratedData.paper_info.paper_title}</h1>
           <div className="paper-info">
             <p>
@@ -984,106 +1520,105 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                 {integratedData.paper_info.paper_venue}
               </span>
             </p>
-            <p>
-              <strong>논문 ID:</strong>{" "}
-              <span id="paper-id">{integratedData.paper_info.paper_id}</span>
-            </p>
           </div>
         </header>
+            {groupSections(integratedData.easy_sections).map(({ parent, children }, sectionIdx) => {
+              // 마지막 섹션인지 확인
+              const isLastSection = sectionIdx === groupSections(integratedData.easy_sections).length - 1;
+              
+              return (
+                <article key={parent.easy_section_id} id={parent.easy_section_id} className="paper-section-card">
+                  <header className="section-header"><h2>{parent.easy_section_title}</h2></header>
+                  
+                  {/* [ADD] 하드코딩 매핑된 섹션 Figure */}
+                  {(() => {
+                    const sectionFigIdx = FIGURE_MAP[parent.easy_section_id];
+                    const sectionFig = sectionFigIdx ? figQueue.find(f => f.order === sectionFigIdx) : undefined;
+                    const sectionCaption = sectionFigIdx ? FIGURE_CAPTION[sectionFigIdx] : '';
+                    return sectionFig ? (
+                      <figure className="my-4 sidecar-figure mapped-figure section-mapped-figure">
+                        <img 
+                          src={sectionFig.image_path} 
+                          alt={sectionCaption}
+                          onClick={() => openImage(sectionFig.image_path, sectionCaption)}
+                          style={{ cursor: 'zoom-in', maxWidth: '100%' }}
+                        />
+                        <figcaption className="text-sm text-gray-500 mt-1">
+                          {sectionCaption}
+                        </figcaption>
+                      </figure>
+                    ) : null;
+                  })()}
+                  
+                  {/* 기존 섹션 레벨 Figures (호환성) */}
+                  {(parent as any).figures?.map((figure: FigureMeta, idx: number) => (
+                    <FigureView 
+                      key={`section-fig-${idx}`}
+                      figure={figure} 
+                      openImage={openImage} 
+                      className="section-figure legacy-figure"
+                    />
+                  ))}
+                  
+                  {ensureParagraphs(parent).map(p => (
+                    <ParagraphView key={p.easy_paragraph_id} p={p} sectionId={parent.easy_section_id} openImage={openImage} getImageSrc={getImageSrc}/>
+                  ))}
+                  {children.map(sub => (
+                    <section key={sub.easy_section_id} id={sub.easy_section_id} className="paper-subsection">
+                      <header className="subsection-header"><h3>{sub.easy_section_title}</h3></header>
+                      
+                      {/* 서브섹션 레벨 Figures */}
+                      {(sub as any).figures?.map((figure: FigureMeta, idx: number) => (
+                        <FigureView 
+                          key={`subsection-fig-${idx}`}
+                          figure={figure} 
+                          openImage={openImage} 
+                          className="subsection-figure"
+                        />
+                      ))}
+                      
+                      {ensureParagraphs(sub).map(p => (
+                        <ParagraphView key={p.easy_paragraph_id} p={p} sectionId={sub.easy_section_id} openImage={openImage} getImageSrc={getImageSrc}/>
+                      ))}
+                    </section>
+                  ))}
+                  
+                  {/* [ADD] 마지막 섹션에 남은 figures 자동 추가 */}
+                  {isLastSection && (() => {
+                    const remainingFigures = getRemainingFigures();
+                    if (remainingFigures.length > 0) {
+                      console.log(`📊 [FIG] 남은 figures를 마지막 섹션에 추가: ${remainingFigures.length}개`);
+                      return (
+                        <div className="remaining-figures">
+                          <h4 className="remaining-figures-title">관련 그림</h4>
+                          {remainingFigures.map((fig, i) => {
+                            const remainingCaption = FIGURE_CAPTION[fig.order] ?? `Figure ${fig.order}`;
+                            return (
+                              <figure key={`remaining-${i}`} className="my-3 sidecar-figure remaining-figure">
+                                <img 
+                                  src={fig.image_path} 
+                                  alt={remainingCaption}
+                                  onClick={() => openImage(fig.image_path, remainingCaption)}
+                                  style={{ cursor: 'zoom-in', maxWidth: '100%' }}
+                                />
+                                <figcaption className="text-sm text-gray-500 mt-1">
+                                  {remainingCaption}
+                                </figcaption>
+                              </figure>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </article>
+              );
+            })}
+          </section>
 
-        <div id="integrated-paper" className="integrated-paper">
-          <div className="paper-sections" id="paper-sections">
-            {integratedData.easy_sections.map((section, index) =>
-              createSectionElement(section, index)
-            )}
-          </div>
-        </div>
-
-        {/* 모델 에러 및 로그 표시 */}
-        {integratedData?.model_errors && (
-          <div className="model-status">
-            <h3>모델 처리 상태</h3>
-            <div className="model-status-grid">
-              {integratedData.model_errors.easy_model_error ? (
-                <div className="status-item error">
-                  <span className="status-icon">❌</span>
-                  <div className="status-content">
-                    <strong>Easy 모델</strong>
-                    <p>{integratedData.model_errors.easy_model_error}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="status-item success">
-                  <span className="status-icon">✅</span>
-                  <div className="status-content">
-                    <strong>Easy 모델</strong>
-                    <p>정상 처리 완료</p>
-                  </div>
-                </div>
-              )}
-
-              {integratedData.model_errors.math_model_error ? (
-                <div className="status-item error">
-                  <span className="status-icon">❌</span>
-                  <div className="status-content">
-                    <strong>Math 모델</strong>
-                    <p>{integratedData.model_errors.math_model_error}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="status-item success">
-                  <span className="status-icon">✅</span>
-                  <div className="status-content">
-                    <strong>Math 모델</strong>
-                    <p>정상 처리 완료</p>
-                  </div>
-                </div>
-              )}
-
-              {integratedData.model_errors.viz_api_error ? (
-                <div className="status-item error">
-                  <span className="status-icon">❌</span>
-                  <div className="status-content">
-                    <strong>Viz API</strong>
-                    <p>{integratedData.model_errors.viz_api_error}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="status-item success">
-                  <span className="status-icon">✅</span>
-                  <div className="status-content">
-                    <strong>Viz API</strong>
-                    <p>정상 처리 완료</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 처리 로그 표시 */}
-        {integratedData?.processing_logs &&
-          integratedData.processing_logs.length > 0 && (
-            <div className="processing-logs">
-              <h3>처리 로그</h3>
-              <div className="logs-container">
-                {integratedData.processing_logs.map((log, index) => (
-                  <div key={index} className="log-item">
-                    <span className="log-time">
-                      {new Date().toLocaleTimeString()}
-                    </span>
-                    <span className="log-message">{log}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-        <footer className="paper-footer">
-          <p>AI 통합 분석 시스템 | YOLOv1 논문 분석 결과</p>
-          {displayStats()}
-        </footer>
-      </div>
+        {/* 오른쪽 패널 없음 — 수식은 문단 인라인만 */}
+      </main>
     </div>
   );
 };

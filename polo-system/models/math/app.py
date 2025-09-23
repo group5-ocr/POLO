@@ -440,9 +440,13 @@ _MATHBBM_ONE_RE = re.compile(r"\\mathbbm\s*\{\s*1\s*\}")
 _MATHBBM_ANY_RE = re.compile(r"\\mathbbm\s*\{")
 
 def normalize_for_mathjax(eq: str) -> str:
+    """MathJax 친화적으로 수식 정규화 (기존 함수 + 새로운 전처리 파이프라인)"""
     s = eq
+    # 기존 처리
     s = _MATHBBM_ONE_RE.sub(r"\\mathbf{1}", s)
     s = _MATHBBM_ANY_RE.sub(r"\\mathbb{", s)
+    # 새로운 전처리 파이프라인 적용 (이스케이프 복원 + 매크로 수정)
+    s = preprocess_latex(s)
     return s
 
 # === 렌더링: env 저장 시 원래 환경으로 감싸기 ===============================
@@ -464,6 +468,59 @@ def latex_escape_verbatim(s: str) -> str:
     s = s.replace("_", r"\_").replace("{", r"\{").replace("}", r"\}")
     s = s.replace("^", r"\^{}").replace("~", r"\~{}")
     return s
+
+def unescape_once(s: str) -> str:
+    """
+    역슬래시 이스케이프 복원 함수
+    "\\leq" -> "\leq", "\\phi" -> "\phi" 등
+    """
+    if not s:
+        return s
+    return s.replace('\\\\', '\\')
+
+def fix_latex_macros(s: str) -> str:
+    """
+    LaTeX 텍스트에서 MathJax가 지원하지 않는 매크로를 지원되는 형태로 치환
+    
+    Args:
+        s: LaTeX 텍스트
+        
+    Returns:
+        치환된 LaTeX 텍스트
+    """
+    if not s:
+        return s
+    
+    # \mathlarger{...} -> 크기만 키우는 목적이면 \large{...}로 대체
+    s = re.sub(r'\\mathlarger\s*\{([^}]+)\}', r'\\large{\1}', s)
+    s = re.sub(r'\\mathlarger\s+', '', s)  # 인수 없는 경우 제거
+    
+    # \mathbbm{1} -> \mathbf{1} (지표함수용), 다른 문자는 \mathbb로
+    s = re.sub(r'\\mathbbm\{1\}', r'\\mathbf{1}', s)
+    s = re.sub(r'\\mathbbm\{([^}]+)\}', r'\\mathbb{\1}', s)
+    
+    return s
+
+def preprocess_latex(s: str) -> str:
+    """
+    LaTeX 수식 전처리 파이프라인 (이스케이프 복원 + 매크로 수정)
+    
+    Args:
+        s: LaTeX 텍스트
+        
+    Returns:
+        전처리된 LaTeX 텍스트
+    """
+    if not s:
+        return s
+    
+    # 1. 역슬래시 이스케이프 복원
+    processed = unescape_once(s)
+    
+    # 2. 매크로 수정
+    processed = fix_latex_macros(processed)
+    
+    return processed
 
 def build_report(overview: str, items: List[Dict]) -> str:
     header = (r"""\\documentclass[11pt]{article}
@@ -1092,6 +1149,7 @@ def _render_html(doc_en: dict, doc_ko: dict) -> str:
     tex: {{
       inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
       displayMath: [['\\\\[','\\\\]'], ['$$','$$']],
+      processEscapes: true,
       {macros_block}
     }},
     svg: {{ fontCache: 'global' }}
@@ -1169,6 +1227,7 @@ def _render_live_html(overview_en: str, overview_ko: str, items: list) -> str:
     tex: {{
       inlineMath: [['\\\\(','\\\\)'], ['$', '$']],
       displayMath: [['\\\\[','\\\\]'], ['$$','$$']],
+      processEscapes: true,
       {macros_block}
     }},
     svg: {{ fontCache: 'global' }}

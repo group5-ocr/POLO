@@ -279,6 +279,38 @@ if exist "%FRONTEND_DIR%" (
   echo [WARN] Frontend directory not found: %FRONTEND_DIR%
 )
 
+REM ============================================================
+REM [FIGURES] Build figures_map.json (assets.jsonl → PNG → map)
+set FIG_BUILD_PY=%~dp0tools\build_figures_map.py
+if exist "%FIG_BUILD_PY%" (
+  echo [FIG] Generating figures_map.json ...
+  python "%FIG_BUILD_PY%"
+) else (
+  echo [FIG][WARN] build_figures_map.py not found: %FIG_BUILD_PY%
+)
+
+REM [FIG] Build figure mapping template (integrated_result.json → figureMapTemplate.ts)
+set FIG_TEMPLATE_PY=%~dp0tools\build_figure_map_template.py
+if exist "%FIG_TEMPLATE_PY%" (
+  echo [FIG] Generating figure mapping template ...
+  python "%FIG_TEMPLATE_PY%"
+) else (
+  echo [FIG][WARN] build_figure_map_template.py not found: %FIG_TEMPLATE_PY%
+)
+
+REM [FIG] 사이드카 정적 서버 실행 (선택적 - 메인 서버에 /static이 없을 때만)
+set FIG_SIDECAR_PY=%~dp0tools\figsidecar_app.py
+set FIG_STATIC_ROOT=C:\POLO\POLO\polo-system\server\data\outputs
+set FIG_SIDECAR_PORT=8010
+
+if exist "%FIG_SIDECAR_PY%" (
+  echo [FIG] Start static sidecar on port %FIG_SIDECAR_PORT% ...
+  start "FigStatic" cmd /c python "%FIG_SIDECAR_PY%" --root "%FIG_STATIC_ROOT%" --port %FIG_SIDECAR_PORT%
+) else (
+  echo [FIG][WARN] figsidecar_app.py not found: %FIG_SIDECAR_PY%
+)
+REM ============================================================
+
 echo.
 echo ========================================
 echo POLO System Started Successfully!

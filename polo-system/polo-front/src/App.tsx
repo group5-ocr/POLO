@@ -183,7 +183,7 @@ function AppContent() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/upload" element={<Upload />} />
-        <Route path="/result" element={<Result />} />
+        <Route path="/result/:paperId" element={<Result />} />
       </Routes>
 
       <footer className="footer">

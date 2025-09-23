@@ -23,6 +23,18 @@
             ["$$", "$$"],
             ["\\[", "\\]"],
           ],
+          processEscapes: true,
+          macros: {
+            mathlarger: ['{\\large #1}', 1],
+            mathbbm: ['{\\mathbb{#1}}', 1],
+            wt: ['{\\widetilde{#1}}', 1],
+            wh: ['{\\widehat{#1}}', 1],
+            dfn: '{\\triangleq}',
+            dB: '{\\mathrm{dB}}',
+            snr: '{\\mathrm{SNR}}',
+            bsnr: '{\\mathrm{S}\\widetilde{\\mathrm{N}}\\mathrm{R}}',
+            dsnr: '{\\Delta\\snr}'
+          }
         },
       };
     </script>
