@@ -1,0 +1,655 @@
+{
+  "paper_info": {
+    "paper_id": "yolo_v1_analysis",
+    "paper_title": "You Only Look Once: Unified, Real-Time Object Detection",
+    "paper_authors": "Joseph Redmon, Santosh Divvala, Ross Girshick, Ali Farhadi",
+    "paper_venue": "CVPR 2016",
+    "paper_date": "2016",
+    "total_sections": 17
+  },
+  "easy_sections": [
+    {
+      "easy_section_id": "easy_section_1",
+      "easy_section_title": "Introduction",
+      "easy_section_type": "section",
+      "easy_section_order": 1,
+      "easy_section_level": 1,
+      "easy_content": "사람은 이미지를 잠깐 보기만 해도 장면 속 object(물체)가 무엇이고 어디 있는지, 서로 어떻게 상호작용하는지 금방 파악합니다. 이런 빠르고 정확한 시각 처리는 운전처럼 복잡한 작업도 거의 의식적 노력 없이 가능하게 합니다. 만약 object detection(물체 탐지)을 빠르고 정확하게 수행하는 알고리즘이 있다면, 컴퓨터는 특수 센서 없이도 자동차를 운전하고, 보조 장치는 사용자에게 실시간 장면 정보를 제공하며, 다양한 상황에 민첩하게 반응하는 일반 목적의 로봇 시스템(surveillance(감시), 안내, 조작 등)까지 가능해집니다.\n\n기존 detection system(탐지 시스템)은 classifier(분류기)를 다른 용도로 재활용하여 탐지를 수행합니다. 특정 object를 찾기 위해, 해당 object용 classifier를 이미지의 여러 위치와 크기에서 반복적으로 평가합니다. 대표적으로 DPM(Deformable Parts Model, 변형 가능한 부품 모델)은 sliding window(격자처럼 창을 이동하며 훑는 방식)로 이미지를 전역적으로 스캔합니다. 또 다른 계열은 빠른 classifier를 활용해 region proposals(물체 후보 영역)를 거른 뒤, 더 강력한 classifier로 후속 판정을 내리는 cascade(연쇄) 구조를 사용합니다. 이때 classifier는 이미지 전 영역의 균일한 간격 위치에서도 실행됩니다.\n\n보다 최근의 접근인 R-CNN 계열은 region proposal(후보 영역) 방법을 사용하여 이미지 전체를 전부 훑지 않고도 빠르게 후보를 생성하고, 각 후보에 대해 convolutional feature(합성곱 특징)를 추출한 뒤 classifier와 bounding box regression(박스 좌표 보정)을 적용합니다. 이런 파이프라인은 강력하지만, 각 구성요소를 따로따로 학습해야 하므로 전체 최적화가 어렵고 시스템이 복잡해지는 단점이 있습니다.\n\n[Figure] \\small \\textbf{The YOLO Detection System.\n\n우리는 object detection을 하나의 single regression(하나의 연속 값 예측) 문제로 다시 정식화합니다. 즉, 입력 이미지로부터 바로 bounding box(바운딩 박스) 좌표와 class probability(클래스 확률)를 **한 번에** 예측합니다. 이 관점에서는 detection이 여러 단계를 거치는 파이프라인이 아니라, 이미지에서 “무엇이 어디에 있는가”를 동시에 회귀(regress)하는 단일 학습 문제로 바뀝니다.\n\nYOLO(You Only Look Once)는 구조가 매우 단순합니다(그림 참조). 단 하나의 convolutional neural network(합성곱 신경망)를 이미지 전체에 적용하고, 네트워크는 **여러** bounding box와 각 box에 대한 class probability를 한꺼번에 예측합니다. 이 방식은 기존 파이프라인 기반 detection에 비해 여러 이점을 제공합니다.\n\n첫째, YOLO는 매우 빠릅니다. 탐지를 단일 regression 문제로 설정했기 때문에, 네트워크를 한 번만 실행해도 결과가 나옵니다. 따라서 end-to-end(입력부터 출력까지 한 번에) 추론이 가능하고, real-time(실시간) 애플리케이션에서도 충분한 속도를 냅니다. 구현과 데모, 사전학습(Pretrained) 모델 등은 프로젝트 페이지에서 확인할 수 있습니다.\n\n둘째, YOLO는 예측 시 이미지의 global context(전체 맥락)를 고려합니다. 서로 다른 후보 영역을 독립적으로 보는 방식이 아니라, 이미지 전체를 한 번에 보면서 상호작용과 배경 정보를 활용합니다. 그 결과 background error(배경을 물체로 잘못 탐지하는 오류)가 기존 방법(예: Fast R-CNN)보다 절반 이하로 줄어듭니다.\n\n셋째, YOLO는 사물에 대한 일반화 가능(transferability)이 큽니다. 즉, 새로운 도메인이나 예상치 못한 입력에도 비교적 잘 견딥니다. 반대로, 후보 영역 기반 방식은 도메인이 바뀌면 성능이 쉽게 무너질 수 있습니다.\n\n물론, 가장 최신의 최고 정확도(state-of-the-art) 방법들과 비교하면 YOLO는 작은 물체나 복잡한 배치에서 정확도(general mAP)가 다소 떨어질 수 있습니다. 하지만 속도, 단순성, 일반화의 장점과의 절충을 고려하면 실용성이 매우 높습니다. 이러한 트레이드오프(trade-off)는 뒤의 실험에서 더 자세히 분석합니다.\n\n우리의 학습/테스트 코드는 모두 오픈소스이며, 다양한 pretrained model(사전학습 모델)도 함께 제공합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_1_1",
+          "easy_paragraph_text": "사람은 이미지를 잠깐 보기만 해도 장면 속 object(물체)가 무엇이고 어디 있는지, 서로 어떻게 상호작용하는지 금방 파악합니다. 이런 빠르고 정확한 시각 처리는 운전처럼 복잡한 작업도 거의 의식적 노력 없이 가능하게 합니다. 만약 object detection(물체 탐지)을 빠르고 정확하게 수행하는 알고리즘이 있다면, 컴퓨터는 특수 센서 없이도 자동차를 운전하고, 보조 장치는 사용자에게 실시간 장면 정보를 제공하며, 다양한 상황에 민첩하게 반응하는 일반 목적의 로봇 시스템(surveillance(감시), 안내, 조작 등)까지 가능해집니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_2",
+          "easy_paragraph_text": "기존 detection system(탐지 시스템)은 classifier(분류기)를 다른 용도로 재활용하여 탐지를 수행합니다. 특정 object를 찾기 위해, 해당 object용 classifier를 이미지의 여러 위치와 크기에서 반복적으로 평가합니다. 대표적으로 DPM(Deformable Parts Model, 변형 가능한 부품 모델)은 sliding window(격자처럼 창을 이동하며 훑는 방식)로 이미지를 전역적으로 스캔합니다. 또 다른 계열은 빠른 classifier를 활용해 region proposals(물체 후보 영역)를 거른 뒤, 더 강력한 classifier로 후속 판정을 내리는 cascade(연쇄) 구조를 사용합니다. 이때 classifier는 이미지 전 영역의 균일한 간격 위치에서도 실행됩니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_1/easy_paragraph_1_2/00__cell_scale.png?rev=1758598503521128600",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:03.542330"
+          }
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_3",
+          "easy_paragraph_text": "보다 최근의 접근인 R-CNN 계열은 region proposal(후보 영역) 방법을 사용하여 이미지 전체를 전부 훑지 않고도 빠르게 후보를 생성하고, 각 후보에 대해 convolutional feature(합성곱 특징)를 추출한 뒤 classifier와 bounding box regression(박스 좌표 보정)을 적용합니다. 이런 파이프라인은 강력하지만, 각 구성요소를 따로따로 학습해야 하므로 전체 최적화가 어렵고 시스템이 복잡해지는 단점이 있습니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_4",
+          "easy_paragraph_text": "[Figure] The YOLO Detection System.",
+          "easy_paragraph_order": 4,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_5",
+          "easy_paragraph_text": "우리는 object detection을 하나의 single regression(하나의 연속 값 예측) 문제로 다시 정식화합니다. 즉, 입력 이미지로부터 바로 bounding box(바운딩 박스) 좌표와 class probability(클래스 확률)를 한 번에 예측합니다. 이 관점에서는 detection이 여러 단계를 거치는 파이프라인이 아니라, 이미지에서 무엇이 어디에 있는가를 동시에 회귀(regress)하는 단일 학습 문제로 바뀝니다.",
+          "easy_paragraph_order": 5,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_6",
+          "easy_paragraph_text": "YOLO(You Only Look Once)는 구조가 매우 단순합니다(그림 참조). 단 하나의 convolutional neural network(합성곱 신경망)를 이미지 전체에 적용하고, 네트워크는 여러 bounding box와 각 box에 대한 class probability를 한꺼번에 예측합니다. 이 방식은 기존 파이프라인 기반 detection에 비해 여러 이점을 제공합니다.",
+          "easy_paragraph_order": 6,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_7",
+          "easy_paragraph_text": "첫째, YOLO는 매우 빠릅니다. 탐지를 단일 regression 문제로 설정했기 때문에, 네트워크를 한 번만 실행해도 결과가 나옵니다. 따라서 end-to-end(입력부터 출력까지 한 번에) 추론이 가능하고, real-time(실시간) 애플리케이션에서도 충분한 속도를 냅니다. 구현과 데모, 사전학습(Pretrained) 모델 등은 프로젝트 페이지에서 확인할 수 있습니다.",
+          "easy_paragraph_order": 7,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_8",
+          "easy_paragraph_text": "둘째, YOLO는 예측 시 이미지의 global context(전체 맥락)를 고려합니다. 서로 다른 후보 영역을 독립적으로 보는 방식이 아니라, 이미지 전체를 한 번에 보면서 상호작용과 배경 정보를 활용합니다. 그 결과 background error(배경을 물체로 잘못 탐지하는 오류)가 기존 방법(예: Fast R-CNN)보다 절반 이하로 줄어듭니다.",
+          "easy_paragraph_order": 8,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_9",
+          "easy_paragraph_text": "셋째, YOLO는 사물에 대한 일반화 가능(transferability)이 큽니다. 즉, 새로운 도메인이나 예상치 못한 입력에도 비교적 잘 견딥니다. 반대로, 후보 영역 기반 방식은 도메인이 바뀌면 성능이 쉽게 무너질 수 있습니다.",
+          "easy_paragraph_order": 9,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_10",
+          "easy_paragraph_text": "물론 최신 최고 정확도(state-of-the-art) 방법들과 비교하면 YOLO는 작은 물체나 복잡한 배치에서 정확도(mAP)가 다소 떨어질 수 있습니다. 하지만 속도, 단순성, 일반화의 장점과의 절충을 고려하면 실용성이 매우 높습니다. 이러한 트레이드오프(trade-off)는 뒤의 실험에서 자세히 분석합니다.",
+          "easy_paragraph_order": 10,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_1/easy_paragraph_1_10/00__flow_arch.png?rev=1758598507288248300",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:07.292154"
+          }
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_1_11",
+          "easy_paragraph_text": "우리의 학습/테스트 코드는 모두 오픈소스이며, 다양한 pretrained model(사전학습 모델)도 함께 제공합니다.",
+          "easy_paragraph_order": 11,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_2",
+      "easy_section_title": "Unified Detection",
+      "easy_section_type": "section",
+      "easy_section_order": 2,
+      "easy_section_level": 1,
+      "easy_content": "우리는 object detection의 개별 구성요소들을 하나로 통합합니다. 우리의 통합 모델은 이미지 전체를 한 번에 보고, grid cell(격자 셀) 단위로 예측을 수행합니다. 각 cell은 여러 bounding box(바운딩 박스)와 confidence score(신뢰도 점수), class probability(클래스 확률)를 출력합니다. 이 값들을 결합하여 최종 클래스별 점수를 만들고, 낮은 점수는 제거합니다. 마지막으로 non-maximum suppression(NMS, 겹치는 박스 중 가장 신뢰도가 높은 것만 남기는 기법)으로 중복 탐지를 줄입니다. 이 모든 과정을 단일 네트워크 실행으로 처리하므로, 높은 mAP(정확도)를 유지하면서도 실시간 속도를 달성합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_2_1",
+          "easy_paragraph_text": "우리는 object detection의 개별 구성요소들을 하나로 통합합니다. 우리의 통합 모델은 이미지 전체를 한 번에 보고, grid cell(격자 셀) 단위로 예측을 수행합니다. 각 cell은 여러 bounding box(바운딩 박스)와 confidence score(신뢰도 점수), class probability(클래스 확률)를 출력합니다. 이 값들을 결합하여 최종 클래스별 점수를 만들고, 낮은 점수는 제거합니다. 마지막으로 non-maximum suppression(NMS, 겹치는 박스 중 가장 신뢰도가 높은 것만 남기는 기법)으로 중복 탐지를 줄입니다. 이 모든 과정을 단일 네트워크 실행으로 처리하므로, 높은 mAP(정확도)를 유지하면서도 실시간 속도를 달성합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_2/easy_paragraph_2_1/00__flow_arch.png?rev=1758598510300229400",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:10.303642"
+          }
+        },
+        {
+          "easy_paragraph_id": "math_math_equation_3",
+          "easy_paragraph_text": "**수식 3**",
+          "math_equation": {
+            "equation_id": "math_equation_3",
+            "equation_index": "(3)",
+            "equation_latex": "\\scriptsize\n\\Pr(\\textrm{Class}_i | \\textrm{Object}) * \\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}} = \\Pr(\\textrm{Class}_i)*\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+            "equation_explanation": "조수\n제공된 LaTeX 논문의 맥락에서 주어진 방정식을 설명하기 위해 문제에 제시된 단계를 따릅니다. 방정식이 계산하거나 나타내는 내용, 가정 또는 조건을 설명하고, 기호와 그 의미를 나열합니다.\n\n### 설명\n\n주어진 방정식은 다음과 같습니다.\n\n이 방정식은 주어진 객체에 대해 특정 클래스 (Class \\(i\\))의 확률을 계산하고, 여기에 객체 자체의 확률을 곱한 후, 예측된 상자의 신뢰도 점수 (IOU_{推}^{truth})를 곱한 값을 나타냅니다. 방정식의 우변은 클래스의 확률과 예측된 상자의 신뢰도 점수의 곱입니다.\n\n### 변수 목록\n\n- \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\): 객체가 있을 때 클래스 \\(i\\)의 확률.\n- \\(\\Pr(\\textrm{Object})\\): 객체 자체의 확률.\n- : 예측된 상자 (IOU_{推}^{truth})의 신뢰도 점수.\n- \\(\\Pr(\\textrm{Class}_i)\\): 클래스 \\(i\\)의 확률.\n- : 예측된 상자 ( same as on the left-hand side)의 신뢰도 점수.\n\n### 가정 및 조건\n\n1. 객체의 확률은 클래스 확률과 무관합니다.\n2. 예측된 상자의 신뢰도 점수는 상자가 객체에 얼마나 잘 맞는지를 나타내는 척도입니다.\n\n### 결론\n\n이 방정식은 주어진 객체에 대한 특정 클래스의 확률, 객체 자체의 확률, 그리고 예측된 상자의 신뢰도 점수를 합산하여 계산합니다. 이 합산 확률은 클래스의 확률과 예측된 상자의 신뢰도 점수를 곱한 값과 같습니다. 이 방정식은 객체 감지에서 예측된 상자의 점수를 매기는 데 사용됩니다.",
+            "equation_context": "수식 3",
+            "equation_variables": [],
+            "equation_importance": "medium",
+            "equation_difficulty": "intermediate"
+          },
+          "paragraph_type": "math_equation"
+        },
+        {
+          "easy_paragraph_id": "math_math_equation_2",
+          "easy_paragraph_text": "**수식 2**",
+          "math_equation": {
+            "equation_id": "math_equation_2",
+            "equation_index": "(2)",
+            "equation_latex": "\\Pr(\\textrm{Class}_i | \\textrm{Object})",
+            "equation_explanation": "조수\n논문의 맥락에서 주어진 방정식을 설명하려면 기호와 그 의미를 이해해야 합니다. 방정식은 다음과 같습니다.\n\n⟦수학0⟧\n\n이는 객체가 객체일 때, 객체가 \\(i\\) 클래스에 속할 확률을 나타냅니다. 논문의 맥락은 다음과 같은 정보를 제공합니다.\n\n1. 이 논문은 이미지에서의 객체 검출에 관한 것입니다.\n2. 이 방정식은 객체가 객체일 때, 특정 클래스 \\(i\\) 객체가 존재할 확률을 나타냅니다.\n\n논문의 맥락은 기호 \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 자체를 정의하지는 않지만, 방정식을 이해하는 데 필요한 맥락을 제공합니다. 논문에서는 이 모델이 각 객체에 대해 각 클래스 \\(i\\)의 확률을 예측한다고 명시합니다. \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 표기법은 해당 객체가 객체일 때 확률이 조건부임을 나타냅니다.\n\n이 방정식을 설명하자면 다음과 같습니다.\n\n방정식 \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\)는 객체가 객체일 때 클래스 \\(i\\)에 속할 확률을 나타냅니다. 이는 논문의 맥락에서 제공되는 조건부 확률입니다. 논문에서는 이 모델이 각 객체에 대해 각 클래스 \\(i\\)에 속할 확률을 예측하며, 이 확률은 객체가 객체라는 조건 하에 존재한다고 명시합니다.\n\n논문의 맥락은 기호 \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 자체를 정의하지는 않지만, 방정식을 이해하는 데 필요한 맥락을 제공합니다. 논문에서는 이 모델이 각 객체에 대해 각 클래스 \\(i\\)의 확률을 예측한다고 명시합니다. \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 표기법은 해당 객체가 객체일 때 확률이 조건부임을 나타냅니다.\n\n따라서 이 방정식에 대한 설명은 다음과 같습니다.\n\n⟦수학0⟧\n\n보조\n논문의 맥락은 방정식을 이해하는 데 필요한 맥락을 제공합니다. 논문은 모델이 각 객체에 대해 각 클래스 \\(i\\)의 확률을 예측한다고 명시합니다. \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 표기법은 해당 객체가 객체일 때 확률이 조건임을 나타냅니다.\n\n따라서 이 방정식에 대한 설명은 다음과 같습니다.\n\n⟦수학0⟧",
+            "equation_context": "수식 2",
+            "equation_variables": [],
+            "equation_importance": "medium",
+            "equation_difficulty": "intermediate"
+          },
+          "paragraph_type": "math_equation"
+        },
+        {
+          "easy_paragraph_id": "math_math_equation_1",
+          "easy_paragraph_text": "**수식 1**",
+          "math_equation": {
+            "equation_id": "math_equation_1",
+            "equation_index": "(1)",
+            "equation_latex": "\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+            "equation_explanation": "조수\n제공된 LaTeX 논문의 맥락 내에서 주어진 방정식을 설명하려면 방정식과 제공된 맥락을 신중하게 분석해야 합니다. 방정식은 다음과 같습니다.\n\n⟦수학0⟧\n\n이 방정식은 예측된 객체의 신뢰도 점수를 나타냅니다. 단계별로 분석해 보겠습니다.\n\n1. **\\(\\Pr(\\textrm{Object})\\)**: 이는 해당 객체가 격자 셀에 존재할 확률을 나타냅니다. 객체가 존재하지 않으면 이 확률은 0입니다.\n\n2. **\\(\\textrm{IOU}_{\\textrm{Pred}}^{\\textrm{truth}}\\)**: 예측된 상자와 실제 값 사이의 Intersection over Union (IOU) 점수를 나타냅니다. IOU 점수는 예측된 상자가 실제 값 상자와 얼마나 잘 일치하는지를 나타내는 척도입니다. 예측된 상자와 실제 값 상자의 교점 면적을 예측된 상자와 실제 값 상자의 합집합 면적으로 나누어 계산합니다.\n\n방정식 전체는 이 두 항의 곱입니다. 즉, 예측된 객체의 신뢰도 점수는 해당 객체가 그리드 셀에 존재할 확률에 예측된 상자와 실제 상자 사이의 유사도 점수 (IOU)를 곱한 값입니다.\n\n### 설명\n\n이 방정식은 예측된 객체의 신뢰도 점수를 계산합니다. 신뢰도 점수는 해당 객체가 그리드 셀에 존재할 확률과 예측된 상자가 실제 상자와 얼마나 일치하는지를 나타내는 척도입니다. 객체가 존재하지 않으면 확률 항은 0이므로 신뢰도 점수도 0입니다. 객체가 존재하면 확률 항은 0과 1 사이의 값이 되고, 신뢰도 점수는 예측된 상자와 실제 상자 사이의 유사도 점수입니다.\n\n### 변수 목록\n\n- **\\(\\Pr(\\textrm{Object})\\)**: 객체가 그리드 셀에 존재할 확률입니다.\n- **\\(\\textrm{IOU}_{\\textrm{Pred}}^{\\textrm{truth}}\\)**: 예측된 상자와 실제 상자 사이의 합집합 점수에 대한 교집합입니다.\n\n### 결론\n\n이 방정식은 예측된 객체의 신뢰도 점수를 계산합니다. 객체가 존재하지 않으면 신뢰도 점수는 0입니다. 객체가 존재하는 경우, 신뢰도 점수는 객체가 존재할 확률과 예측된 상자와 실제 상자 사이의 유사도 점수의 곱입니다.\n\n\\[\n\\boxed{\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{Pred}}^{\\textrm",
+            "equation_context": "수식 1",
+            "equation_variables": [],
+            "equation_importance": "medium",
+            "equation_difficulty": "intermediate"
+          },
+          "paragraph_type": "math_equation"
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_3",
+      "easy_section_title": "Network Design",
+      "easy_section_type": "section",
+      "easy_section_order": 3,
+      "easy_section_level": 1,
+      "easy_content": "[Figure] The Architecture. 우리의 detection network는 24개의 convolutional layer(합성곱 계층) 뒤에 2개의 fully connected layer(완전 연결 계층)가 이어지는 구조입니다. 교대로 배치한 1×1 convolution(차원 축소) 계층으로 이전 층의 feature space(특징 차원)를 줄이고, detection을 위해 사전학습을 ImageNet(이미지 분류)에서 절반 해상도(입력 224×224)로 수행한 뒤, detection 단계에서는 해상도를 2배로 올립니다.\n\n우리는 이 모델을 convolutional neural network(합성곱 신경망)로 구현하고 Pascal VOC(객체 탐지 벤치마크) 데이터셋에서 평가합니다. 네트워크의 초기 합성곱 계층들은 이미지에서 특징을 추출하고, fully connected 계층들은 출력 확률과 박스 좌표를 예측합니다.\n\n네트워크 아키텍처는 이미지 분류용 GoogLeNet에서 영감을 받았습니다. GoogLeNet은 inception module(다양한 커널을 병렬로 사용하는 모듈)을 쓰지만, 우리는 Lin 등(Lin et al)의 아이디어처럼 1×1 차원 축소 계층 뒤에 3×3 합성곱을 사용하는 단순한 블록을 반복합니다. 전체 구조는 Figure net에 제시되어 있습니다.\n\n또한 우리는 빠른 탐지의 한계를 끌어올리기 위해 Fast YOLO를 함께 학습합니다. Fast YOLO는 24개가 아닌 9개의 합성곱 계층과 더 적은 필터를 사용해 네트워크를 경량화했습니다. 네트워크 크기를 제외하면 YOLO와 학습/테스트 설정은 동일합니다.\n\n최종 출력은 7×7×30 크기의 tensor(텐서)이며, 여기에 모든 예측이 담깁니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_3_1",
+          "easy_paragraph_text": "[Figure] The Architecture. 우리의 detection network는 24개의 convolutional layer(합성곱 계층) 뒤에 2개의 fully connected layer(완전 연결 계층)가 이어지는 구조입니다. 교대로 배치한 1×1 convolution(차원 축소) 계층으로 이전 층의 feature space(특징 차원)를 줄이고, detection을 위해 사전학습을 ImageNet(이미지 분류)에서 절반 해상도(입력 224×224)로 수행한 뒤, detection 단계에서는 해상도를 2배로 올립니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_3_2",
+          "easy_paragraph_text": "우리는 이 모델을 convolutional neural network(합성곱 신경망)로 구현하고 Pascal VOC(객체 탐지 벤치마크) 데이터셋에서 평가합니다. 네트워크의 초기 합성곱 계층들은 이미지에서 특징을 추출하고, fully connected 계층들은 출력 확률과 박스 좌표를 예측합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_3_3",
+          "easy_paragraph_text": "네트워크 아키텍처는 이미지 분류용 GoogLeNet에서 영감을 받았습니다. GoogLeNet은 inception module(다양한 커널을 병렬로 사용하는 모듈)을 쓰지만, 우리는 Lin 등(Lin et al)의 아이디어처럼 1×1 차원 축소 계층 뒤에 3×3 합성곱을 사용하는 단순한 블록을 반복합니다. 전체 구조는 Figure net에 제시되어 있습니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_3_4",
+          "easy_paragraph_text": "또한 우리는 빠른 탐지의 한계를 끌어올리기 위해 Fast YOLO를 함께 학습합니다. Fast YOLO는 24개가 아닌 9개의 합성곱 계층과 더 적은 필터를 사용해 네트워크를 경량화했습니다. 네트워크 크기를 제외하면 YOLO와 학습/테스트 설정은 동일합니다.",
+          "easy_paragraph_order": 4,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_3_5",
+          "easy_paragraph_text": "최종 출력은 7×7×30 크기의 tensor(텐서)이며, 여기에 모든 예측이 담깁니다.",
+          "easy_paragraph_order": 5,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_4",
+      "easy_section_title": "Training",
+      "easy_section_type": "subsection",
+      "easy_section_order": 4,
+      "easy_section_level": 2,
+      "easy_content": "우리는 convolutional layer(합성곱 계층)를 ImageNet(대규모 이미지 분류 데이터셋) 분류 과제로 먼저 사전학습(pretrain)하고, Darknet(저자 구현 프레임워크)에서 학습과 추론을 수행합니다. 이후 모델을 detection(탐지)용으로 전환합니다. Ren 등(Faster R-CNN)의 방식처럼, 네트워크의 입력 해상도를 224×224에서 448×448로 올려 탐지에 필요한 세부 정보를 반영합니다.\n\n최종 계층은 class probability(클래스 확률)와 bounding box(바운딩 박스) 양쪽을 예측합니다. 박스 중심 좌표는 sigmoid 활성화를 적용해 grid cell(격자 셀) 내 [0,1] 범위로 제한하고, 너비와 높이는 상대적 스케일로 예측합니다. 최종 계층은 선형 활성화(linear)를 사용하며, 그 밖의 합성곱 계층은 leaky ReLU(음수 영역 기울기 0.1)를 사용합니다: φ(x)=x (x>0), 0.1x (그 외).\n\n손실은 출력의 sum-squared error(제곱오차합)을 최적화 대상으로 합니다. 단, 이 단순한 손실은 class imbalance(물체 없음 셀의 압도적 다수) 때문에 학습 초기에 불안정해질 수 있습니다. 이를 완화하기 위해 좌표(term)에는 더 큰 가중치 λ_coord=5를, 물체가 없는 셀의 confidence(신뢰도)에는 더 작은 가중치 λ_noobj=0.5를 둡니다.\n\n또한 큰 박스와 작은 박스의 오차가 동일 가중으로 처리되는 문제를 줄이기 위해, 박스 너비·높이에 직접 오차를 주는 대신 **제곱근(sqrt)** 을 예측하여 상대적 크기 차이를 완화합니다. 이렇게 하면 작은 물체의 위치 오차에 더 민감해집니다.\n\nYOLO는 각 grid cell마다 여러 bounding box를 예측합니다. 학습 시에는 해당 셀에서 **가장 IOU(Intersection over Union, 겹침 비율)가 높은** 예측 박스 하나만을 “책임 박스”로 지정하여 그 박스만 좌표 오차와 confidence 오차를 통해 학습합니다. 나머지 박스는 물체가 없다고 간주해 no-object 손실만 받습니다. 이 책임 할당을 통해 예측기들이 서로 다른 크기/종횡비/클래스에 특화되도록 유도합니다.\n\n최종 손실은 다항식 형태의 합성 손실로 구성됩니다(좌표, 크기, confidence, 분류). 분류 손실은 해당 셀에 물체가 있는 경우에만 적용됩니다. 좌표 손실은 “책임” 박스에만 적용됩니다. 학습은 VOC 2007/2012 train+val 세트(2012 테스트 시 2007 테스트도 학습에 포함)를 사용해 약 135 epoch 동안 진행하며, 배치 크기 64, 모멘텀 0.9, weight decay 0.0005를 사용합니다. learning rate(학습률)는 1 epoch 워밍업 후 0.01로 올렸다가, 75 epoch 후 0.001, 105 epoch 후 0.0001로 단계적으로 감소시킵니다.\n\n과적합을 피하기 위해 dropout과 광범위한 data augmentation(데이터 증강)을 사용합니다. 랜덤 스케일 및 위치 이동, 사진측 좌우 반전, HSV 색공간에서 최대 1.5배까지의 색상 변화 등을 적용합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_4_1",
+          "easy_paragraph_text": "우리는 convolutional layer(합성곱 계층)를 ImageNet(대규모 이미지 분류 데이터셋) 분류 과제로 먼저 사전학습(pretrain)하고, Darknet(저자 구현 프레임워크)에서 학습과 추론을 수행합니다. 이후 모델을 detection(탐지)용으로 전환합니다. Ren 등(Faster R-CNN)의 방식처럼, 네트워크의 입력 해상도를 224×224에서 448×448로 올려 탐지에 필요한 세부 정보를 반영합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "math_math_equation_6",
+          "easy_paragraph_text": "**수식 6**",
+          "math_equation": {
+            "equation_id": "math_equation_6",
+            "equation_index": "(6)",
+            "equation_latex": "\\lambda_\\textbf{coord}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n x_i - \\hat{x}_i\n \\right)^2 +\n \\left(\n y_i - \\hat{y}_i\n \\right)^2\n \\right]\n\\\\\n+ \\lambda_\\textbf{coord} \n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n \\sqrt{w_i} - \\sqrt{\\hat{w}_i}\n \\right)^2 +\n \\left(\n \\sqrt{h_i} - \\sqrt{\\hat{h}_i}\n \\right)^2\n \\right]\n\\\\\n+ \\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\lambda_\\textrm{noobj}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{noobj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\sum_{i = 0}^{S^2}\n\\mathlarger{\\mathbbm{1}}_i^{\\text{obj}}\n \\sum_{c \\in \\textrm{classes}}\n \\left(\n p_i(c) - \\hat{p}_i(c)\n \\right)^2",
+            "equation_explanation": "보조\n주어진 LaTeX 방정식을 설명하려면 방정식을 단계별로 분석하고 각 항을 이해해야 합니다. 방정식은 다음과 같습니다.\n\n⟦수학0⟧\n\n자세히 살펴보겠습니다.\n\n1. **\\(\\lambda_\\textbf{coord}\\) 및 \\(\\lambda_\\textrm{no objects}\\)**: 이는 각각 좌표 및 객체 손실에 대한 손실 함수의 가중치를 제어하는 ​​하이퍼 매개변수입니다.\n\n2. **첫 번째 항**: 이 항은 경계 상자 좌표에 대한 평균 제곱 오차 (MSE)를 계산합니다. 이미지의 모든 경계 상자 (from \\(i = 0\\) to \\(S^2\\))와 각 경계 상자 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{ obj}}\\) 항은 경계 상자가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 안의 항은 기준 좌표 \\((x_i, y_i)\\)와 예측 좌표 \\((\\hat{x}_i, \\hat{y}_i)\\)의 차이 제곱입니다.\n\n3. **두 번째 항**: 이 항은 경계 상자의 종횡비에 대한 평균 제곱 오차 (MSE)를 계산합니다. 첫 번째 항과 유사하지만 경계 상자의 너비와 높이의 제곱근을 사용합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{ obj}}\\) 항은 경계 상자가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 기준 종횡비 \\((\\sqrt{w_i}, \\sqrt{h_i})\\)와 예측 종횡비 \\((\\sqrt{\\hat{w}_i}, \\sqrt{\\hat{h}_i})\\)의 제곱 차이입니다.\n\n4. **세 번째 항**: 이 항은 경계 상자 클래스에 대한 평균 제곱 오차 (MSE)를 계산합니다. 이미지의 모든 경계 상자 (from \\(i = 0\\) to \\(S^2\\))와 각 경계 상자 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{ objects}}\\) 항은 경계 상자가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 기준 클래스 확률 \\((C_i)\\)와 예측 클래스 확률 \\((\\hat{C}_i)\\)의 차이 제곱입니다.\n\n5. **네 번째 항**: 이 항은 세 번째 항과 유사하지만 \"객체 없음\" 경계 상자에 대한 항입니다. 이미지의 모든 경계 상자 (from \\(i = 0\\) to \\(S^2\\))와 각 경계 상자 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{no objects}}\\) 항은 경계 상자에 \"객체 없음\"이 있으면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 기준 클래스 확률 \\((C_i)\\)와 예측 클래스 확률 \\((\\hat{C}_i)\\)의 차이 제곱입니다.\n\n6. **다섯 번째 항**: 이 항은 바운딩 박스 클래스에 대한 교차 KL 손실을 계산합니다. 이미지의 모든 바운딩 박스 (from \\(i = 0\\) to \\(S^2\\))와 각 바운딩 박스 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_i^{\\text{ objects}}\\) 항은 바운딩 박스가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 각 클래스 \\(c\\)에 대한 기준 클래스 확률 \\((p_i(c))\\)와 예측 클래스 확률 \\((\\hat{p}_i(c))\\)의 제곱 차이입니다.\n\n요약하자면, 이 방정식은 이미지의 경계 상자에 대한 총 손실을 계산하는데, 여기에는 좌표, 종횡비, 클래스, 그리고 교차 KL 손실이 포함됩니다. 손실 함수는 각 항의 기여도를 제어하기 위해 하이퍼파라미터 \\(\\lambda_\\textbf{coord}\\)와 \\(\\lambda_\\textrm{no objects}\\)의 가중치를 적용합니다.\n\n조수\n최종 답은 \\(\\boxed{1}\\)입니다.",
+            "equation_context": "수식 6",
+            "equation_variables": [],
+            "equation_importance": "medium",
+            "equation_difficulty": "intermediate"
+          },
+          "paragraph_type": "math_equation"
+        },
+        {
+          "easy_paragraph_id": "math_math_equation_5",
+          "easy_paragraph_text": "**수식 5**",
+          "math_equation": {
+            "equation_id": "math_equation_5",
+            "equation_index": "(5)",
+            "equation_latex": "x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}",
+            "equation_explanation": "보조\n주어진 LaTeX 방정식을 분석하고 제공된 맥락을 기반으로 단계별로 설명해 보겠습니다.\n\n방정식은 다음과 같습니다.\n\\[\n\\phi(x) = \\begin{cases} \nx, & \\text{if } x > 0\\\\\n0.1x, & \\text{otherwise}\n\\end{cases}\n\\]\n\n### 설명\n\n1. **방정식과 그 구성 요소를 식별하세요.**\n- 방정식은 조각 함수입니다.\n- \\( x \\)의 값에 따라 두 가지 경우가 있습니다.\n\n2. **첫 번째 경우: \\( x > 0 \\)**\n- \\( x \\)가 0보다 크면 함수는 \\( x \\) 자체를 반환합니다.\n- 이 경우는 간단하며 양수 값에 대한 항등 함수를 나타냅니다.\n\n3. **두 번째 경우: \\( x \\leq 0 \\)**\n- \\( x \\)가 0보다 작거나 같으면 함수는 \\( 0.1x \\)를 반환합니다.\n- 이 경우 음수 값을 0.1씩 조정하여 출력이 원하는 범위 내에 있도록 합니다.\n\n### 변수 목록\n\n- ** 기호: \\( x \\)**\n- 이 기호는 함수의 입력 값을 나타냅니다.\n- 문맥에 따라 0과 1 사이의 값으로 제한됩니다.\n\n### 결론\n\n방정식 \\(\\phi(x)\\)는 출력이 항상 [0, 1] 범위 내에 있도록 설계되었습니다. 이 방정식은 양수 및 양수가 아닌 입력을 모두 처리하기 위해 조각별 함수를 사용합니다. 양수 입력의 경우 입력 값 자체를 반환합니다. 양수가 아닌 입력의 경우, 출력이 음수가 아닌 원하는 범위 내에 있도록 입력 값을 0.1만큼 조정합니다.\n\n⟦수학0⟧",
+            "equation_context": "수식 5",
+            "equation_variables": [],
+            "equation_importance": "medium",
+            "equation_difficulty": "intermediate"
+          },
+          "paragraph_type": "math_equation"
+        },
+        {
+          "easy_paragraph_id": "math_math_equation_4",
+          "easy_paragraph_text": "**수식 4**",
+          "math_equation": {
+            "equation_id": "math_equation_4",
+            "equation_index": "(4)",
+            "equation_latex": "\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}",
+            "equation_explanation": "보조\n주어진 LaTeX 방정식을 분석하고 제공된 맥락을 기반으로 단계별로 설명해 보겠습니다.\n\n방정식은 다음과 같습니다.\n\\[\n\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}\n\\]\n\n### 설명\n\n1. **함수와 그 동작을 식별하세요.**\n- 함수 \\(\\phi(x)\\)는 조각 함수입니다. 즉, \\(x\\)의 값에 따라 정의가 달라집니다.\n\n2. **사례 1: \\(x > 0\\)**\n- \\(x\\)이 0보다 크면 \\(\\phi(x)\\) 함수는 단순히 \\(x\\)의 값을 반환합니다. 즉, \\(x\\)의 값이 양수이면 함수는 \\(x\\)의 값을 변경하지 않습니다.\n\n3. **사례 2: \\(x \\leq 0\\)**\n- \\(x\\)가 0보다 작거나 같으면 \\(\\phi(x)\\) 함수는 \\(0.1x\\)를 반환합니다. 즉, \\(x\\)가 양수가 아닌 값인 경우, 함수는 \\(x\\)를 0.1배로 조정합니다.\n\n### 변수 및 기호 목록\n\n- \\(x\\): 이것은 함수 \\(\\phi\\)에 대한 입력입니다.\n\n### 결론\n\n함수 \\(\\phi(x)\\)는 \\(x\\)가 양수가 아니면 입력 \\(x\\)의 크기를 0.1배로 조정하고, \\(x\\)가 양수이면 \\(x\\)의 값을 변경하지 않고 반환하는 구간 선형 함수입니다. 이 함수는 출력이 항상 음수가 아니도록 하고 음수 입력의 크기를 줄여야 하는 경우에 유용합니다.\n\n최종 답은 다음과 같습니다.\n\\[\n\\boxed{\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}}\n\\]",
+            "equation_context": "수식 4",
+            "equation_variables": [],
+            "equation_importance": "medium",
+            "equation_difficulty": "intermediate"
+          },
+          "paragraph_type": "math_equation"
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_2",
+          "easy_paragraph_text": "최종 계층은 class probability(클래스 확률)와 bounding box(바운딩 박스) 양쪽을 예측합니다. 박스 중심 좌표는 sigmoid 활성화를 적용해 grid cell(격자 셀) 내 [0,1] 범위로 제한하고, 너비와 높이는 상대적 스케일로 예측합니다. 최종 계층은 선형 활성화(linear)를 사용하며, 그 밖의 합성곱 계층은 leaky ReLU(음수 영역 기울기 0.1)를 사용합니다: φ(x)=x (x>0), 0.1x (그 외).",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_4/easy_paragraph_4_2/00__flow_arch.png?rev=1758598513026618400",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:13.032742"
+          }
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_3",
+          "easy_paragraph_text": "손실은 출력의 sum-squared error(제곱오차합)을 최적화 대상으로 합니다. 단, 이 단순한 손실은 class imbalance(물체 없음 셀의 압도적 다수) 때문에 학습 초기에 불안정해질 수 있습니다. 이를 완화하기 위해 좌표(term)에는 더 큰 가중치 λ_coord=5를, 물체가 없는 셀의 confidence(신뢰도)에는 더 작은 가중치 λ_noobj=0.5를 둡니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_4",
+          "easy_paragraph_text": "또한 큰 박스와 작은 박스의 오차가 동일 가중으로 처리되는 문제를 줄이기 위해, 박스 너비·높이에 직접 오차를 주는 대신 제곱근(sqrt)을 예측하여 상대적 크기 차이를 완화합니다. 이렇게 하면 작은 물체의 위치 오차에 더 민감해집니다.",
+          "easy_paragraph_order": 4,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_5",
+          "easy_paragraph_text": "YOLO는 각 grid cell마다 여러 bounding box를 예측합니다. 학습 시에는 해당 셀에서 가장 IOU(Intersection over Union, 겹침 비율)가 높은 예측 박스 하나만을 “책임 박스”로 지정하여 그 박스만 좌표 오차와 confidence 오차를 통해 학습합니다. 나머지 박스는 물체가 없다고 간주해 no-object 손실만 받습니다. 이 책임 할당을 통해 예측기들이 서로 다른 크기/종횡비/클래스에 특화되도록 유도합니다.",
+          "easy_paragraph_order": 5,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_4/easy_paragraph_4_5/00__flow_arch.png?rev=1758598515950974200",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:15.956572"
+          }
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_6",
+          "easy_paragraph_text": "최종 손실은 다항식 형태의 합성 손실로 구성됩니다(좌표, 크기, confidence, 분류). 분류 손실은 해당 셀에 물체가 있는 경우에만 적용됩니다. 좌표 손실은 “책임” 박스에만 적용됩니다. 학습은 VOC 2007/2012 train+val 세트(2012 테스트 시 2007 테스트도 학습에 포함)를 사용해 약 135 epoch 동안 진행하며, 배치 크기 64, 모멘텀 0.9, weight decay 0.0005를 사용합니다. learning rate(학습률)는 1 epoch 워밍업 후 0.01로 올렸다가, 75 epoch 후 0.001, 105 epoch 후 0.0001로 단계적으로 감소시킵니다.",
+          "easy_paragraph_order": 6,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_4_7",
+          "easy_paragraph_text": "과적합을 피하기 위해 dropout과 광범위한 data augmentation(데이터 증강)을 사용합니다. 랜덤 스케일 및 위치 이동, 사진측 좌우 반전, HSV 색공간에서 최대 1.5배까지의 색상 변화 등을 적용합니다.",
+          "easy_paragraph_order": 7,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_5",
+      "easy_section_title": "Testing on Pascal VOC",
+      "easy_section_type": "section",
+      "easy_section_order": 5,
+      "easy_section_level": 1,
+      "easy_content": "우리는 Pascal VOC(객체 탐지 벤치마크 데이터셋)에서 시스템을 학습하고 평가했습니다. 2007 및 2012 버전을 모두 학습과 테스트에 사용했습니다. 표준 평가 프로토콜을 따르며, test set에서 mean average precision(mAP, 평균 정확도)을 보고했습니다.\n\n학습 시에는 2012 테스트에는 2007과 2012의 train/val 세트를 합쳐 사용했고, 2007 테스트에는 2007 train/val 세트만 사용했습니다. 배치 크기는 64, 모멘텀은 0.9, weight decay(가중치 감쇠)는 0.0005로 설정했습니다. data augmentation(데이터 증강)으로는 랜덤 스케일링, 이동, 좌우 반전, HSV 색공간에서의 색상 변화를 적용했습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_5_1",
+          "easy_paragraph_text": "우리는 Pascal VOC(객체 탐지 벤치마크 데이터셋)에서 시스템을 학습하고 평가했습니다. 2007 및 2012 버전을 모두 학습과 테스트에 사용했습니다. 표준 평가 프로토콜을 따르며, test set에서 mean average precision(mAP, 평균 정확도)을 보고했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_5/easy_paragraph_5_1/00__flow_arch.png?rev=1758598518560794600",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:18.567010"
+          }
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_5_2",
+          "easy_paragraph_text": "학습 시에는 2012 테스트에는 2007과 2012의 train/val 세트를 합쳐 사용했고, 2007 테스트에는 2007 train/val 세트만 사용했습니다. 배치 크기는 64, 모멘텀은 0.9, weight decay(가중치 감쇠)는 0.0005로 설정했습니다. data augmentation(데이터 증강)으로는 랜덤 스케일링, 이동, 좌우 반전, HSV 색공간에서의 색상 변화를 적용했습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_6",
+      "easy_section_title": "Comparison to Other Detection Systems",
+      "easy_section_type": "section",
+      "easy_section_order": 6,
+      "easy_section_level": 1,
+      "easy_content": "우리는 YOLO(You Only Look Once)를 다른 detection system(탐지 시스템)들과 비교했습니다. 비교 대상에는 DPM(Deformable Parts Model), R-CNN, Fast R-CNN, Faster R-CNN, MultiBox, OverFeat 등이 포함됩니다. YOLO는 이들보다 훨씬 빠르면서도 정확도는 경쟁력이 있으며, 특히 real-time detection(실시간 탐지) 상황에서 뛰어난 성능을 보여줍니다.\n\nYOLO는 region proposal(후보 영역)이나 sliding window(슬라이딩 윈도우)에 의존하지 않고 테스트 시 이미지 전체를 한 번에 해석합니다. 덕분에 background error(배경 오류)가 줄고, 더 일관성 있는 전역 예측이 가능합니다. 그러나 YOLO는 특히 작은 object(물체)에 대해서는 localization error(위치 오차)가 발생하기 쉽습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_6_1",
+          "easy_paragraph_text": "우리는 YOLO(You Only Look Once)를 다른 detection system(탐지 시스템)들과 비교했습니다. 비교 대상에는 DPM(Deformable Parts Model), R-CNN, Fast R-CNN, Faster R-CNN, MultiBox, OverFeat 등이 포함됩니다. YOLO는 이들보다 훨씬 빠르면서도 정확도는 경쟁력이 있으며, 특히 real-time detection(실시간 탐지) 상황에서 뛰어난 성능을 보여줍니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_6_2",
+          "easy_paragraph_text": "YOLO는 region proposal(후보 영역)이나 sliding window(슬라이딩 윈도우)에 의존하지 않고 테스트 시 이미지 전체를 한 번에 해석합니다. 덕분에 background error(배경 오류)가 줄고, 더 일관성 있는 전역 예측이 가능합니다. 그러나 YOLO는 특히 작은 object(물체)에 대해서는 localization error(위치 오차)가 발생하기 쉽습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_7",
+      "easy_section_title": "Error Analysis on VOC 2007",
+      "easy_section_type": "section",
+      "easy_section_order": 7,
+      "easy_section_level": 1,
+      "easy_content": "우리는 VOC 2007 test set에서 YOLO의 오류를 자세히 분석했습니다. YOLO는 Fast R-CNN보다 background error(배경 오류)는 적게 발생하지만, localization error(위치 오차)는 더 많았습니다. 이는 YOLO가 전역적으로 추론하는 통합 모델인 반면, Fast R-CNN은 proposal 기반 정교화를 거치기 때문입니다.\n\nHoiem 등의 방법론을 따라 오류를 localization error, 유사 카테고리 간 혼동, background error로 구분했습니다. 분석 결과 YOLO의 주요 오류 원인은 localization error였고, 특히 작은 물체나 밀집된 object에서 두드러졌습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_7_1",
+          "easy_paragraph_text": "우리는 VOC 2007 test set에서 YOLO의 오류를 자세히 분석했습니다. YOLO는 Fast R-CNN보다 background error(배경 오류)는 적게 발생하지만, localization error(위치 오차)는 더 많았습니다. 이는 YOLO가 전역적으로 추론하는 통합 모델인 반면, Fast R-CNN은 proposal 기반 정교화를 거치기 때문입니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_7_2",
+          "easy_paragraph_text": "Hoiem 등의 방법론을 따라 오류를 localization error, 유사 카테고리 간 혼동, background error로 구분했습니다. 분석 결과 YOLO의 주요 오류 원인은 localization error였고, 특히 작은 물체나 밀집된 object에서 두드러졌습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_8",
+      "easy_section_title": "Training",
+      "easy_section_type": "subsection",
+      "easy_section_order": 8,
+      "easy_section_level": 2,
+      "easy_content": "우리는 convolutional layer(합성곱 계층)를 ImageNet(대규모 이미지 분류 데이터셋)에서 먼저 사전학습(pretrain)한 뒤 detection(탐지)용으로 미세 조정(fine-tuning)했습니다. 입력 해상도를 224×224에서 448×448로 올려 탐지에 필요한 세부 정보를 더 잘 포착할 수 있도록 했습니다.\n\n최종 계층은 class probability(클래스 확률)와 bounding box(바운딩 박스) 좌표를 모두 예측합니다. 최종 계층은 linear activation(선형 활성화)를 사용하고, 다른 합성곱 계층은 leaky ReLU(음수 영역 기울기 0.1)를 사용했습니다. 학습 시 각 grid cell(격자 셀)은 여러 bounding box를 예측하지만, IOU(Intersection over Union, 겹침 비율)가 가장 높은 박스 하나만 책임 박스로 지정해 object 예측을 담당하게 했습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_8_1",
+          "easy_paragraph_text": "우리는 convolutional layer(합성곱 계층)를 ImageNet(대규모 이미지 분류 데이터셋)에서 먼저 사전학습(pretrain)한 뒤 detection(탐지)용으로 미세 조정(fine-tuning)했습니다. 입력 해상도를 224×224에서 448×448로 올려 탐지에 필요한 세부 정보를 더 잘 포착할 수 있도록 했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_8_2",
+          "easy_paragraph_text": "최종 계층은 class probability(클래스 확률)와 bounding box(바운딩 박스) 좌표를 모두 예측합니다. 최종 계층은 linear activation(선형 활성화)를 사용하고, 다른 합성곱 계층은 leaky ReLU(음수 영역 기울기 0.1)를 사용했습니다. 학습 시 각 grid cell(격자 셀)은 여러 bounding box를 예측하지만, IOU(Intersection over Union, 겹침 비율)가 가장 높은 박스 하나만 책임 박스로 지정해 object 예측을 담당하게 했습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true,
+          "visualization": {
+            "image_path": "viz/easy_section_8/easy_paragraph_8_2/00__flow_arch.png?rev=1758598521356948600",
+            "viz_type": "auto_generated",
+            "created_at": "2025-09-23T12:35:21.360980"
+          }
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_9",
+      "easy_section_title": "Experiments",
+      "easy_section_type": "section",
+      "easy_section_order": 9,
+      "easy_section_level": 1,
+      "easy_content": "YOLO(You Only Look Once)를 Pascal VOC(객체 탐지 벤치마크 데이터셋) 2007과 2012 버전에서 평가했습니다. 학습 시에는 다양한 data augmentation(데이터 증강)을 적용하여 모델이 여러 환경에서도 잘 일반화되도록 했습니다.\n\nYOLO는 다른 detection system(탐지 시스템)에 비해 속도가 매우 빠르며, 정확도 또한 충분히 경쟁력이 있습니다. 특히 real-time detection(실시간 탐지) 영역에서 두드러진 성능을 보입니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_9_1",
+          "easy_paragraph_text": "YOLO(You Only Look Once)를 Pascal VOC(객체 탐지 벤치마크 데이터셋) 2007과 2012 버전에서 평가했습니다. 학습 시에는 다양한 data augmentation(데이터 증강)을 적용하여 모델이 여러 환경에서도 잘 일반화되도록 했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_9_2",
+          "easy_paragraph_text": "YOLO는 다른 detection system(탐지 시스템)에 비해 속도가 매우 빠르며, 정확도 또한 충분히 경쟁력이 있습니다. 특히 real-time detection(실시간 탐지) 영역에서 두드러진 성능을 보입니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_10",
+      "easy_section_title": "Comparison to Other Real-Time Systems",
+      "easy_section_type": "section",
+      "easy_section_order": 10,
+      "easy_section_level": 1,
+      "easy_content": "YOLO는 다른 real-time detection(실시간 탐지) 시스템과 비교했을 때 훨씬 더 높은 정확도를 보여줍니다. 예를 들어 DPM(Deformable Parts Model, 변형 가능한 부품 모델)은 속도가 느리고, R-CNN 기반 모델들은 실시간으로 동작하기 어렵습니다.\n\nYOLO는 FPS(frame per second, 초당 프레임) 지표에서 월등히 앞서며, 실제 응용 환경에서 바로 사용할 수 있는 수준의 성능을 갖추고 있습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_10_1",
+          "easy_paragraph_text": "YOLO는 다른 real-time detection(실시간 탐지) 시스템과 비교했을 때 훨씬 더 높은 정확도를 보여줍니다. 예를 들어 DPM(Deformable Parts Model, 변형 가능한 부품 모델)은 속도가 느리고, R-CNN 기반 모델들은 실시간으로 동작하기 어렵습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_10_2",
+          "easy_paragraph_text": "YOLO는 FPS(frame per second, 초당 프레임) 지표에서 월등히 앞서며, 실제 응용 환경에서 바로 사용할 수 있는 수준의 성능을 갖추고 있습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_11",
+      "easy_section_title": "VOC 2007 Error Analysis",
+      "easy_section_type": "section",
+      "easy_section_order": 11,
+      "easy_section_level": 1,
+      "easy_content": "Pascal VOC 2007 데이터셋에서 YOLO의 오류를 분석했습니다. YOLO는 localization error(위치 오차)가 자주 발생하며, 작은 object(물체)를 탐지하는 데 어려움이 있습니다.\n\n반대로 YOLO는 background error(배경 오류)와 classification error(분류 오류)는 다른 시스템보다 적게 발생합니다. 즉 YOLO는 속도와 단순성에서 강점이 있지만, 위치 정확도는 개선이 필요합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_11_1",
+          "easy_paragraph_text": "Pascal VOC 2007 데이터셋에서 YOLO의 오류를 분석했습니다. YOLO는 localization error(위치 오차)가 자주 발생하며, 작은 object(물체)를 탐지하는 데 어려움이 있습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_11_2",
+          "easy_paragraph_text": "반대로 YOLO는 background error(배경 오류)와 classification error(분류 오류)는 다른 시스템보다 적게 발생합니다. 즉 YOLO는 속도와 단순성에서 강점이 있지만, 위치 정확도는 개선이 필요합니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_12",
+      "easy_section_title": "Combining Fast R-CNN and YOLO",
+      "easy_section_type": "section",
+      "easy_section_order": 12,
+      "easy_section_level": 1,
+      "easy_content": "YOLO와 Fast R-CNN을 결합하면 두 시스템의 장점을 모두 활용할 수 있습니다. YOLO는 빠르고 전체 맥락을 잘 파악하지만 localization error(위치 오차)가 많은 편입니다. 반면 Fast R-CNN은 위치 정밀도는 높지만 속도가 느립니다.\n\n따라서 먼저 YOLO로 빠르게 후보 영역을 줄이고, 이후 Fast R-CNN으로 정밀한 위치 예측을 수행하면 속도와 정확도를 동시에 확보할 수 있습니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_12_1",
+          "easy_paragraph_text": "YOLO와 Fast R-CNN을 결합하면 두 시스템의 장점을 모두 활용할 수 있습니다. YOLO는 빠르고 전체 맥락을 잘 파악하지만 localization error(위치 오차)가 많은 편입니다. 반면 Fast R-CNN은 위치 정밀도는 높지만 속도가 느립니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_12_2",
+          "easy_paragraph_text": "따라서 먼저 YOLO로 빠르게 후보 영역을 줄이고, 이후 Fast R-CNN으로 정밀한 위치 예측을 수행하면 속도와 정확도를 동시에 확보할 수 있습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_13",
+      "easy_section_title": "Real-Time Detection in the Wild",
+      "easy_section_type": "section",
+      "easy_section_order": 13,
+      "easy_section_level": 1,
+      "easy_content": "YOLO(You Only Look Once)는 단순히 연구용 데이터셋에서만 빠른 것이 아니라, 실제 환경에서도 실시간으로 동작할 수 있습니다. 우리는 웹캠(webcam) 영상을 입력으로 받아 즉시 객체를 탐지하는 데모를 구현했습니다.\n\nYOLO는 초당 수십 프레임(FPS, frame per second) 속도로 동작하며, 사람, 동물, 차량 등 다양한 object(물체)를 빠르게 인식할 수 있습니다. 이는 자율주행, 감시(surveillance), 인터랙티브 애플리케이션 등 다양한 분야에서 활용 가능성을 보여줍니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_13_1",
+          "easy_paragraph_text": "YOLO(You Only Look Once)는 단순히 연구용 데이터셋에서만 빠른 것이 아니라, 실제 환경에서도 실시간으로 동작할 수 있습니다. 우리는 웹캠(webcam) 영상을 입력으로 받아 즉시 객체를 탐지하는 데모를 구현했습니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_13_2",
+          "easy_paragraph_text": "YOLO는 초당 수십 프레임(FPS, frame per second) 속도로 동작하며, 사람, 동물, 차량 등 다양한 object(물체)를 빠르게 인식할 수 있습니다. 이는 자율주행, 감시(surveillance), 인터랙티브 애플리케이션 등 다양한 분야에서 활용 가능성을 보여줍니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    },
+    {
+      "easy_section_id": "easy_section_14",
+      "easy_section_title": "Conclusion",
+      "easy_section_type": "section",
+      "easy_section_order": 14,
+      "easy_section_level": 1,
+      "easy_content": "우리는 object detection(물체 탐지)을 하나의 단일 regression(회귀) 문제로 재정의했습니다. YOLO는 입력 이미지 전체를 한 번에 보고 bounding box(바운딩 박스)와 class probability(클래스 확률)를 동시에 예측합니다.\n\n이 접근 방식은 단순하고, 매우 빠르며, 다양한 환경에서 잘 일반화됩니다. 비록 localization error(위치 오차) 등 일부 한계가 있지만, YOLO는 real-time detection(실시간 탐지)의 새로운 가능성을 제시했습니다.\n\n향후 연구에서는 localization 정밀도를 개선하고, 작은 object 탐지 성능을 높이는 방향이 필요합니다.\n<END_SECTION>",
+      "easy_paragraphs": [
+        {
+          "easy_paragraph_id": "easy_paragraph_14_1",
+          "easy_paragraph_text": "우리는 object detection(물체 탐지)을 하나의 단일 regression(회귀) 문제로 재정의했습니다. YOLO는 입력 이미지 전체를 한 번에 보고 bounding box(바운딩 박스)와 class probability(클래스 확률)를 동시에 예측합니다.",
+          "easy_paragraph_order": 1,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_14_2",
+          "easy_paragraph_text": "이 접근 방식은 단순하고, 매우 빠르며, 다양한 환경에서 잘 일반화됩니다. 비록 localization error(위치 오차) 등 일부 한계가 있지만, YOLO는 real-time detection(실시간 탐지)의 새로운 가능성을 제시했습니다.",
+          "easy_paragraph_order": 2,
+          "easy_visualization_trigger": true
+        },
+        {
+          "easy_paragraph_id": "easy_paragraph_14_3",
+          "easy_paragraph_text": "향후 연구에서는 localization 정밀도를 개선하고, 작은 object 탐지 성능을 높이는 방향이 필요합니다.",
+          "easy_paragraph_order": 3,
+          "easy_visualization_trigger": true
+        }
+      ],
+      "easy_visualizations": []
+    }
+  ],
+  "math_equations": [
+    {
+      "math_equation_id": "math_equation_1",
+      "math_equation_index": "(1)",
+      "math_equation_latex": "\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+      "math_equation_explanation": "조수\n제공된 LaTeX 논문의 맥락 내에서 주어진 방정식을 설명하려면 방정식과 제공된 맥락을 신중하게 분석해야 합니다. 방정식은 다음과 같습니다.\n\n⟦수학0⟧\n\n이 방정식은 예측된 객체의 신뢰도 점수를 나타냅니다. 단계별로 분석해 보겠습니다.\n\n1. **\\(\\Pr(\\textrm{Object})\\)**: 이는 해당 객체가 격자 셀에 존재할 확률을 나타냅니다. 객체가 존재하지 않으면 이 확률은 0입니다.\n\n2. **\\(\\textrm{IOU}_{\\textrm{Pred}}^{\\textrm{truth}}\\)**: 예측된 상자와 실제 값 사이의 Intersection over Union (IOU) 점수를 나타냅니다. IOU 점수는 예측된 상자가 실제 값 상자와 얼마나 잘 일치하는지를 나타내는 척도입니다. 예측된 상자와 실제 값 상자의 교점 면적을 예측된 상자와 실제 값 상자의 합집합 면적으로 나누어 계산합니다.\n\n방정식 전체는 이 두 항의 곱입니다. 즉, 예측된 객체의 신뢰도 점수는 해당 객체가 그리드 셀에 존재할 확률에 예측된 상자와 실제 상자 사이의 유사도 점수 (IOU)를 곱한 값입니다.\n\n### 설명\n\n이 방정식은 예측된 객체의 신뢰도 점수를 계산합니다. 신뢰도 점수는 해당 객체가 그리드 셀에 존재할 확률과 예측된 상자가 실제 상자와 얼마나 일치하는지를 나타내는 척도입니다. 객체가 존재하지 않으면 확률 항은 0이므로 신뢰도 점수도 0입니다. 객체가 존재하면 확률 항은 0과 1 사이의 값이 되고, 신뢰도 점수는 예측된 상자와 실제 상자 사이의 유사도 점수입니다.\n\n### 변수 목록\n\n- **\\(\\Pr(\\textrm{Object})\\)**: 객체가 그리드 셀에 존재할 확률입니다.\n- **\\(\\textrm{IOU}_{\\textrm{Pred}}^{\\textrm{truth}}\\)**: 예측된 상자와 실제 상자 사이의 합집합 점수에 대한 교집합입니다.\n\n### 결론\n\n이 방정식은 예측된 객체의 신뢰도 점수를 계산합니다. 객체가 존재하지 않으면 신뢰도 점수는 0입니다. 객체가 존재하는 경우, 신뢰도 점수는 객체가 존재할 확률과 예측된 상자와 실제 상자 사이의 유사도 점수의 곱입니다.\n\n\\[\n\\boxed{\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{Pred}}^{\\textrm",
+      "math_equation_context": "수식 1",
+      "math_equation_section_ref": "easy_section_2",
+      "math_equation_type": "inline($ $)",
+      "math_equation_env": "",
+      "math_equation_line_start": 51,
+      "math_equation_line_end": 51,
+      "math_equation_variables": [],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_2",
+      "math_equation_index": "(2)",
+      "math_equation_latex": "\\Pr(\\textrm{Class}_i | \\textrm{Object})",
+      "math_equation_explanation": "조수\n논문의 맥락에서 주어진 방정식을 설명하려면 기호와 그 의미를 이해해야 합니다. 방정식은 다음과 같습니다.\n\n⟦수학0⟧\n\n이는 객체가 객체일 때, 객체가 \\(i\\) 클래스에 속할 확률을 나타냅니다. 논문의 맥락은 다음과 같은 정보를 제공합니다.\n\n1. 이 논문은 이미지에서의 객체 검출에 관한 것입니다.\n2. 이 방정식은 객체가 객체일 때, 특정 클래스 \\(i\\) 객체가 존재할 확률을 나타냅니다.\n\n논문의 맥락은 기호 \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 자체를 정의하지는 않지만, 방정식을 이해하는 데 필요한 맥락을 제공합니다. 논문에서는 이 모델이 각 객체에 대해 각 클래스 \\(i\\)의 확률을 예측한다고 명시합니다. \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 표기법은 해당 객체가 객체일 때 확률이 조건부임을 나타냅니다.\n\n이 방정식을 설명하자면 다음과 같습니다.\n\n방정식 \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\)는 객체가 객체일 때 클래스 \\(i\\)에 속할 확률을 나타냅니다. 이는 논문의 맥락에서 제공되는 조건부 확률입니다. 논문에서는 이 모델이 각 객체에 대해 각 클래스 \\(i\\)에 속할 확률을 예측하며, 이 확률은 객체가 객체라는 조건 하에 존재한다고 명시합니다.\n\n논문의 맥락은 기호 \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 자체를 정의하지는 않지만, 방정식을 이해하는 데 필요한 맥락을 제공합니다. 논문에서는 이 모델이 각 객체에 대해 각 클래스 \\(i\\)의 확률을 예측한다고 명시합니다. \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 표기법은 해당 객체가 객체일 때 확률이 조건부임을 나타냅니다.\n\n따라서 이 방정식에 대한 설명은 다음과 같습니다.\n\n⟦수학0⟧\n\n보조\n논문의 맥락은 방정식을 이해하는 데 필요한 맥락을 제공합니다. 논문은 모델이 각 객체에 대해 각 클래스 \\(i\\)의 확률을 예측한다고 명시합니다. \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\) 표기법은 해당 객체가 객체일 때 확률이 조건임을 나타냅니다.\n\n따라서 이 방정식에 대한 설명은 다음과 같습니다.\n\n⟦수학0⟧",
+      "math_equation_context": "수식 2",
+      "math_equation_section_ref": "easy_section_2",
+      "math_equation_type": "inline($ $)",
+      "math_equation_env": "",
+      "math_equation_line_start": 55,
+      "math_equation_line_end": 55,
+      "math_equation_variables": [],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_3",
+      "math_equation_index": "(3)",
+      "math_equation_latex": "\\scriptsize\n\\Pr(\\textrm{Class}_i | \\textrm{Object}) * \\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}} = \\Pr(\\textrm{Class}_i)*\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+      "math_equation_explanation": "조수\n제공된 LaTeX 논문의 맥락에서 주어진 방정식을 설명하기 위해 문제에 제시된 단계를 따릅니다. 방정식이 계산하거나 나타내는 내용, 가정 또는 조건을 설명하고, 기호와 그 의미를 나열합니다.\n\n### 설명\n\n주어진 방정식은 다음과 같습니다.\n\n이 방정식은 주어진 객체에 대해 특정 클래스 (Class \\(i\\))의 확률을 계산하고, 여기에 객체 자체의 확률을 곱한 후, 예측된 상자의 신뢰도 점수 (IOU_{推}^{truth})를 곱한 값을 나타냅니다. 방정식의 우변은 클래스의 확률과 예측된 상자의 신뢰도 점수의 곱입니다.\n\n### 변수 목록\n\n- \\(\\Pr(\\textrm{Class}_i | \\textrm{Object})\\): 객체가 있을 때 클래스 \\(i\\)의 확률.\n- \\(\\Pr(\\textrm{Object})\\): 객체 자체의 확률.\n- : 예측된 상자 (IOU_{推}^{truth})의 신뢰도 점수.\n- \\(\\Pr(\\textrm{Class}_i)\\): 클래스 \\(i\\)의 확률.\n- : 예측된 상자 ( same as on the left-hand side)의 신뢰도 점수.\n\n### 가정 및 조건\n\n1. 객체의 확률은 클래스 확률과 무관합니다.\n2. 예측된 상자의 신뢰도 점수는 상자가 객체에 얼마나 잘 맞는지를 나타내는 척도입니다.\n\n### 결론\n\n이 방정식은 주어진 객체에 대한 특정 클래스의 확률, 객체 자체의 확률, 그리고 예측된 상자의 신뢰도 점수를 합산하여 계산합니다. 이 합산 확률은 클래스의 확률과 예측된 상자의 신뢰도 점수를 곱한 값과 같습니다. 이 방정식은 객체 감지에서 예측된 상자의 점수를 매기는 데 사용됩니다.",
+      "math_equation_context": "수식 3",
+      "math_equation_section_ref": "easy_section_2",
+      "math_equation_type": "env",
+      "math_equation_env": "equation",
+      "math_equation_line_start": 58,
+      "math_equation_line_end": 61,
+      "math_equation_variables": [],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_4",
+      "math_equation_index": "(4)",
+      "math_equation_latex": "\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}",
+      "math_equation_explanation": "보조\n주어진 LaTeX 방정식을 분석하고 제공된 맥락을 기반으로 단계별로 설명해 보겠습니다.\n\n방정식은 다음과 같습니다.\n\\[\n\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}\n\\]\n\n### 설명\n\n1. **함수와 그 동작을 식별하세요.**\n- 함수 \\(\\phi(x)\\)는 조각 함수입니다. 즉, \\(x\\)의 값에 따라 정의가 달라집니다.\n\n2. **사례 1: \\(x > 0\\)**\n- \\(x\\)이 0보다 크면 \\(\\phi(x)\\) 함수는 단순히 \\(x\\)의 값을 반환합니다. 즉, \\(x\\)의 값이 양수이면 함수는 \\(x\\)의 값을 변경하지 않습니다.\n\n3. **사례 2: \\(x \\leq 0\\)**\n- \\(x\\)가 0보다 작거나 같으면 \\(\\phi(x)\\) 함수는 \\(0.1x\\)를 반환합니다. 즉, \\(x\\)가 양수가 아닌 값인 경우, 함수는 \\(x\\)를 0.1배로 조정합니다.\n\n### 변수 및 기호 목록\n\n- \\(x\\): 이것은 함수 \\(\\phi\\)에 대한 입력입니다.\n\n### 결론\n\n함수 \\(\\phi(x)\\)는 \\(x\\)가 양수가 아니면 입력 \\(x\\)의 크기를 0.1배로 조정하고, \\(x\\)가 양수이면 \\(x\\)의 값을 변경하지 않고 반환하는 구간 선형 함수입니다. 이 함수는 출력이 항상 음수가 아니도록 하고 음수 입력의 크기를 줄여야 하는 경우에 유용합니다.\n\n최종 답은 다음과 같습니다.\n\\[\n\\boxed{\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}}\n\\]",
+      "math_equation_context": "수식 4",
+      "math_equation_section_ref": "easy_section_4",
+      "math_equation_type": "env",
+      "math_equation_env": "equation",
+      "math_equation_line_start": 101,
+      "math_equation_line_end": 107,
+      "math_equation_variables": [],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_5",
+      "math_equation_index": "(5)",
+      "math_equation_latex": "x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}",
+      "math_equation_explanation": "보조\n주어진 LaTeX 방정식을 분석하고 제공된 맥락을 기반으로 단계별로 설명해 보겠습니다.\n\n방정식은 다음과 같습니다.\n\\[\n\\phi(x) = \\begin{cases} \nx, & \\text{if } x > 0\\\\\n0.1x, & \\text{otherwise}\n\\end{cases}\n\\]\n\n### 설명\n\n1. **방정식과 그 구성 요소를 식별하세요.**\n- 방정식은 조각 함수입니다.\n- \\( x \\)의 값에 따라 두 가지 경우가 있습니다.\n\n2. **첫 번째 경우: \\( x > 0 \\)**\n- \\( x \\)가 0보다 크면 함수는 \\( x \\) 자체를 반환합니다.\n- 이 경우는 간단하며 양수 값에 대한 항등 함수를 나타냅니다.\n\n3. **두 번째 경우: \\( x \\leq 0 \\)**\n- \\( x \\)가 0보다 작거나 같으면 함수는 \\( 0.1x \\)를 반환합니다.\n- 이 경우 음수 값을 0.1씩 조정하여 출력이 원하는 범위 내에 있도록 합니다.\n\n### 변수 목록\n\n- ** 기호: \\( x \\)**\n- 이 기호는 함수의 입력 값을 나타냅니다.\n- 문맥에 따라 0과 1 사이의 값으로 제한됩니다.\n\n### 결론\n\n방정식 \\(\\phi(x)\\)는 출력이 항상 [0, 1] 범위 내에 있도록 설계되었습니다. 이 방정식은 양수 및 양수가 아닌 입력을 모두 처리하기 위해 조각별 함수를 사용합니다. 양수 입력의 경우 입력 값 자체를 반환합니다. 양수가 아닌 입력의 경우, 출력이 음수가 아닌 원하는 범위 내에 있도록 입력 값을 0.1만큼 조정합니다.\n\n⟦수학0⟧",
+      "math_equation_context": "수식 5",
+      "math_equation_section_ref": "easy_section_4",
+      "math_equation_type": "env",
+      "math_equation_env": "cases",
+      "math_equation_line_start": 103,
+      "math_equation_line_end": 106,
+      "math_equation_variables": [],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "intermediate"
+    },
+    {
+      "math_equation_id": "math_equation_6",
+      "math_equation_index": "(6)",
+      "math_equation_latex": "\\lambda_\\textbf{coord}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n x_i - \\hat{x}_i\n \\right)^2 +\n \\left(\n y_i - \\hat{y}_i\n \\right)^2\n \\right]\n\\\\\n+ \\lambda_\\textbf{coord} \n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n \\sqrt{w_i} - \\sqrt{\\hat{w}_i}\n \\right)^2 +\n \\left(\n \\sqrt{h_i} - \\sqrt{\\hat{h}_i}\n \\right)^2\n \\right]\n\\\\\n+ \\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\lambda_\\textrm{noobj}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{noobj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\sum_{i = 0}^{S^2}\n\\mathlarger{\\mathbbm{1}}_i^{\\text{obj}}\n \\sum_{c \\in \\textrm{classes}}\n \\left(\n p_i(c) - \\hat{p}_i(c)\n \\right)^2",
+      "math_equation_explanation": "보조\n주어진 LaTeX 방정식을 설명하려면 방정식을 단계별로 분석하고 각 항을 이해해야 합니다. 방정식은 다음과 같습니다.\n\n⟦수학0⟧\n\n자세히 살펴보겠습니다.\n\n1. **\\(\\lambda_\\textbf{coord}\\) 및 \\(\\lambda_\\textrm{no objects}\\)**: 이는 각각 좌표 및 객체 손실에 대한 손실 함수의 가중치를 제어하는 ​​하이퍼 매개변수입니다.\n\n2. **첫 번째 항**: 이 항은 경계 상자 좌표에 대한 평균 제곱 오차 (MSE)를 계산합니다. 이미지의 모든 경계 상자 (from \\(i = 0\\) to \\(S^2\\))와 각 경계 상자 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{ obj}}\\) 항은 경계 상자가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 안의 항은 기준 좌표 \\((x_i, y_i)\\)와 예측 좌표 \\((\\hat{x}_i, \\hat{y}_i)\\)의 차이 제곱입니다.\n\n3. **두 번째 항**: 이 항은 경계 상자의 종횡비에 대한 평균 제곱 오차 (MSE)를 계산합니다. 첫 번째 항과 유사하지만 경계 상자의 너비와 높이의 제곱근을 사용합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{ obj}}\\) 항은 경계 상자가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 기준 종횡비 \\((\\sqrt{w_i}, \\sqrt{h_i})\\)와 예측 종횡비 \\((\\sqrt{\\hat{w}_i}, \\sqrt{\\hat{h}_i})\\)의 제곱 차이입니다.\n\n4. **세 번째 항**: 이 항은 경계 상자 클래스에 대한 평균 제곱 오차 (MSE)를 계산합니다. 이미지의 모든 경계 상자 (from \\(i = 0\\) to \\(S^2\\))와 각 경계 상자 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{ objects}}\\) 항은 경계 상자가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 기준 클래스 확률 \\((C_i)\\)와 예측 클래스 확률 \\((\\hat{C}_i)\\)의 차이 제곱입니다.\n\n5. **네 번째 항**: 이 항은 세 번째 항과 유사하지만 \"객체 없음\" 경계 상자에 대한 항입니다. 이미지의 모든 경계 상자 (from \\(i = 0\\) to \\(S^2\\))와 각 경계 상자 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_{ij}^{\\text{no objects}}\\) 항은 경계 상자에 \"객체 없음\"이 있으면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 기준 클래스 확률 \\((C_i)\\)와 예측 클래스 확률 \\((\\hat{C}_i)\\)의 차이 제곱입니다.\n\n6. **다섯 번째 항**: 이 항은 바운딩 박스 클래스에 대한 교차 KL 손실을 계산합니다. 이미지의 모든 바운딩 박스 (from \\(i = 0\\) to \\(S^2\\))와 각 바운딩 박스 (from \\(j = 0\\) to \\(B\\))에 대한 합을 구합니다. \\(\\mathlarger{\\mathbbm{1}}_i^{\\text{ objects}}\\) 항은 바운딩 박스가 \"객체\"이면 1, 그렇지 않으면 0인 지시 함수입니다. 합산 내의 항은 각 클래스 \\(c\\)에 대한 기준 클래스 확률 \\((p_i(c))\\)와 예측 클래스 확률 \\((\\hat{p}_i(c))\\)의 제곱 차이입니다.\n\n요약하자면, 이 방정식은 이미지의 경계 상자에 대한 총 손실을 계산하는데, 여기에는 좌표, 종횡비, 클래스, 그리고 교차 KL 손실이 포함됩니다. 손실 함수는 각 항의 기여도를 제어하기 위해 하이퍼파라미터 \\(\\lambda_\\textbf{coord}\\)와 \\(\\lambda_\\textrm{no objects}\\)의 가중치를 적용합니다.\n\n조수\n최종 답은 \\(\\boxed{1}\\)입니다.",
+      "math_equation_context": "수식 6",
+      "math_equation_section_ref": "easy_section_4",
+      "math_equation_type": "env",
+      "math_equation_env": "multline",
+      "math_equation_line_start": 119,
+      "math_equation_line_end": 167,
+      "math_equation_variables": [],
+      "math_equation_importance": "medium",
+      "math_equation_difficulty": "intermediate"
+    }
+  ],
+  "processing_status": "completed",
+  "completed_at": "2025-09-23T12:39:55.141929"
+}

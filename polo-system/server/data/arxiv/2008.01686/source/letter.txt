@@ -1,0 +1,15 @@
+Deepcode and Modulo-SK
+
+Dear Hyeji, Yihan, Sreeram, Sewoong, and Pramod, 
+
+We hope this email finds you well. We wanted to draw you attention to a short technical report that we have just uploaded to arXiv, following up on your Deepcode paper: 
+
+https://arxiv.org/abs/2008.01686
+
+The main point of the report is to demonstrate that Modulo-SK, which is a noisy-feedback communication scheme we have suggested several years back, can outperform Deepcode, sometimes significantly. In your paper, you did not compare the performance of Deepcode to Modulo-SK, since the latter uses common randomness in the form of dither -- however, dither is not really needed for the scheme to operate (in fact, it even performs slightly better without it). Dither was only used as a tool to make the analysis tractable.
+
+Please let us know of any comments you may have. Additionally, as we also remark in our report, this comparison leads us to believe that using deep networks that incorporate modulo-arithmetic instead of regular arithmetic, could possibly lead to better designs that can outperform Modulo-SK (and perhaps also work well at low feedback SNRs, where Modulo-SK cannot operate). If you find this direction interesting, we would love to collaborate. 
+
+All the best,
+
+Assaf and Ofer

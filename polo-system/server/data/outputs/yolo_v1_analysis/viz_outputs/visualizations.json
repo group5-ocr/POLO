@@ -1,0 +1,100 @@
+{
+  "generated_visualizations": [
+    {
+      "viz_id": "auto_easy_section_1_easy_paragraph_1_2",
+      "section_id": "easy_section_1",
+      "title": "easy_paragraph_1_2",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_1/easy_paragraph_1_2/00__cell_scale.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:09:48",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_1_easy_paragraph_1_10",
+      "section_id": "easy_section_1",
+      "title": "easy_paragraph_1_10",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_1/easy_paragraph_1_10/00__metric_table.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:09:51",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_3_easy_paragraph_3_5",
+      "section_id": "easy_section_3",
+      "title": "easy_paragraph_3_5",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_3/easy_paragraph_3_5/00__metric_table.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:09:53",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_5_easy_paragraph_5_1",
+      "section_id": "easy_section_5",
+      "title": "easy_paragraph_5_1",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_5/easy_paragraph_5_1/00__metric_table.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:10:03",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_2_easy_paragraph_2_1",
+      "section_id": "easy_section_2",
+      "title": "easy_paragraph_2_1",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_2/easy_paragraph_2_1/00__flow_arch.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:10:35",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_4_easy_paragraph_4_2",
+      "section_id": "easy_section_4",
+      "title": "easy_paragraph_4_2",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_4/easy_paragraph_4_2/00__activations_panel.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:10:36",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_4_easy_paragraph_4_5",
+      "section_id": "easy_section_4",
+      "title": "easy_paragraph_4_5",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_4/easy_paragraph_4_5/00__flow_arch.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:10:37",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    },
+    {
+      "viz_id": "auto_easy_section_8_easy_paragraph_8_2",
+      "section_id": "easy_section_8",
+      "title": "easy_paragraph_8_2",
+      "description": "",
+      "visualization_type": "auto",
+      "image_path": "/outputs/yolo_v1_analysis/viz/easy_section_8/easy_paragraph_8_2/00__activations_panel.png",
+      "metadata": {
+        "generated_at": "2025-09-23T09:10:38",
+        "algorithm_version": "viz-algo-v2.1"
+      }
+    }
+  ]
+}

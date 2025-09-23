@@ -1,0 +1,68 @@
+\backcite {lsvm-pami}{{1}{1}{section.1}}
+\backcite {girshick2014rich}{{1}{1}{section.1}}
+\backcite {DBLP:journals/corr/Girshick15}{{2}{1}{figure.caption.1}}
+\backcite {Everingham15}{{2}{2.1}{figure.caption.3}}
+\backcite {DBLP:journals/corr/SzegedyLJSRAEVR14}{{2}{2.1}{figure.caption.3}}
+\backcite {DBLP:journals/corr/LinCY13}{{2}{2.1}{figure.caption.3}}
+\backcite {ILSVRC15}{{3}{2.2}{subsection.2.2}}
+\backcite {zoo}{{3}{2.2}{subsection.2.2}}
+\backcite {darknet13}{{3}{2.2}{subsection.2.2}}
+\backcite {DBLP:journals/corr/RenHGZ015}{{3}{2.2}{subsection.2.2}}
+\backcite {hinton2012improving}{{4}{2.2}{equation.2.3}}
+\backcite {papageorgiou1998general}{{4}{3}{section.3}}
+\backcite {lowe1999object}{{4}{3}{section.3}}
+\backcite {dalal2005histograms}{{4}{3}{section.3}}
+\backcite {donahue2013decaf}{{4}{3}{section.3}}
+\backcite {viola2001robust,lienhart2002extended,girshick2014rich,lsvm-pami}{{4}{3}{section.3}}
+\backcite {blaschko2008learning,DBLP:journals/corr/SermanetEZMFL13}{{4}{3}{section.3}}
+\backcite {uijlings2013selective,gould2009region,zitnick2014edge}{{4}{3}{section.3}}
+\backcite {lsvm-pami}{{4}{3}{section.3}}
+\backcite {uijlings2013selective}{{5}{3}{section.3}}
+\backcite {DBLP:journals/corr/Girshick15}{{5}{3}{section.3}}
+\backcite {DBLP:journals/corr/Girshick15}{{5}{3}{section.3}}
+\backcite {ren2015faster}{{5}{3}{section.3}}
+\backcite {sadeghi201430hz}{{5}{3}{section.3}}
+\backcite {yan2014fastest}{{5}{3}{section.3}}
+\backcite {dean2013fast}{{5}{3}{section.3}}
+\backcite {sadeghi201430hz}{{5}{3}{section.3}}
+\backcite {viola2004robust}{{5}{3}{section.3}}
+\backcite {erhan2014scalable}{{5}{3}{section.3}}
+\backcite {DBLP:journals/corr/SermanetEZMFL13}{{5}{3}{section.3}}
+\backcite {DBLP:journals/corr/RedmonA14}{{5}{3}{section.3}}
+\backcite {DBLP:journals/corr/Girshick15}{{5}{4}{section.4}}
+\backcite {dean2013fast}{{5}{4.1}{subsection.4.1}}
+\backcite {yan2014fastest}{{5}{4.1}{subsection.4.1}}
+\backcite {sadeghi201430hz}{{5}{4.1}{subsection.4.1}}
+\backcite {DBLP:journals/corr/Girshick15}{{5}{4.1}{subsection.4.1}}
+\backcite {he2014spatial}{{5}{4.1}{subsection.4.1}}
+\backcite {ren2015faster}{{5}{4.1}{subsection.4.1}}
+\backcite {sadeghi201430hz}{{5}{4.1}{subsection.4.1}}
+\backcite {yan2014fastest}{{5}{4.1}{table.caption.4}}
+\backcite {lenc2015r}{{5}{4.1}{table.caption.4}}
+\backcite {sadeghi201430hz}{{6}{\caption@xref {??}{ on input line 309}}{table.caption.4}}
+\backcite {sadeghi201430hz}{{6}{\caption@xref {??}{ on input line 310}}{table.caption.4}}
+\backcite {yan2014fastest}{{6}{\caption@xref {??}{ on input line 317}}{table.caption.4}}
+\backcite {lenc2015r}{{6}{\caption@xref {??}{ on input line 318}}{table.caption.4}}
+\backcite {DBLP:journals/corr/Girshick15}{{6}{\caption@xref {??}{ on input line 319}}{table.caption.4}}
+\backcite {ren2015faster}{{6}{\caption@xref {??}{ on input line 320}}{table.caption.4}}
+\backcite {ren2015faster}{{6}{\caption@xref {??}{ on input line 321}}{table.caption.4}}
+\backcite {erhan2014scalable}{{6}{4.1}{table.caption.4}}
+\backcite {hoiem2012diagnosing}{{6}{4.2}{subsection.4.2}}
+\backcite {DBLP:journals/corr/GidarisK15}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {DBLP:journals/corr/GidarisK15}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {ren2015faster}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {DBLP:journals/corr/RenHGZ015}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {DBLP:journals/corr/Girshick15}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {dong2014towards}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {dong2014towards}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {girshick2014rich}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {girshick2014rich}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {shen2014more}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {girshick2014rich}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {hariharan2014simultaneous}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {girshick2014rich}{{7}{\caption@xref {??}{ on input line 432}}{table.caption.7}}
+\backcite {cai2015cross}{{7}{4.5}{figure.caption.9}}
+\backcite {ginosar2014detecting}{{7}{4.5}{figure.caption.9}}
+\backcite {cai2015cross}{{7}{4.5}{figure.caption.9}}
+\backcite {BourdevMalikICCV09}{{8}{\caption@xref {??}{ on input line 494}}{figure.caption.8}}
+\backcite {dalal2005histograms}{{8}{\caption@xref {??}{ on input line 495}}{figure.caption.8}}

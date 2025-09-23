@@ -1,0 +1,306 @@
+{
+  "meta": {
+    "doc_id": "source",
+    "mode": "auto_merge",
+    "ts": "2025-09-15T08:07:33Z",
+    "main": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\yolo.tex",
+    "merged_roots": [
+      "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\yolo.tex"
+    ],
+    "counts": {
+      "chunks": 11,
+      "equations": 3,
+      "inline_equations": 54,
+      "assets": 10
+    }
+  },
+  "artifacts": {
+    "merged_body_tex": {
+      "path": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\merged_body.tex",
+      "preview": "\\title{You Only Look Once: \\\\\nUnified, Real-Time Object Detection}\n\n\\author{Joseph Redmon$^*$, Santosh Divvala$^{* \\dag}$, Ross Girshick$^\\P$, Ali Farhadi$^{* \\dag}$\\\\\n\\small{University of Washington$^*$, Allen Institute for AI$^\\dag$, Facebook AI Research$^\\P$}\\\\ \\url{http://pjreddie.com/yolo/}}\n\n\\begin{abstract}\n\nWe present YOLO, a new approach to object detection. Prior work on object detection repurposes classifiers to perform detection. Instead, we frame object detection as a regression problem to spatially separated bounding boxes and associated class probabilities. A single neural network predicts bounding boxes and class probabilities directly from full images in one evaluation. Since the whole detection pipeline is a single network, it can be optimized end-to-end directly on detection performance.\n\nOur unified architecture is extremely fast. Our base YOLO model processes images in real-time at 45 frames per second. A smaller version of the network, Fast YOLO, processes an astounding 155 frames per second while still achieving double the mAP of other real-time detectors. Compared to state-of-the-art detection systems, YOLO makes more localization errors but is less likely to predict false positives on background. Finally, YOLO learns very general representations of objects. It outperforms other detection methods, including DPM and R-CNN, when generalizing from natural images to other domains like artwork.\n\\end{abstract}\n\n\\section{Introduction}\n\nHumans glance at an image and instantly know what objects are in the image, where they are, and how they interact. The human visual system is fast and accurate, allowing us to perform complex tasks like driving with little conscious thought. Fast, accurate algorithms for object detection would allow computers to drive cars without specialized sensors, enable assistive devices to convey real-time scene information to human users, and unlock the potential for general purpose, responsive robotic systems.\n\nCurrent detection systems repurpose classifiers to perform detection. To detect an object, these systems take a classifier for that object and evaluate it at various locations and scales in a test image. Systems like deformable parts models (DPM) use a sliding window approach where the classifier is run at evenly spaced locations over the entire image \\cite{lsvm-pami}.\n\nMore recent approaches like R-CNN use region proposal methods to first generate potential bounding boxes in an image and then run a classifier on these proposed boxes. After classification, post-processing is used to refine the bounding boxes, eliminate duplicate detections, and rescore the boxes based on other objects in the scene \\cite{girshick2014rich}. These complex pipelines are slow and hard to optimize because each individual component must be trained separately.\n\n\\begin{figure}[t]\n\\begin{center}\n \\includegraphics[width=\\linewidth]{system}\n\\end{center}\n \\caption{\\small \\textbf{The YOLO Detection System.} Processing images with YOLO is simple and straightforward. Our system (1) resizes the input image to $448 \\times 448$, (2) runs a single convolutional network on the image, and (3) thresholds the resulting detections by the model's confidence.}\n\\label{system}\n\\end{figure}\n\nWe reframe object detection as a single regression problem, straight from image pixels to bounding box coordinates and class probabilities. Using our system, you only look once (YOLO) at an image to predict what objects are present and where they are.\n\nYOLO is refreshingly simple: see Figure \\ref{system}. A single convolutional network simultaneously predicts multiple bounding boxes and class probabilities for those boxes. YOLO trains on full images and directly optimizes detection performance. This unified model has several benefits over traditional methods of object detection.\n\nFirst, YOLO is extremely fast. Since we frame detection as a regression problem we don't need a complex pipeline. We simply run our neural network on a new image at test time to predict detections. Our base network runs at 45 frames per second with no batch processing on a Titan X GPU and a fast version runs at more than 150 fps. This means we can process streaming video in real-time with less than 25 milliseconds of latency. Furthermore, YOLO achieves more than twice the mean average precision of other real-time systems. For a demo of our system running in real-time on a webcam please see our project webpage: \\url{http://pjreddie.com/yolo/}.\n\nSecond, YOLO reasons globally about the image when making predictions. Unlike sliding window and region proposal-based techniques, YOLO sees the entire image during training and test time so it implicitly encodes contextual information about classes as well as their appearance. Fast R-CNN, a top detection method \\cite{DBLP:journals/corr/Girshick15}, mistakes background patches in an image for objects because it can't see the larger context. YOLO makes less than half the number of background errors compared to Fast R-CNN.\n\nThird, YOLO learns generalizable representations of objects. When trained on natural images and tested on artwork, YOLO outperforms top detection methods like DPM and R-CNN by a wide margin. Since YOLO is highly generalizable it is less likely to break down when applied to new domains or unexpected inputs.\n\nYOLO still lags behind state-of-the-art detection systems in accuracy. While it can quickly identify objects in images it struggles to precisely localize some objects, especially small ones. We examine these tradeoffs further in our experiments.\n\nAll of our training and testing code is open source.\nA variety of pretrained models are also available to download.\n\n\\section{Unified Detection}\n\nWe unify the separate components of object detection into a single neural network. Our network uses features from the entire image to predict each bounding box. It also predicts all bounding boxes across all classes for an image simultaneously. This means our network reasons globally about the full image and all the objects in the image. The YOLO design enables end-to-end training and real-time speeds while maintaining high average precision.\n\nOur system divides the input image into an $S \\times S$ grid. If the center of an object falls into a grid cell, that grid cell is responsible for detecting that object.\n\nEach grid cell predicts $B$ bounding boxes and confidence scores for those boxes. These confidence scores reflect how confident the model is that the box contains an object and also how accurate it thinks the box is that it predicts. Formally we define confidence as $\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}$. If no object exists in that cell, the confidence scores should be zero. Otherwise we want the confidence score to equal the intersection over union (IOU) between the predicted box and the ground truth.\n\nEach bounding box consists of 5 predictions: $x$, $y$, $w$, $h$, and confidence. The $(x,y)$ coordinates represent the center of the box relative to the bounds of the grid cell. The width and height are predicted relative to the whole image. Finally the confidence prediction represents the IOU between the predicted box and any ground truth box.\n\nEach grid cell also predicts $C$ conditional class probabilities, $\\Pr(\\textrm{Class}_i | \\textrm{Object})$. These probabilities are conditioned on the grid cell containing an object. We only predict one set of class probabilities per grid cell, regardless of the number of boxes $B$.\n\nAt test time we multiply the conditional class probabilities and the individual box confidence predictions,\n\\begin{equation}\n\\scriptsize\n\\Pr(\\textrm{Class}_i | \\textrm{Object}) * \\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}} = \\Pr(\\textrm{Class}_i)*\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}\n\\end{equation}\nwhich gives us class-specific confidence scores for each box. These scores encode both the probability of that class appearing in the box and how well the predicted box fits the object.\n\n\\begin{figure}[h]\n\\begin{center}\n \\includegraphics[width=\\linewidth]{model}\n\\end{center}\n \\caption{\\small \\textbf{The Model.} Our system models detection as a regression problem. It divides the image into an $S \\times S$ grid and for each grid cell predicts $B$ bounding boxes, confidence for those boxes, and $C$ class probabilities. These predictions are encoded as an $S \\times S \\times (B*5 + C)$ tensor.}\n\\label{model}\n\\end{figure}\n\nFor evaluating YOLO on \\textsc{Pascal} VOC, we use $S=7$, $B=2$. \\textsc{Pascal} VOC has 20 labelled classes so $C=20$. Our final prediction is a $7 \\times 7 \\times 30$ tensor.\n\n\\subsection{Network Design}\n\n \\begin{figure*}[t]\n \\centering\n \\includegraphics[width=.8\\linewidth]{net}\n \\caption{\\small \\textbf{The Architecture.} Our detection network has 24 convolutional layers followed by 2 fully connected layers. Alternating $1 \\times 1$ convolutional layers reduce the features space from preceding layers. We pretrain the convolutional layers on the ImageNet classification task at half the resolution ($224 \\times 224$ input image) and then double the resolution for detection.}\n \\label{net}\n \\end{figure*}\n\nWe implement this model as a convolutional neural network and evaluate it on the \\textsc{Pascal} VOC detection dataset \\cite{Everingham15}. The initial convolutional layers of the network extract features from the image while the fully connected layers predict the output probabilities and coordinates.\n\nOur network architecture is inspired by the GoogLeNet model for image classification \\cite{DBLP:journals/corr/SzegedyLJSRAEVR14}. Our network has 24 convolutional layers followed by 2 fully connected layers. Instead of the inception modules used by GoogLeNet, we simply use $1 \\times 1$ reduction layers followed by $3 \\times 3$ convolutional layers, similar to Lin et al \\cite{DBLP:journals/corr/LinCY13}. The full network is shown in Figure \\ref{net}.\n\nWe also train a fast version of YOLO designed to push the boundaries of fast object detection. Fast YOLO uses a neural network with fewer convolutional layers (9 instead of 24) and fewer filters in those layers. Other than the size of the network, all training and testing parameters are the same between YOLO and Fast YOLO.\n\nThe final output of our network is the $7 \\times 7 \\times 30$ tensor of predictions.\n\n\\subsection{Training}\n\nWe pretrain our convolutional layers on the ImageNet 1000-class competition dataset \\cite{ILSVRC15}. For pretraining we use the first 20 convolutional layers from Figure \\ref{net} followed by a average-pooling layer and a fully connected layer. We train this network for approximately a week and achieve a single crop top-5 accuracy of 88\\% on the ImageNet 2012 validation set, comparable to the GoogLeNet models in Caffe's Model Zoo \\cite{zoo}. We use the Darknet framework for all training and inference \\cite{darknet13}.\n\nWe then convert the model to perform detection. Ren et al. show that adding both convolutional and connected layers to pretrained networks can improve performance \\cite{DBLP:journals/corr/RenHGZ015}. Following their example, we add four convolutional layers and two fully connected layers with randomly initialized weights. Detection often requires fine-grained visual information so we increase the input resolution of the network from $224 \\times 224$ to $448 \\times 448$.\n\nOur final layer predicts both class probabilities and bounding box coordinates. We normalize the bounding box width and height by the image width and height so that they fall between 0 and 1. We parametrize the bounding box $x$ and $y$ coordinates to be offsets of a particular grid cell location so they are also bounded between 0 and 1.\n\nWe use a linear activation function for the final layer and all other layers use the following leaky rectified linear activation:\n\n\\begin{equation}\n\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}\n\\end{equation}\n\nWe optimize for sum-squared error in the output of our model. We use sum-squared error because it is easy to optimize, however it does not perfectly align with our goal of maximizing average precision. It weights localization error equally with classification error which may not be ideal. Also, in every image many grid cells do not contain any object. This pushes the ``confidence'' scores of those cells towards zero, often overpowering the gradient from cells that do contain objects. This can lead to model instability, causing training to diverge early on.\n\nTo remedy this, we increase the loss from bounding box coordinate predictions and decrease the loss from confidence predictions for boxes that don't contain objects. We use two parameters, $\\lambda_\\textrm{coord}$ and $\\lambda_\\textrm{noobj}$ to accomplish this. We set $\\lambda_\\textrm{coord} = 5$ and $\\lambda_\\textrm{noobj} = .5$.\n\nSum-squared error also equally weights errors in large boxes and small boxes. Our error metric should reflect that small deviations in large boxes matter less than in small boxes. To partially address this we predict the square root of the bounding box width and height instead of the width and height directly. \n\nYOLO predicts multiple bounding boxes per grid cell. At training time we only want one bounding box predictor to be responsible for each object. We assign one predictor to be ``responsible'' for predicting an object based on which prediction has the highest current IOU with the ground truth. This leads to specialization between the bounding box predictors. Each predictor gets better at predicting certain sizes, aspect ratios, or classes of object, improving overall recall.\n\nDuring training we optimize the following, multi-part loss function:\n\\scriptsize\n\\begin{multline}\n\\lambda_\\textbf{coord}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n x_i - \\hat{x}_i\n \\right)^2 +\n \\left(\n y_i - \\hat{y}_i\n \\right)^2\n \\right]\n\\\\\n+ \\lambda_\\textbf{coord} \n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n \\sqrt{w_i} - \\sqrt{\\hat{w}_i}\n \\right)^2 +\n \\left(\n \\sqrt{h_i} - \\sqrt{\\hat{h}_i}\n \\right)^2\n \\right]\n\\\\\n+ \\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\lambda_\\textrm{noobj}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{noobj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\sum_{i = 0}^{S^2}\n\\mathlarger{\\mathbbm{1}}_i^{\\text{obj}}\n \\sum_{c \\in \\textrm{classes}}\n \\left(\n p_i(c) - \\hat{p}_i(c)\n \\right)^2\n\\end{multline}\n\\normalsize\nwhere $\\mathbbm{1}_i^{\\text{obj}}$ denotes if object appears in cell $i$ and $\\mathbbm{1}_{ij}^{\\text{obj}}$ denotes that the $j$th bounding box predictor in cell $i$ is ``responsible'' for that prediction.\n\nNote that the loss function only penalizes classification error if an object is present in that grid cell (hence the conditional class probability discussed earlier). It also only penalizes bounding box coordinate error if that predictor is ``responsible'' for the ground truth box (i.e. has the highest IOU of any predictor in that grid cell).\n\nWe train the network for about 135 epochs on the training and validation data sets from \\textsc{Pascal} VOC 2007 and 2012. When testing on 2012 we also include the VOC 2007 test data for training. Throughout training we use a batch size of 64, a momentum of $0.9$ and a decay of $0.0005$.\n\nOur learning rate schedule is as follows: For the first epochs we slowly raise the learning rate from $10^{-3}$ to $10^{-2}$. If we start at a high learning rate our model often diverges due to unstable gradients. We continue training with $10^{-2}$ for 75 epochs, then $10^{-3}$ for 30 epochs, and finally $10^{-4}$ for 30 epochs.\n\nTo avoid overfitting we use dropout and extensive data augmentation. A dropout layer with rate~=~.5 after the first connected layer prevents co-adaptation between layers \\cite{hinton2012improving}. For data augmentation we introduce random scaling and translations of up to 20\\% of the original image size. We also randomly adjust the exposure and saturation of the image by up to a factor of $1.5$ in the HSV color space.\n\n\\subsection{Inference}\n\nJust like in training, predicting detections for a test image only requires one network evaluation. On \\textsc{Pascal} VOC the network predicts 98 bounding boxes per image and class probabilities for each box. YOLO is extremely fast at test time since it only requires a single network evaluation, unlike classifier-based methods.\n\nThe grid design enforces spatial diversity in the bounding box predictions. Often it is clear which grid cell an object falls in to and the network only predicts one box for each object. However, some large objects or objects near the border of multiple cells can be well localized by multiple cells. Non-maximal suppression can be used to fix these multiple detections. While not critical to performance as it is for R-CNN or DPM, non-maximal suppression adds 2-3\\% in mAP.\n\n\\subsection{Limitations of YOLO}\n\nYOLO imposes strong spatial constraints on bounding box predictions since each grid cell only predicts two boxes and can only have one class. This spatial constraint limits the number of nearby objects that our model can predict. Our model struggles with small objects that appear in groups, such as flocks of birds.\n\nSince our model learns to predict bounding boxes from data, it struggles to generalize to objects in new or unusual aspect ratios or configurations. Our model also uses relatively coarse features for predicting bounding boxes since our architecture has multiple downsampling layers from the input image.\n\nFinally, while we train on a loss function that approximates detection performance, our loss function treats errors the same in small bounding boxes versus large bounding boxes. A small error in a large box is generally benign but a small error in a small box has a much greater effect on IOU. Our main source of error is incorrect localizations.\n\n\\section{Comparison to Other Detection Systems}\n\nObject detection is a core problem in computer vision. Detection pipelines generally start by extracting a set of robust features from input images (Haar \\cite{papageorgiou1998general}, SIFT \\cite{lowe1999object}, HOG \\cite{dalal2005histograms}, convolutional features \\cite{donahue2013decaf}). Then, classifiers \\cite{viola2001robust,lienhart2002extended,girshick2014rich,lsvm-pami} or localizers \\cite{blaschko2008learning,DBLP:journals/corr/SermanetEZMFL13} are used to identify objects in the feature space. These classifiers or localizers are run either in sliding window fashion over the whole image or on some subset of regions in the image \\cite{uijlings2013selective,gould2009region,zitnick2014edge}. We compare the YOLO detection system to several top detection frameworks, highlighting key similarities and differences.\n\n\\textbf{Deformable parts models.} Deformable parts models (DPM) use a sliding window approach to object detection \\cite{lsvm-pami}. DPM uses a disjoint pipeline to extract static features, classify regions, predict bounding boxes for high scoring regions, etc. Our system replaces all of these disparate parts with a single convolutional neural network. The network performs feature extraction, bounding box prediction, non-maximal suppression, and contextual reasoning all concurrently. Instead of static features, the network trains the features in-line and optimizes them for the detection task. Our unified architecture leads to a faster, more accurate model than DPM.\n\n\\textbf{R-CNN.} R-CNN and its variants use region proposals instead of sliding windows to find objects in images. Selective Search \\cite{uijlings2013selective} generates potential bounding boxes, a convolutional network extracts features, an SVM scores the boxes, a linear model adjusts the bounding boxes, and non-max suppression eliminates duplicate detections. Each stage of this compl"
+    },
+    "chunks": {
+      "path": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\chunks.jsonl",
+      "count": 11,
+      "head": [
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "chunk",
+          "chunk_index": 0,
+          "text": "\\title{You Only Look Once: \\\\\nUnified, Real-Time Object Detection}\n\n\\author{Joseph Redmon$^*$, Santosh Divvala$^{* \\dag}$, Ross Girshick$^\\P$, Ali Farhadi$^{* \\dag}$\\\\\n\\small{University of Washington$^*$, Allen Institute for AI$^\\dag$, Facebook AI Research$^\\P$}\\\\ \\url{http://pjreddie.com/yolo/}}\n\n\\begin{abstract}\n\nWe present YOLO, a new approach to object detection. Prior work on object detection repurposes classifiers to perform detection. Instead, we frame object detection as a regression problem to spatially separated bounding boxes and associated class probabilities. A single neural network predicts bounding boxes and class probabilities directly from full images in one evaluation. Since the whole detection pipeline is a single network, it can be optimized end-to-end directly on detection performance.\n\nOur unified architecture is extremely fast. Our base YOLO model processes images in real-time at 45 frames per second. A smaller version of the network, Fast YOLO, processes an astounding 155 frames per second while still achieving double the mAP of other real-time detectors. Compared to state-of-the-art detection systems, YOLO makes more localization errors but is less likely to predict false positives on background. Finally, YOLO learns very general representations of objects. It outperforms other detection methods, including DPM and R-CNN, when generalizing from natural images to other domains like artwork.\n\\end{abstract}\n\n\\section{Introduction}\n\nHumans glance at an image and instantly know what objects are in the image, where they are, and how they interact. The human visual system is fast and accurate, allowing us to perform complex tasks like driving with little conscious thought. Fast, accurate algorithms for object detection would allow computers to drive cars without specialized sensors, enable assistive devices to convey real-time scene information to human users, and unlock the potential for general purpose, responsive robotic systems.\n\nCurrent detection systems repurpose classifiers to perform detection. To detect an object, these systems take a classifier for that object and evaluate it at various locations and scales in a test image. Systems like deformable parts models (DPM) use a sliding window approach where the classifier is run at evenly spaced locations over the entire image \\cite{lsvm-pami}.\n\nMore recent approaches like R-CNN use region proposal methods to first generate potential bounding boxes in an image and then run a classifier on these proposed boxes. After classification, post-processing is used to refine the bounding boxes, eliminate duplicate detections, and rescore the boxes based on other objects in the scene \\cite{girshick2014rich}. These complex pipelines are slow and hard to optimize because each individual component must be trained separately.\n\n⟨FIG:system⟩\n\nWe reframe object detection as a single regression problem, straight from image pixels to bounding box coordinates and class probabilities. Using our system, you only look once (YOLO) at an image to predict what objects are present and where they are.\n\nYOLO is refreshingly simple: see Figure \\ref{system}. A single convolutional network simultaneously predicts multiple bounding boxes and class probabilities for those boxes. YOLO trains on full images and directly optimizes detection performance. This unified model has several benefits over traditional methods of object detection.",
+          "char_count": 3433,
+          "start_para": 0,
+          "end_para": 11,
+          "start_sent": null,
+          "end_sent": null,
+          "placeholder": {
+            "count": {
+              "eq_display": 0,
+              "eq_inline": 0,
+              "figure": 1,
+              "table": 0
+            },
+            "ids": {
+              "eq_display": [],
+              "eq_inline": [],
+              "figure": [
+                "system"
+              ],
+              "table": []
+            }
+          }
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "chunk",
+          "chunk_index": 1,
+          "text": "YOLO is refreshingly simple: see Figure \\ref{system}. A single convolutional network simultaneously predicts multiple bounding boxes and class probabilities for those boxes. YOLO trains on full images and directly optimizes detection performance. This unified model has several benefits over traditional methods of object detection.\n\nFirst, YOLO is extremely fast. Since we frame detection as a regression problem we don't need a complex pipeline. We simply run our neural network on a new image at test time to predict detections. Our base network runs at 45 frames per second with no batch processing on a Titan X GPU and a fast version runs at more than 150 fps. This means we can process streaming video in real-time with less than 25 milliseconds of latency. Furthermore, YOLO achieves more than twice the mean average precision of other real-time systems. For a demo of our system running in real-time on a webcam please see our project webpage: \\url{http://pjreddie.com/yolo/}.\n\nSecond, YOLO reasons globally about the image when making predictions. Unlike sliding window and region proposal-based techniques, YOLO sees the entire image during training and test time so it implicitly encodes contextual information about classes as well as their appearance. Fast R-CNN, a top detection method \\cite{DBLP:journals/corr/Girshick15}, mistakes background patches in an image for objects because it can't see the larger context. YOLO makes less than half the number of background errors compared to Fast R-CNN.\n\nThird, YOLO learns generalizable representations of objects. When trained on natural images and tested on artwork, YOLO outperforms top detection methods like DPM and R-CNN by a wide margin. Since YOLO is highly generalizable it is less likely to break down when applied to new domains or unexpected inputs.\n\nYOLO still lags behind state-of-the-art detection systems in accuracy. While it can quickly identify objects in images it struggles to precisely localize some objects, especially small ones. We examine these tradeoffs further in our experiments.\n\nAll of our training and testing code is open source.\nA variety of pretrained models are also available to download.\n\n\\section{Unified Detection}\n\nWe unify the separate components of object detection into a single neural network. Our network uses features from the entire image to predict each bounding box. It also predicts all bounding boxes across all classes for an image simultaneously. This means our network reasons globally about the full image and all the objects in the image. The YOLO design enables end-to-end training and real-time speeds while maintaining high average precision.\n\nOur system divides the input image into an $S \\times S$ grid. If the center of an object falls into a grid cell, that grid cell is responsible for detecting that object.\n\nEach grid cell predicts $B$ bounding boxes and confidence scores for those boxes. These confidence scores reflect how confident the model is that the box contains an object and also how accurate it thinks the box is that it predicts. Formally we define confidence as $\\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}$. If no object exists in that cell, the confidence scores should be zero. Otherwise we want the confidence score to equal the intersection over union (IOU) between the predicted box and the ground truth.\n\nEach bounding box consists of 5 predictions: $x$, $y$, $w$, $h$, and confidence. The $(x,y)$ coordinates represent the center of the box relative to the bounds of the grid cell. The width and height are predicted relative to the whole image. Finally the confidence prediction represents the IOU between the predicted box and any ground truth box.",
+          "char_count": 3723,
+          "start_para": 11,
+          "end_para": 21,
+          "start_sent": null,
+          "end_sent": null,
+          "placeholder": {
+            "count": {
+              "eq_display": 0,
+              "eq_inline": 0,
+              "figure": 0,
+              "table": 0
+            },
+            "ids": {
+              "eq_display": [],
+              "eq_inline": [],
+              "figure": [],
+              "table": []
+            }
+          }
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "chunk",
+          "chunk_index": 2,
+          "text": "Each bounding box consists of 5 predictions: $x$, $y$, $w$, $h$, and confidence. The $(x,y)$ coordinates represent the center of the box relative to the bounds of the grid cell. The width and height are predicted relative to the whole image. Finally the confidence prediction represents the IOU between the predicted box and any ground truth box.\n\nEach grid cell also predicts $C$ conditional class probabilities, $\\Pr(\\textrm{Class}_i | \\textrm{Object})$. These probabilities are conditioned on the grid cell containing an object. We only predict one set of class probabilities per grid cell, regardless of the number of boxes $B$.\n\nAt test time we multiply the conditional class probabilities and the individual box confidence predictions,\n\\begin{equation}\n\\scriptsize\n\\Pr(\\textrm{Class}_i | \\textrm{Object}) * \\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}} = \\Pr(\\textrm{Class}_i)*\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}\n\\end{equation}\nwhich gives us class-specific confidence scores for each box. These scores encode both the probability of that class appearing in the box and how well the predicted box fits the object.\n\n⟨FIG:model⟩\n\nFor evaluating YOLO on \\textsc{Pascal} VOC, we use $S=7$, $B=2$. \\textsc{Pascal} VOC has 20 labelled classes so $C=20$. Our final prediction is a $7 \\times 7 \\times 30$ tensor.\n\n\\subsection{Network Design}\n\n⟨FIG:net⟩\n\nWe implement this model as a convolutional neural network and evaluate it on the \\textsc{Pascal} VOC detection dataset \\cite{Everingham15}. The initial convolutional layers of the network extract features from the image while the fully connected layers predict the output probabilities and coordinates.\n\nOur network architecture is inspired by the GoogLeNet model for image classification \\cite{DBLP:journals/corr/SzegedyLJSRAEVR14}. Our network has 24 convolutional layers followed by 2 fully connected layers. Instead of the inception modules used by GoogLeNet, we simply use $1 \\times 1$ reduction layers followed by $3 \\times 3$ convolutional layers, similar to Lin et al \\cite{DBLP:journals/corr/LinCY13}. The full network is shown in Figure \\ref{net}.\n\nWe also train a fast version of YOLO designed to push the boundaries of fast object detection. Fast YOLO uses a neural network with fewer convolutional layers (9 instead of 24) and fewer filters in those layers. Other than the size of the network, all training and testing parameters are the same between YOLO and Fast YOLO.\n\nThe final output of our network is the $7 \\times 7 \\times 30$ tensor of predictions.\n\n\\subsection{Training}\n\nWe pretrain our convolutional layers on the ImageNet 1000-class competition dataset \\cite{ILSVRC15}. For pretraining we use the first 20 convolutional layers from Figure \\ref{net} followed by a average-pooling layer and a fully connected layer. We train this network for approximately a week and achieve a single crop top-5 accuracy of 88\\% on the ImageNet 2012 validation set, comparable to the GoogLeNet models in Caffe's Model Zoo \\cite{zoo}. We use the Darknet framework for all training and inference \\cite{darknet13}.\n\nWe then convert the model to perform detection. Ren et al. show that adding both convolutional and connected layers to pretrained networks can improve performance \\cite{DBLP:journals/corr/RenHGZ015}. Following their example, we add four convolutional layers and two fully connected layers with randomly initialized weights. Detection often requires fine-grained visual information so we increase the input resolution of the network from $224 \\times 224$ to $448 \\times 448$.",
+          "char_count": 3578,
+          "start_para": 21,
+          "end_para": 34,
+          "start_sent": null,
+          "end_sent": null,
+          "placeholder": {
+            "count": {
+              "eq_display": 0,
+              "eq_inline": 0,
+              "figure": 2,
+              "table": 0
+            },
+            "ids": {
+              "eq_display": [],
+              "eq_inline": [],
+              "figure": [
+                "model",
+                "net"
+              ],
+              "table": []
+            }
+          }
+        }
+      ]
+    },
+    "equations": {
+      "path": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\equations.jsonl",
+      "count": 57,
+      "head": [
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "equation",
+          "eq_kind": "display",
+          "id": "eq_1",
+          "env": "equation",
+          "tex": "\\scriptsize\n\\Pr(\\textrm{Class}_i | \\textrm{Object}) * \\Pr(\\textrm{Object}) * \\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}} = \\Pr(\\textrm{Class}_i)*\\textrm{IOU}_{\\textrm{pred}}^{\\textrm{truth}}",
+          "display": true,
+          "promoted": false,
+          "location": null
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "equation",
+          "eq_kind": "display",
+          "id": "eq_2",
+          "env": "equation",
+          "tex": "\\phi(x) =\n\\begin{cases}\n x, & \\text{if } x > 0\\\\\n 0.1x, & \\text{otherwise}\n \\end{cases}",
+          "display": true,
+          "promoted": false,
+          "location": null
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "equation",
+          "eq_kind": "display",
+          "id": "eq_3",
+          "env": "multline",
+          "tex": "\\lambda_\\textbf{coord}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n x_i - \\hat{x}_i\n \\right)^2 +\n \\left(\n y_i - \\hat{y}_i\n \\right)^2\n \\right]\n\\\\\n+ \\lambda_\\textbf{coord} \n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left[\n \\left(\n \\sqrt{w_i} - \\sqrt{\\hat{w}_i}\n \\right)^2 +\n \\left(\n \\sqrt{h_i} - \\sqrt{\\hat{h}_i}\n \\right)^2\n \\right]\n\\\\\n+ \\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{obj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\lambda_\\textrm{noobj}\n\\sum_{i = 0}^{S^2}\n \\sum_{j = 0}^{B}\n \\mathlarger{\\mathbbm{1}}_{ij}^{\\text{noobj}}\n \\left(\n C_i - \\hat{C}_i\n \\right)^2\n\\\\\n+ \\sum_{i = 0}^{S^2}\n\\mathlarger{\\mathbbm{1}}_i^{\\text{obj}}\n \\sum_{c \\in \\textrm{classes}}\n \\left(\n p_i(c) - \\hat{p}_i(c)\n \\right)^2",
+          "display": true,
+          "promoted": false,
+          "location": null
+        }
+      ]
+    },
+    "assets": {
+      "path": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\assets.jsonl",
+      "count": 10,
+      "head": [
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "asset",
+          "id": "system",
+          "kind": "figure",
+          "env": "figure",
+          "label": "system",
+          "caption": "\\small \\textbf{The YOLO Detection System.",
+          "graphics": [
+            "system"
+          ],
+          "children": [],
+          "mentions": [
+            {
+              "para_index": 11,
+              "sent_index": 0,
+              "cmd": "ref",
+              "text": "YOLO is refreshingly simple: see Figure \\ref{system}"
+            }
+          ]
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "asset",
+          "id": "model",
+          "kind": "figure",
+          "env": "figure",
+          "label": "model",
+          "caption": "\\small \\textbf{The Model.",
+          "graphics": [
+            "model"
+          ],
+          "children": [],
+          "mentions": []
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "asset",
+          "id": "net",
+          "kind": "figure",
+          "env": "figure*",
+          "label": "net",
+          "caption": "\\small \\textbf{The Architecture.",
+          "graphics": [
+            "net"
+          ],
+          "children": [],
+          "mentions": [
+            {
+              "para_index": 29,
+              "sent_index": 0,
+              "cmd": "ref",
+              "text": "The full network is shown in Figure \\ref{net}"
+            },
+            {
+              "para_index": 33,
+              "sent_index": 0,
+              "cmd": "ref",
+              "text": "For pretraining we use the first 20 convolutional layers from Figure \\ref{net} followed by a average-pooling layer and a fully connected layer"
+            }
+          ]
+        }
+      ]
+    },
+    "xref_mentions": {
+      "path": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\xref_mentions.jsonl",
+      "count": 8,
+      "head": [
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "xref_mention",
+          "label": "system",
+          "para_index": 11,
+          "sent_index": 0,
+          "cmd": "ref",
+          "text": "YOLO is refreshingly simple: see Figure \\ref{system}"
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "xref_mention",
+          "label": "net",
+          "para_index": 29,
+          "sent_index": 0,
+          "cmd": "ref",
+          "text": "The full network is shown in Figure \\ref{net}"
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "xref_mention",
+          "label": "net",
+          "para_index": 33,
+          "sent_index": 0,
+          "cmd": "ref",
+          "text": "For pretraining we use the first 20 convolutional layers from Figure \\ref{net} followed by a average-pooling layer and a fully connected layer"
+        }
+      ]
+    },
+    "xref_edges": {
+      "path": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\xref_edges.jsonl",
+      "count": 8,
+      "head": [
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "xref_edge",
+          "src_para_index": 11,
+          "cmd": "ref",
+          "target_label": "system"
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "xref_edge",
+          "src_para_index": 29,
+          "cmd": "ref",
+          "target_label": "net"
+        },
+        {
+          "doc_id": "source",
+          "schema_version": "0.1",
+          "ts": "2025-09-15T08:07:33Z",
+          "type": "xref_edge",
+          "src_para_index": 33,
+          "cmd": "ref",
+          "target_label": "net"
+        }
+      ]
+    }
+  }
+}

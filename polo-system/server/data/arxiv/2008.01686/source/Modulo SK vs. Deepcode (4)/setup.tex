@@ -1,0 +1,99 @@
+\begin{tikzpicture}
+[every text node part/.style={align=center}]
+
+	% Place nodes using a matrix
+	\matrix (m1) [row sep=2.5mm, column sep=5mm]
+	{  
+
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (r1ur){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[dspnodefull,dsp/label=above]   (z1){${Z}_n$};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (r2ur){};&
+                \\
+                \\
+		%--------------------------------------------------------------------
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+		\node[left]                  (x1) {$X_n$};   &
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+		\node[dspadder,dsp/label=below]  (a1) {feedforward channel}; &
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+		\node[right]                  (y1) {$Y_n$};  &
+
+		%--------------------------------------------------------------------
+		\\ \\ \\ \\ \\
+                \node[coordinate] (){};&
+                \node[dspnodefull,dsp/label=left]   (win){$W$};&
+                \node[right] (wout){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[left] (whin){};&
+                \node[dspnodefull,dsp/label=right]   (whout){$\widehat{W}$};&
+                \\ \\ \\ \\ \\
+%		--------------------------------------------------------------------
+
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[left] (y2){$\widetilde{Y}_n$};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[dspadder,dsp/label=above]   (a2){feedback channel};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[right] (x2){$\widetilde{X}_n$};&
+                \\  \\
+%		--------------------------------------------------------------------
+
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (r1ld){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[dspnodefull,dsp/label=below]   (z2){$\widetilde{Z}_n$};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (){};&
+                \node[coordinate] (r2ld){};&
+                \node[coordinate] (){};&\\ \\
+%		-------------------------------1------------------------------------
+	};
+	% Draw connections
+        
+          \draw[dspconn] (x1) -- (a1);
+          \draw[dspconn] (a1) -- (y1);
+          \draw[dspconn] (z1) -- (a1);
+          \draw[dspconn] (x2) -- (a2);
+          \draw[dspconn] (a2) -- (y2);
+          \draw[dspconn] (z2) -- (a2);
+          \draw[dspconn] (win) -- (wout);
+          \draw[dspconn] (whin) -- (whout);
+
+	\draw [color=black,thick](r1ur) rectangle (r1ld);
+	\node at (-2.45,2.9) [] {\textrm{Terminal A}};
+
+	\draw [color=black,thick](r2ur) rectangle (r2ld);
+	\node at (2.4,2.9) [] {\textrm{Terminal B}};
+
+       \def\xoffset{-10}
+       \def\yoffset{1.2}
+        \draw [->,dashed] (8.5+\xoffset,-0.8+\yoffset) .. controls (12.5+\xoffset,0.2+\yoffset) and (12.5+\xoffset,-2.5+\yoffset) .. (8.5+\xoffset,-1.5+\yoffset);
+        \node at (0,0)  {{interaction} \\ {rounds}};
+
+
+\end{tikzpicture}
