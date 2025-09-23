@@ -61,11 +61,26 @@ def _extract_grids(text: str) -> list[tuple[int,int]]:
     return grids
 
 def _extract_img_wh(text: str):
-    m = re.search(r"(\d{2,4})\s*[×x]\s*(\d{2,4})(?:\s*px|\s*픽셀|\s*pixels)?", text, re.I)
-    if m:
-        return [int(m.group(1)), int(m.group(2))]
-    # 값이 없으면 None -> 렌더러가 내부 기본값(예: 640×640)을 사용
-    return None
+    # x, ×, 곱표, 'by' 등 다양한 표기 허용
+    patt = r"(\d{2,4})\s*(?:×|x|X|by|\*)\s*(\d{2,4})(?:\s*(?:px|픽셀|pixels))?"
+    cands = [(int(w), int(h)) for (w, h) in re.findall(patt, text, flags=re.I)]
+    if not cands:
+        return None
+
+    # 448×448 최우선
+    for w, h in cands:
+        if w == 448 and h == 448:
+            return [448, 448]
+
+    # 큰 정사각형 선호
+    squares = [(w, h) for (w, h) in cands if w == h]
+    if squares:
+        w, h = max(squares, key=lambda t: t[0])
+        return [w, h]
+
+    # 면적 최대
+    w, h = max(cands, key=lambda t: t[0] * t[1])
+    return [w, h]
 
 def _activation_mentions(text: str) -> list[dict]:
     text_l = text.lower()
@@ -227,7 +242,8 @@ def build_concept_specs(text: str, spec: list,
             else:
                 left = (7, 7)  # 마지막 안전 디폴트(텍스트에 아무 단서 없을 때만)
 
-        right = _safe_wh(img_wh, default=(800, 600))  # 픽셀 레벨 그리드
+        fallback = (448, 448) if left == (7, 7) else (800, 600)
+        right = _safe_wh(img_wh, default=fallback)  # 픽셀 레벨 그리드
 
         inputs = {
             "title":  _label("Cell→Pixel scale", "셀 → 픽셀 스케일"),
@@ -315,19 +331,6 @@ def build_concept_specs(text: str, spec: list,
             "inputs": {"title": title, "taus": taus, "logit_range": [-6, 6], "example_badge": is_example}
         })
 
-    # 6) 파이프라인 화살표 (viz.trigger.pipeline_arrows)
-    if _has("viz.trigger.pipeline_arrows"):
-        chain = _parse_arrow_chain(text)
-        if chain:
-            nodes = [{"id": f"n{i}", "label": _label(chain[i], chain[i])} for i in range(len(chain))]
-            edges = [{"src": f"n{i}", "dst": f"n{i+1}"} for i in range(len(chain)-1)]
-            spec.append({
-                "id": "flow_from_text",
-                "type": "flow_arch",
-                "labels": _label("Pipeline", "파이프라인"),
-                "inputs": {"title": _label("Pipeline", "파이프라인"), "nodes": nodes, "edges": edges}
-            })
-
     # 7) Transformer 개념 (viz.trigger.transformer_concept)
     if _has("viz.trigger.transformer_concept"):
         nodes = [
@@ -344,44 +347,6 @@ def build_concept_specs(text: str, spec: list,
             "type":"flow_arch",
             "labels": _label("Transformer (concept)","Transformer (개념)"),
             "inputs":{"title":_label("Transformer (concept)","Transformer (개념)"),
-                    "nodes":nodes,"edges":edges}
-        })
-
-    # 8) 혼동행렬 (viz.trigger.confusion_matrix)
-    if _has("viz.trigger.confusion_matrix"):
-        M = _extract_confusion_2x2(text)
-        if M:
-            spec.append({
-                "id":"conf_mat",
-                "type":"confusion_matrix",
-                "labels": _label("Confusion Matrix","혼동행렬"),
-                "inputs":{"matrix": M, "labels": ["Neg","Pos"],
-                        "title": _label("Confusion Matrix","혼동행렬")}
-            })
-
-    # YOLO 학습/추론 플로우 (viz.trigger.yolo_training_flow)
-    if _has("viz.trigger.yolo_training_flow"):
-        # [한글 주석] 텍스트에 '책임 박스', 'λ_coord/λ_noobj', 'NMS' 등 키워드가 있을 때 glossary 트리거
-        nodes = [
-            {"id":"img","label":_label("Input Image","입력 이미지")},
-            {"id":"grid","label":_label("Grid cells (S×S)","그리드 셀 (S×S)")},
-            {"id":"pred","label":_label("Boxes + Scores + Class prob.","박스+점수+클래스확률")},
-            {"id":"assign","label":_label("Max IoU → responsible box","최대 IoU → 책임 박스")},
-            {"id":"loss","label":_label("Loss (coord/size/conf/cls)","손실(좌표/크기/신뢰도/분류)")},
-            {"id":"nms","label":_label("NMS","NMS")}
-        ]
-        edges = [
-            {"src":"img","dst":"grid"},
-            {"src":"grid","dst":"pred"},
-            {"src":"pred","dst":"assign"},
-            {"src":"assign","dst":"loss"},
-            {"src":"pred","dst":"nms"}
-        ]
-        spec.append({
-            "id":"yolo_train_flow",
-            "type":"flow_arch",
-            "labels":_label("YOLO training/inference flow","YOLO 학습/추론 플로우"),
-            "inputs":{"title":_label("YOLO training/inference flow","YOLO 학습/추론 플로우"),
                     "nodes":nodes,"edges":edges}
         })
 
@@ -422,6 +387,33 @@ def build_concept_specs(text: str, spec: list,
                 "methods": [" "], "metrics": [" "], "values": [[0]],
                 "title":{"ko":"출력 텐서 설명","en":"Output tensor"},
                 "caption_bottom": 0.10, "caption_y": 0.02
+            }
+        })
+
+    # YOLO loss 가중치 (viz.trigger.loss_weights)
+    if _has("viz.trigger.loss_weights"):
+        # 텍스트에서 λ_coord, λ_noobj 값 읽기(없으면 기본값 표시)
+        def _read_val(name, default):
+            m = re.search(rf"{name}\s*=\s*([0-9]+(?:\.[0-9]+)?)", text, re.I)
+            try:
+                return float(m.group(1)) if m else float(default)
+            except Exception:
+                return float(default)
+
+        lam_coord = _read_val("λ[_ ]?coord|lambda[_ ]?coord", 5)
+        lam_noobj = _read_val("λ[_ ]?noobj|lambda[_ ]?noobj", 0.5)
+
+        spec.append({
+            "id": "yolo_loss_weights",
+            "type": "bar_group",
+            "labels": _label("Loss weights", "손실 가중치"),
+            "inputs": {
+                "title": _label("Loss weights", "손실 가중치"),
+                "ylabel": _label("weight", "가중치"),
+                "categories": ["λ_coord", "λ_noobj"],
+                "series": [{"label": {"en":"value","ko":"값"},
+                            "values": [lam_coord, lam_noobj]}],
+                "legend": False
             }
         })
 

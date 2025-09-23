@@ -110,6 +110,37 @@ def parse_special_tokens(text):
     if has_sep: toks += ["[SEP]", "sentB", "[SEP]"]
     return toks
 
+# YOLO 손실 가중치(λ_coord, λ_noobj 등) 값을 추출
+def _extract_yolo_loss_weights(text: str) -> dict:
+    out = {}
+    # 허용 숫자 패턴
+    NUM = r"[-+]?\d+(?:\.\d+)?"
+
+    # λ_coord / lambda_coord
+    for pat in [rf"λ\s*[_\- ]?coord\s*[:=]\s*({NUM})",
+                rf"lambda\s*[_\- ]?coord\s*[:=]\s*({NUM})"]:
+        m = re.search(pat, text, re.I)
+        if m:
+            out["λ_coord"] = float(m.group(1))
+            break
+
+    # λ_noobj / lambda_noobj / no-object
+    for pat in [rf"λ\s*[_\- ]?noobj\s*[:=]\s*({NUM})",
+                rf"lambda\s*[_\- ]?noobj\s*[:=]\s*({NUM})",
+                rf"no[\- ]?object\s*weight\s*[:=]\s*({NUM})"]:
+        m = re.search(pat, text, re.I)
+        if m:
+            out["λ_noobj"] = float(m.group(1))
+            break
+
+    # 뭔가 하나라도 잡혔으면 나머지 축들 기본 1.0 채워 보여주기
+    if out:
+        out.setdefault("coord(x,y,w,h)", 1.0)  # 좌표 항들 기본 1
+        out.setdefault("obj/conf", 1.0)
+        out.setdefault("class", 1.0)
+
+    return out
+
 # 유틸리티(라벨 한글화, 값 정규화)
 def _label(en, ko): return {"en": en, "ko": ko}
 
@@ -700,13 +731,9 @@ RUBRIC_CAPTIONS = {
     "metric.cer": "CER↓: 문자 오류율. 낮을수록 좋음.",
 }
 
+# 평가지표 헬퍼
 def _add_rubric_tables(spec: list, mentions: dict,
                     numeric_cids: set[str] | None = None):
-    """
-    숫자 유무와 무관하게 '언급된 지표'에 대해 1회만 표 생성.
-    - 상단 헤드라인/수치(예: VOC2012: …)는 넣지 않음
-    - 캡션은 지표별 설명을 붙이고, 간격을 좁히기 위한 파라미터 전달
-    """
     if numeric_cids is None:
         # 기본: 숫자 없이 키워드만 매칭된 CID 들
         numeric_cids = set(mentions.keys())
@@ -852,11 +879,8 @@ def _scale_bar_group_percent_if_needed(item: dict):
     item["inputs"] = inp
     return item
 
+# 활성화 함수
 def _ensure_activation_fallback(mentions_set: set, spec_list: list):
-    """
-    activation_panel 트리거가 '실제'로 잡혔는데, 활성화 관련 스펙이 하나도 없으면
-    안전한 curve_generic 1장을 추가. (트리거가 없으면 절대 추가 안 함)
-    """
     if "viz.trigger.activation_panel" not in mentions_set:
         return spec_list
     if any(s.get("type") in {"activation_curve", "curve_generic"} for s in (spec_list or [])):
@@ -1157,6 +1181,21 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
             })
             # 조건을 못 만족하면 아무 것도 추가하지 않음 (더미/예시 차트 생성 금지)
 
+    # YOLO 손실 가중치 → 가중치 막대 (값 기반 / 텍스트에서 숫자 추출 필요)
+    # 트리거는 glossary_hybrid.json 에서 "viz.trigger.yolo_loss_weights" 로 관리
+    if _has_trigger(cidx, "viz.trigger.yolo_loss_weights", text):
+        lw = _extract_yolo_loss_weights(text)
+        if lw:
+            spec.append({
+                "id": "yolo_loss_weights",
+                "type": "loss_weights_bar",
+                "labels": _label("YOLO loss weights", "YOLO 손실 가중치"),
+                "inputs": {
+                    "weights": lw,
+                    "title": _label("YOLO loss weights", "YOLO 손실 가중치")
+                }
+            })
+
     # BER vs SNR (trigger: viz.trigger.ber_snr)
     if _has_trigger(cidx, "viz.trigger.ber_snr", text):
         snr_spec = build_spec_ber_snr(text)
@@ -1186,3 +1225,5 @@ def auto_build_spec_from_text(text: str, glossary_path: str | None = None):
         misc.add("viz.trigger.activation_panel")
 
     return postprocess_specs(text, spec, mentions)
+
+

@@ -1971,30 +1971,24 @@
     }
   },
   {
-    "concept_id": "viz.trigger.yolo_training_flow",
-    "category": "viz.trigger",
-    "labels": { "en": "YOLO training flow", "ko": "YOLO 학습/추론 플로우" },
+    "concept_id": "viz.trigger.yolo_loss_weights",
+    "category": "viz.trigger.yolo_loss_weights",
+    "labels": { "en": "YOLO loss weights", "ko": "YOLO 손실 가중치" },
     "regex": {
-      "en": ["(responsible\\s*box|lambda\\s*coord|lambda\\s*noobj|NMS\\b)"],
-      "ko": ["(책임\\s*박스|λ\\s*coord|λ\\s*noobj|NMS)"]
-    }
-  },
-  {
-    "concept_id": "viz.trigger.loss_weights",
-    "category": "viz.trigger",
-    "labels": { "en": "Loss weights", "ko": "손실 가중치" },
-    "regex": {
-      "en": ["(lambda[_\\s]*coord|lambda[_\\s]*noobj|λ\\s*coord|λ\\s*noobj)"],
-      "ko": ["(λ\\s*coord|λ\\s*noobj|람다\\s*코드|람다\\s*노객체)"]
-    }
-  },
-  {
-    "concept_id": "viz.trigger.yolo_tensor_7x7x30",
-    "category": "viz.trigger",
-    "labels": { "en": "7x7x30 tensor", "ko": "7×7×30 텐서" },
-    "regex": {
-      "en": ["7\\s*[x×]\\s*7\\s*[x×]\\s*30"],
-      "ko": ["7\\s*[x×]\\s*7\\s*[x×]\\s*30"]
+      "en": [
+        "lambda\\s*coord\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "lambda\\s*noobj\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "λ\\s*coord\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "λ\\s*noobj\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "(?:coord|coordinate)\\s*(?:weight|가중치)\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "(?:no[_\\s]*obj|no\\s*object)\\s*(?:weight|가중치)\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?"
+      ],
+      "ko": [
+        "λ\\s*coord\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "λ\\s*noobj\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "좌표\\s*가중치\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?",
+        "no\\s*object\\s*가중치\\s*[:=]\\s*[-+]?\\d+(?:\\.\\d+)?"
+      ]
     }
   }
 ]
