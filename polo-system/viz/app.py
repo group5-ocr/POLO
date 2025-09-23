@@ -10,7 +10,7 @@ from matplotlib.font_manager import FontProperties
 import matplotlib as mpl
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any, List
 import uvicorn
 
 DEVICE = "cpu"
@@ -66,6 +66,49 @@ def _present_families(candidates):
                 fam = name
             present.append(fam)
     return present
+
+def _write_viz_record(paper_id: str, section_id: str, paragraph_id: str, title: str, description: str, viz_type: str, image_abs_path: str) -> None:
+    try:
+        server_dir = Path(__file__).resolve().parent.parent / "server"
+        viz_json_dir = server_dir / "data" / "outputs" / paper_id / "viz_outputs"
+        viz_json_dir.mkdir(parents=True, exist_ok=True)
+        viz_json_path = viz_json_dir / "visualizations.json"
+
+        try:
+            data = json.loads(viz_json_path.read_text(encoding="utf-8")) if viz_json_path.exists() else {"generated_visualizations": []}
+        except Exception:
+            data = {"generated_visualizations": []}
+
+        # 공개 경로
+        try:
+            rel = Path(image_abs_path)
+            # expect .../server/data/outputs/{paper_id}/viz/{section}/{paragraph}/{file}
+            idx = rel.parts.index("outputs") if "outputs" in rel.parts else -1
+            public_path = "/outputs/" + "/".join(rel.parts[idx+1:]) if idx >= 0 else str(rel).replace("\\", "/")
+        except Exception:
+            public_path = str(image_abs_path).replace("\\", "/")
+
+        viz_id = f"auto_{section_id}_{paragraph_id}"
+        record = {
+            "viz_id": viz_id,
+            "section_id": section_id,
+            "title": title or paragraph_id,
+            "description": description or "",
+            "visualization_type": viz_type or "diagram",
+            "image_path": public_path,
+            "metadata": {
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "algorithm_version": "viz-algo-v2.1"
+            }
+        }
+
+        # 중복 방지: 같은 viz_id 있으면 교체
+        lst = [r for r in data.get("generated_visualizations", []) if r.get("viz_id") != viz_id]
+        lst.append(record)
+        data["generated_visualizations"] = lst
+        viz_json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"⚠️ [VIZ] viz JSON 기록 실패: {e}")
 
 def _as_text(maybe):
     if maybe is None:
@@ -202,7 +245,7 @@ def _inject_labels_into_inputs(item, inputs, opts):
 def _localize_inputs(inputs, opts):
     return _localize_value(inputs, opts)
 
-def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str = "missing", clear_outdir: bool = True):
+def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str = "missing", clear_outdir: bool = True, use_hash_names: bool = True):
     _ensure_grammars_loaded()
     _setup_matplotlib_fonts()
     _prepare_outdir(outdir, clear=clear_outdir)
@@ -223,12 +266,30 @@ def render_from_spec(spec_list, outdir, target_lang: str = "ko", bilingual: str 
             if need not in inputs:
                 inputs[need] = "__MISSING__"
 
-        out_path = os.path.join(outdir, f"{item['id']}.png")
+        # 해시 기반 파일명 사용 여부에 따라 파일명 결정
+        if use_hash_names:
+            from .save_png import get_unique_filename
+            filename = get_unique_filename(item['id'], item)
+            out_path = os.path.join(outdir, filename)
+            
+            # 이미 존재하면 재생성 스킵
+            if os.path.exists(out_path):
+                print(f"✅ [VIZ] 파일 이미 존재, 재생성 스킵: {filename}")
+                outputs.append({"id": item["id"], "type": item["type"], "path": out_path})
+                continue
+        else:
+            # 기존 방식
+            out_path = os.path.join(outdir, f"{item['id']}.png")
+        
         tmp_path = os.path.join(outdir, f".~{item['id']}.png")
         g.renderer(inputs, tmp_path)
         os.replace(tmp_path, out_path)
         now = time.time()
         os.utime(out_path, (now, now))
+        
+        if use_hash_names:
+            print(f"✅ [VIZ] 새 파일 생성: {os.path.basename(out_path)}")
+        
         outputs.append({"id": item["id"], "type": item["type"], "path": out_path})
     return outputs
 
@@ -340,7 +401,7 @@ async def generate_viz(request: VizRequest):
         if request.index == -1:
             first_paper_id = paras[0][0]
             server_dir = Path(__file__).resolve().parent.parent / "server"
-            paper_root = server_dir / "data" / "viz" / first_paper_id
+            paper_root = server_dir / "data" / "outputs" / first_paper_id / "viz"
 
             import shutil
             if paper_root.exists():
@@ -363,7 +424,7 @@ async def generate_viz(request: VizRequest):
                     continue
 
                 outdir = (Path(__file__).resolve().parent.parent / "server" /
-                        "data" / "viz" / paper_id / section_id / paragraph_id)
+                        "data" / "outputs" / paper_id / "viz" / section_id / paragraph_id)
                 outdir.mkdir(parents=True, exist_ok=True)
 
                 outs = render_from_spec(
@@ -373,6 +434,9 @@ async def generate_viz(request: VizRequest):
                     clear_outdir=True
                 )
                 all_outs.extend(outs)
+                # JSON 기록
+                if outs:
+                    _write_viz_record(paper_id, section_id, paragraph_id, title=paragraph_id, description="", viz_type="auto", image_abs_path=outs[0]["path"])
 
             if not all_outs:
                 raise HTTPException(status_code=500, detail="생성된 이미지가 없습니다.")
@@ -398,7 +462,7 @@ async def generate_viz(request: VizRequest):
         spec = _dedup_specs(spec, seen_sigs, seen_example_types)
 
         server_dir = Path(__file__).resolve().parent.parent / "server"
-        outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
+        outdir = server_dir / "data" / "outputs" / paper_id / "viz" / section_id / paragraph_id
         outdir.mkdir(parents=True, exist_ok=True)
 
         outputs = render_from_spec(
@@ -406,21 +470,31 @@ async def generate_viz(request: VizRequest):
             str(outdir),
             target_lang=request.target_lang,
             bilingual=request.bilingual,
-            clear_outdir=True
+            clear_outdir=True,
+            use_hash_names=True  # 해시 기반 파일명 사용
         )
 
         if not outputs:
             raise HTTPException(status_code=500, detail="이미지 생성 실패 (스펙 없음)")
 
         image_path = outputs[0]["path"]
+        
+        # 웹 접근 가능한 경로로 변환
+        from .save_png import to_web_path
+        web_path = to_web_path(Path(image_path))
+        
+        # JSON 기록
+        _write_viz_record(paper_id, section_id, paragraph_id, title=paragraph_id, description="", viz_type="auto", image_abs_path=image_path)
+        
+        # 캐시 버스팅을 위한 타임스탬프 추가
         rev = str(time.time_ns())
-        image_path_versioned = f"{image_path}?rev={rev}"
+        web_path_versioned = f"{web_path}?rev={rev}"
 
         return VizResponse(
             paper_id=paper_id,
             index=request.index,
             paragraph_id=paragraph_id,
-            image_path=image_path_versioned,
+            image_path=web_path_versioned,
             success=True
         )
     except HTTPException:
@@ -481,7 +555,7 @@ if __name__ == "__main__":
                         if not spec:
                             continue
 
-                        outdir = server_dir / "data" / "viz" / paper_id / section_id / paragraph_id
+                        outdir = server_dir / "data" / "outputs" / paper_id / "viz" / section_id / paragraph_id
                         outdir.mkdir(parents=True, exist_ok=True)
                         outs = render_from_spec(spec, str(outdir), target_lang="ko", bilingual="missing", clear_outdir=True)
                         for o in outs:
