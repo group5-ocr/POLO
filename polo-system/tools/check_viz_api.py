@@ -8,8 +8,8 @@ import requests
 import sys
 import time
 
-# 클라우드타입 배포 주소 (팀원이 제공한 주소, 포트 8010)
-VIZ_API_URL = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app:8010"
+# 클라우드타입 배포 주소 (팀원이 제공한 주소)
+VIZ_API_URL = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app/"
 
 def check_api_health():
     """API 서버의 health 상태를 확인합니다."""

@@ -188,14 +188,121 @@ const preprocessLatex = (s: string): string => {
   return processed;
 };
 
-// 설명 텍스트 정리(접두 제거 + 군더더기 제거)
-const sanitizeExplain = (t?:string) =>
-  (t ?? "")
+// [ADD] LaTeX 수식 변환 함수 (컴포넌트 외부)
+const convertLatexToMathJax = (latexText: string): string => {
+  if (!latexText) return '';
+  
+  let converted = latexText;
+  
+  // 1. 깨진 LaTeX 명령어들 수정
+  const latexFixes = [
+    // 백슬래시 누락 수정
+    { from: /Pr\(/g, to: '\\Pr(' },
+    { from: /textem\{/g, to: '\\text{' },
+    { from: /mathbbm/g, to: '\\mathbb' },
+    { from: /mathlarger/g, to: '\\large' },
+    { from: /boxed\{/g, to: '\\boxed{' },
+    { from: /phi\(/g, to: '\\phi(' },
+    { from: /hat/g, to: '\\hat' },
+    { from: /sqrt/g, to: '\\sqrt' },
+    
+    // 사용자 언급 특정 문제들 해결
+    { from: /Pr\(Class_i \| Object\)/g, to: '\\Pr(\\text{Class}_i | \\text{Object})' },
+    { from: /\\Pr\(\\textem\{Class\}_i \|/g, to: '\\Pr(\\text{Class}_i |' },
+    { from: /\\boxed\{\\Pr\(\\textrm\{Object\}\)\}/g, to: '\\boxed{\\Pr(\\text{Object})}' },
+    { from: /\\mathlarger/g, to: '\\large' },
+    { from: /\\mathbbm/g, to: '\\mathbb' },
+    { from: /\\text\{/g, to: '\\text{' },
+    { from: /\\hat\{/g, to: '\\hat{' },
+    { from: /\\sqrt\{/g, to: '\\sqrt{' },
+    { from: /\\boxed\{1\}/g, to: '\\boxed{1}' },
+    { from: /\\phi\(x\)/g, to: '\\phi(x)' },
+    
+    // 중괄호 누락 수정
+    { from: /\\Pr\(([^)]+)\)/g, to: '\\Pr($1)' },
+    { from: /\\text\{([^}]+)\}/g, to: '\\text{$1}' },
+    { from: /\\boxed\{([^}]+)\}/g, to: '\\boxed{$1}' },
+    { from: /\\phi\(([^)]+)\)/g, to: '\\phi($1)' },
+    { from: /\\sqrt\{([^}]+)\}/g, to: '\\sqrt{$1}' },
+    
+    // 특수 문자 처리
+    { from: /λ/g, to: '\\lambda' },
+    { from: /α/g, to: '\\alpha' },
+    { from: /β/g, to: '\\beta' },
+    { from: /γ/g, to: '\\gamma' },
+    { from: /δ/g, to: '\\delta' },
+    { from: /ε/g, to: '\\epsilon' },
+    { from: /θ/g, to: '\\theta' },
+    { from: /π/g, to: '\\pi' },
+    { from: /σ/g, to: '\\sigma' },
+    { from: /τ/g, to: '\\tau' },
+    { from: /φ/g, to: '\\phi' },
+    { from: /ψ/g, to: '\\psi' },
+    { from: /ω/g, to: '\\omega' },
+    
+    // 수학 연산자
+    { from: /≤/g, to: '\\leq' },
+    { from: /≥/g, to: '\\geq' },
+    { from: /≠/g, to: '\\neq' },
+    { from: /≈/g, to: '\\approx' },
+    { from: /∞/g, to: '\\infty' },
+    { from: /∑/g, to: '\\sum' },
+    { from: /∏/g, to: '\\prod' },
+    { from: /∫/g, to: '\\int' },
+    { from: /∂/g, to: '\\partial' },
+    { from: /∇/g, to: '\\nabla' },
+    
+    // 집합 기호
+    { from: /∈/g, to: '\\in' },
+    { from: /∉/g, to: '\\notin' },
+    { from: /⊂/g, to: '\\subset' },
+    { from: /⊃/g, to: '\\supset' },
+    { from: /∪/g, to: '\\cup' },
+    { from: /∩/g, to: '\\cap' },
+    { from: /∅/g, to: '\\emptyset' },
+    
+    // 논리 연산자
+    { from: /∧/g, to: '\\land' },
+    { from: /∨/g, to: '\\lor' },
+    { from: /¬/g, to: '\\neg' },
+    { from: /→/g, to: '\\rightarrow' },
+    { from: /←/g, to: '\\leftarrow' },
+    { from: /↔/g, to: '\\leftrightarrow' },
+    { from: /∀/g, to: '\\forall' },
+    { from: /∃/g, to: '\\exists' },
+  ];
+  
+  // 변환 적용
+  latexFixes.forEach(fix => {
+    converted = converted.replace(fix.from, fix.to);
+  });
+  
+  // 2. MathJax 래퍼 추가 (이미 있는지 확인)
+  if (!converted.includes('$$') && !converted.includes('\\(') && !converted.includes('\\[')) {
+    // 수식이 여러 줄에 걸쳐 있거나 복잡한 경우
+    if (converted.includes('\\') || converted.includes('{') || converted.includes('}')) {
+      converted = `$$${converted}$$`;
+    }
+  }
+  
+  return converted;
+};
+
+// 설명 텍스트 정리(접두 제거 + 군더더기 제거 + LaTeX 변환)
+const sanitizeExplain = (t?:string) => {
+  if (!t) return "";
+  
+  // 1. 기본 정리
+  let cleaned = t
     .replace(/^\s*(조수|assistant)\s*[:：\-]?\s*/i, "")
     .replace(/^\s*(조수|assistant)\s*[:：\-]?\s*/gmi, "")
     .replace(/\[?\s*수학\s*\d+\s*\]?/g, "")   // [수학0] 등 제거
     .replace(/^\s*보조\s*:?/gmi, "")          // '보조' 접두 제거
     .trim();
+  
+  // 2. LaTeX 변환 적용
+  return convertLatexToMathJax(cleaned);
+};
 
 // 파일 상단 utils 근처에 보조 함수 2개 추가
 const coalesce = <T,>(...vals: (T | undefined | null)[]) => vals.find(v => v !== undefined && v !== null);
@@ -308,6 +415,15 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   useEffect(() => { 
     loadFigureQueue().then(setFigQueue); 
   }, []);
+
+  // [ADD] LaTeX 변환 테스트 함수 (디버깅용)
+  const testLatexConversion = (testText: string) => {
+    console.log('🧪 [LaTeX 변환 테스트]');
+    console.log('입력:', testText);
+    const result = convertLatexToMathJax(testText);
+    console.log('출력:', result);
+    return result;
+  };
   
   // [ADD] Figure 큐 팝 함수
   const popFig = useMemo(() => { 
@@ -904,12 +1020,31 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
   };
 
   // [ADD] 외부 API 이미지 팝업 열기 함수
-  const openExternalImage = (sectionOrder: number, sectionTitle: string) => {
-    if (!integratedData?.paper_info?.paper_id) return;
+  const openExternalImage = (sectionIdx: number, sectionTitle: string) => {
+    // URL에서 paper_id 직접 추출 (가장 확실한 방법)
+    const pathParts = window.location.pathname.split("/");
+    const paperId = pathParts[pathParts.length - 1];
     
-    // 외부 API 이미지 경로 구성
-    const paperId = integratedData.paper_info.paper_id;
-    const imageUrl = `/api/static/outputs/${paperId}/external_viz/slides_1506.02640/${sectionOrder}.png`;
+    // paper_id가 올바른지 확인 (doc_로 시작하는지)
+    if (!paperId || paperId === 'yolo_v1_analysis') {
+      console.error('❌ [이미지] 잘못된 paper_id:', paperId);
+      console.log('🔍 [이미지] 현재 URL:', window.location.pathname);
+      console.log('🔍 [이미지] pathParts:', pathParts);
+      return;
+    }
+    
+    // 외부 API 이미지 경로 구성 (절대 URL 사용)
+    // 서버에서 /outputs → server/data/outputs 매핑
+    const imageUrl = `http://localhost:8000/outputs/${paperId}/api/${sectionIdx}.png`;
+    // 디버깅: paper_id 값 확인
+    console.log('🔍 [이미지 경로] 최종 경로:', {
+      paperId: paperId,
+      sectionIdx: sectionIdx,
+      sectionTitle: sectionTitle,
+      imageUrl: imageUrl,
+      currentUrl: window.location.pathname,
+      expectedServerPath: `C:\\POLO\\POLO\\polo-system\\server\\data\\outputs\\${paperId}\\api\\${sectionIdx}.png`
+    });
     
     setExternalImagePopup({
       isOpen: true,
@@ -965,26 +1100,6 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               >
                 {loadingVizApi[section.easy_section_id] ? '생성중…' : '시각화 생성'}
               </button>
-              {/* [ADD] 외부 API 이미지 버튼 (섹션별) */}
-              {!isSubsection && (
-                <button
-                  onClick={() => openExternalImage(section.easy_section_order, displayTitle)}
-                  className="external-image-btn"
-                  style={{ 
-                    marginLeft: 8, 
-                    padding: '6px 10px', 
-                    fontSize: 12,
-                    backgroundColor: '#4CAF50',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                  title="외부 API로 생성된 이미지 보기"
-                >
-                  📊 이미지
-                </button>
-              )}
             </>
           )}
         </div>
@@ -1678,7 +1793,7 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               </span>
             </p>
             <p>
-              <strong>발표:</strong>{" "}
+              <strong>출판일:</strong>{" "}
               <span id="paper-venue">
                 {integratedData.paper_info.paper_venue}
               </span>
@@ -1691,7 +1806,34 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
               
               return (
                 <article key={parent.easy_section_id} id={parent.easy_section_id} className="paper-section-card">
-                  <header className="section-header"><h2>{parent.easy_section_title}</h2></header>
+                  <header className="section-header">
+                    <h2>{parent.easy_section_title}</h2>
+                    {/* 요약 이미지 버튼 */}
+                    <button
+                      onClick={() => {
+                        console.log('🖼️ [이미지] 요약 이미지 클릭:', {
+                          sectionIdx: sectionIdx,
+                          sectionTitle: parent.easy_section_title
+                        });
+                        openExternalImage(sectionIdx, parent.easy_section_title);
+                      }}
+                      style={{
+                        marginLeft: '20px',
+                        padding: '8px 16px',
+                        backgroundColor: '#4CAF50',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="섹션별 요약 이미지"
+                    >
+                      이미지 슬라이드
+                    </button>
+                  </header>
                   
                   {/* [ADD] 하드코딩 매핑된 섹션 Figure */}
                   {(() => {
@@ -1853,20 +1995,47 @@ const Result: React.FC<ResultProps> = ({ data, onDownload, onPreview }) => {
                 borderRadius: '4px',
                 boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
               }}
+              onLoad={() => {
+                console.log('✅ [이미지] 이미지 로드 성공:', externalImagePopup.imageUrl);
+              }}
               onError={(e) => {
-                console.warn('외부 API 이미지 로드 실패:', externalImagePopup.imageUrl);
-                (e.target as HTMLImageElement).style.display = 'none';
-                const errorDiv = document.createElement('div');
-                errorDiv.innerHTML = `
-                  <div style="text-align: center; padding: 40px; color: #666;">
-                    <p>📊 이미지를 불러올 수 없습니다</p>
-                    <p style="font-size: 14px; margin-top: 10px;">
-                      외부 API로 생성된 이미지가 아직 준비되지 않았거나<br/>
-                      경로를 찾을 수 없습니다.
-                    </p>
-                  </div>
-                `;
-                (e.target as HTMLImageElement).parentNode?.appendChild(errorDiv);
+                console.warn('❌ [이미지] 외부 API 이미지 로드 실패:', externalImagePopup.imageUrl);
+                console.warn('❌ [이미지] 에러 이벤트:', e);
+                
+                // 이미지 로딩 재시도
+                const img = e.target as HTMLImageElement;
+                const originalSrc = img.src;
+                
+                // 1초 후 재시도
+                setTimeout(() => {
+                  console.log('🔄 [이미지] 이미지 로딩 재시도:', originalSrc);
+                  img.src = originalSrc + '?t=' + Date.now(); // 캐시 방지
+                }, 1000);
+                
+                // 3초 후에도 실패하면 에러 메시지 표시
+                setTimeout(() => {
+                  if (img.complete && img.naturalHeight === 0) {
+                    img.style.display = 'none';
+                    const errorDiv = document.createElement('div');
+                    errorDiv.innerHTML = `
+                      <div style="text-align: center; padding: 40px; color: #666;">
+                        <p>📊 이미지를 불러올 수 없습니다</p>
+                        <p style="font-size: 14px; margin-top: 10px;">
+                          외부 API로 생성된 이미지가 아직 준비되지 않았거나<br/>
+                          경로를 찾을 수 없습니다.
+                        </p>
+                        <p style="font-size: 12px; margin-top: 10px; color: #999;">
+                          경로: ${externalImagePopup.imageUrl}
+                        </p>
+                        <button onclick="window.open('${externalImagePopup.imageUrl}', '_blank')" 
+                                style="margin-top: 10px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                          🔗 직접 링크 열기
+                        </button>
+                      </div>
+                    `;
+                    img.parentNode?.appendChild(errorDiv);
+                  }
+                }, 3000);
               }}
             />
             

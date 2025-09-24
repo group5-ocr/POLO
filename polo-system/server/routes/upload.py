@@ -2219,14 +2219,14 @@ async def call_external_viz_api(request: dict):
         
         print(f"🎨 [EXT VIZ] 외부 시각화 API 호출: arxiv_id={arxiv_id}")
         
-        # 외부 API URL (팀원 제공, 포트 8010)
-        external_viz_url = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app:8010"
+        # 외부 API URL (팀원 제공)
+        external_viz_url = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app"
         api_endpoint = f"{external_viz_url}/api/viz-api/generate-zip/{arxiv_id}"
         
         # 출력 디렉토리 설정
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent
-        output_dir = server_dir / "data" / "outputs" / paper_id / "external_viz"
+        output_dir = server_dir / "data" / "outputs" / paper_id / "api"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         async with httpx.AsyncClient(timeout=300) as client:  # 5분 타임아웃
@@ -2243,7 +2243,7 @@ async def call_external_viz_api(request: dict):
                 import io
                 
                 zip_path = output_dir / f"{arxiv_id}_external_viz.zip"
-                extract_path = output_dir / f"slides_{arxiv_id}"
+                extract_path = output_dir
                 
                 # ZIP 파일 저장
                 with open(zip_path, "wb") as f:
@@ -2769,8 +2769,8 @@ async def check_results_ready(paper_id: str):
 
 
 # [ADD] 외부 API 이미지 정적 파일 서빙
-@router.get("/static/outputs/{paper_id}/external_viz/slides_{arxiv_id}/{filename}")
-async def serve_external_viz_image(paper_id: str, arxiv_id: str, filename: str):
+@router.get("/outputs/{paper_id}/api/{filename}")
+async def serve_external_viz_image(paper_id: str, filename: str):
     """외부 API로 생성된 이미지 파일을 서빙합니다."""
     try:
         from fastapi.responses import FileResponse
@@ -2779,7 +2779,7 @@ async def serve_external_viz_image(paper_id: str, arxiv_id: str, filename: str):
         # 이미지 파일 경로 구성
         current_file = Path(__file__).resolve()
         server_dir = current_file.parent.parent
-        image_path = server_dir / "data" / "outputs" / paper_id / "external_viz" / f"slides_{arxiv_id}" / filename
+        image_path = server_dir / "data" / "outputs" / paper_id / "api" / filename
         
         # 파일 존재 확인
         if not image_path.exists():

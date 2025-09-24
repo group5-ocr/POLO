@@ -13,8 +13,8 @@ import sys
 import argparse
 from pathlib import Path
 
-# 클라우드타입 배포 주소 (팀원 제공, 포트 8010 사용)
-VIZ_API_URL = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app:8010"
+# 클라우드타입 배포 주소 (팀원 제공)
+VIZ_API_URL = "https://port-0-paper-viz-mc3ho385f405b6d9.sel5.cloudtype.app"
 
 def convert_arxiv_to_png(arxiv_id, output_dir=None):
     """

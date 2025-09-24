@@ -280,20 +280,21 @@ if exist "%FRONTEND_DIR%" (
 )
 
 REM ============================================================
-REM [VIZ API] Check external VIZ API connection status
-set VIZ_API_CHECK_PY=%~dp0tools\check_viz_api.py
-if exist "%VIZ_API_CHECK_PY%" (
-  echo [VIZ API] Checking external API connection...
-  python "%VIZ_API_CHECK_PY%"
-  if errorlevel 1 (
-    echo [VIZ API][WARN] External API connection failed. PNG conversion may not work.
-    echo [VIZ API][INFO] You can still use the system, but external PNG conversion will be unavailable.
-  ) else (
-    echo [VIZ API] External API connection successful!
-  )
-) else (
-  echo [VIZ API][WARN] check_viz_api.py not found: %VIZ_API_CHECK_PY%
-)
+REM [VIZ API] External API connection check removed
+REM 외부 API는 Upload.tsx의 "생성하기" 버튼을 눌렀을 때만 호출됩니다
+REM set VIZ_API_CHECK_PY=%~dp0tools\check_viz_api.py
+REM if exist "%VIZ_API_CHECK_PY%" (
+REM   echo [VIZ API] Checking external API connection...
+REM   python "%VIZ_API_CHECK_PY%"
+REM   if errorlevel 1 (
+REM     echo [VIZ API][WARN] External API connection failed. PNG conversion may not work.
+REM     echo [VIZ API][INFO] You can still use the system, but external PNG conversion will be unavailable.
+REM   ) else (
+REM     echo [VIZ API] External API connection successful!
+REM   )
+REM ) else (
+REM   echo [VIZ API][WARN] check_viz_api.py not found: %VIZ_API_CHECK_PY%
+REM )
 
 REM [FIGURES] Build figures_map.json (assets.jsonl → PNG → map)
 set FIG_BUILD_PY=%~dp0tools\build_figures_map.py
