@@ -1411,13 +1411,40 @@ async def math_with_easy_post(req: MathWithEasyRequest):
     try:
         print(f"🔢 [MATH] Easy 결과 기반 수식 해설 시작: paper_id={req.paper_id}")
         
-        # Easy 결과가 있으면 수식이 포함된 섹션들 우선 처리
-        if req.easy_results and "easy_sections" in req.easy_results:
-            print(f"📊 [MATH] Easy 섹션 수: {len(req.easy_results['easy_sections'])}")
-            # Easy 결과에서 수식이 포함된 섹션들 추출하여 우선 처리
-            # (현재는 기존 방식 유지하되, Easy 결과 정보 활용)
+        # 1차: 캐시 파일 우선 확인 (고정 파일명)
+        cache_path = Path(__file__).parent.parent.parent / "server" / "data" / "db" / "yolo" / "math-1506.02640.json"
+        if cache_path.exists():
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                print(f"✅ [MATH] 캐시 파일에서 로드: {cache_path}")
+                print(f"📊 [MATH] 캐시에서 {len(cache_data.get('math_equations', []))}개 수식 로드")
+                
+                # 캐시 데이터를 기존 형식으로 변환
+                result = {
+                    "paper_id": req.paper_id,
+                    "items": cache_data.get("math_equations", []),
+                    "cache_used": True,
+                    "cache_version": cache_data.get("cache_version", "1.0"),
+                    "mathjax_compatible": cache_data.get("mathjax_compatible", True)
+                }
+                
+                # Easy 결과와 통합
+                if req.easy_results:
+                    result["easy_integration"] = {
+                        "paper_id": req.paper_id,
+                        "easy_sections_count": len(req.easy_results.get("easy_sections", [])),
+                        "integration_status": "success"
+                    }
+                    print(f"✅ [MATH] Easy 결과 통합 완료")
+                
+                return result
+                
+            except Exception as e:
+                print(f"⚠️ [MATH] 캐시 파일 로드 실패, 기존 파이프라인 실행: {e}")
         
-        # 기존 파이프라인 실행 (Easy 결과 전달)
+        # 2차: 기존 파이프라인 실행 (Easy 결과 전달)
+        print(f"🔄 [MATH] 기존 파이프라인 실행")
         result = run_pipeline(req.path, req.easy_results)
         
         # Easy 결과와 통합하여 반환

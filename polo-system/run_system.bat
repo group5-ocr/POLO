@@ -280,6 +280,22 @@ if exist "%FRONTEND_DIR%" (
 )
 
 REM ============================================================
+REM [VIZ API] External API connection check removed
+REM 외부 API는 Upload.tsx의 "생성하기" 버튼을 눌렀을 때만 호출됩니다
+REM set VIZ_API_CHECK_PY=%~dp0tools\check_viz_api.py
+REM if exist "%VIZ_API_CHECK_PY%" (
+REM   echo [VIZ API] Checking external API connection...
+REM   python "%VIZ_API_CHECK_PY%"
+REM   if errorlevel 1 (
+REM     echo [VIZ API][WARN] External API connection failed. PNG conversion may not work.
+REM     echo [VIZ API][INFO] You can still use the system, but external PNG conversion will be unavailable.
+REM   ) else (
+REM     echo [VIZ API] External API connection successful!
+REM   )
+REM ) else (
+REM   echo [VIZ API][WARN] check_viz_api.py not found: %VIZ_API_CHECK_PY%
+REM )
+
 REM [FIGURES] Build figures_map.json (assets.jsonl → PNG → map)
 set FIG_BUILD_PY=%~dp0tools\build_figures_map.py
 if exist "%FIG_BUILD_PY%" (
@@ -298,14 +314,24 @@ if exist "%FIG_TEMPLATE_PY%" (
   echo [FIG][WARN] build_figure_map_template.py not found: %FIG_TEMPLATE_PY%
 )
 
+REM [PDF TO PNG] External API conversion tool (optional usage)
+set PDF_TO_PNG_PY=%~dp0tools\convert_pdf_to_png.py
+if exist "%PDF_TO_PNG_PY%" (
+  echo [PDF TO PNG] PDF to PNG conversion tool available at: %PDF_TO_PNG_PY%
+  echo [PDF TO PNG] Usage: python "%PDF_TO_PNG_PY%" [arxiv_id] --output [output_dir]
+  echo [PDF TO PNG] Example: python "%PDF_TO_PNG_PY%" 1506.02640
+) else (
+  echo [PDF TO PNG][WARN] convert_pdf_to_png.py not found: %PDF_TO_PNG_PY%
+)
+
 REM [FIG] 사이드카 정적 서버 실행 (선택적 - 메인 서버에 /static이 없을 때만)
 set FIG_SIDECAR_PY=%~dp0tools\figsidecar_app.py
 set FIG_STATIC_ROOT=C:\POLO\POLO\polo-system\server\data\outputs
-set FIG_SIDECAR_PORT=8010
+set FIG_SIDECAR_PORT=8020
 
 if exist "%FIG_SIDECAR_PY%" (
   echo [FIG] Start static sidecar on port %FIG_SIDECAR_PORT% ...
-  start "FigStatic" cmd /c python "%FIG_SIDECAR_PY%" --root "%FIG_STATIC_ROOT%" --port %FIG_SIDECAR_PORT%
+  start "FigStatic" /min cmd /c python "%FIG_SIDECAR_PY%" --root "%FIG_STATIC_ROOT%" --port %FIG_SIDECAR_PORT% >nul 2>&1
 ) else (
   echo [FIG][WARN] figsidecar_app.py not found: %FIG_SIDECAR_PY%
 )

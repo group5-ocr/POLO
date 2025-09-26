@@ -15,8 +15,8 @@ def main():
     parser.add_argument("--root", 
                        default=r"C:\POLO\POLO\polo-system\server\data\outputs",
                        help="Static files root directory")
-    parser.add_argument("--port", type=int, default=8010,
-                       help="Server port (default: 8010)")
+    parser.add_argument("--port", type=int, default=8020,
+                       help="Server port (default: 8020)")
     parser.add_argument("--host", default="0.0.0.0",
                        help="Server host (default: 0.0.0.0)")
     

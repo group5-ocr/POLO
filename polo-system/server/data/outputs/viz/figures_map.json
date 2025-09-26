@@ -1,0 +1,77 @@
+{
+  "figures": [
+    {
+      "order": 1,
+      "label": "system",
+      "caption": "\\small \\textbf{The YOLO Detection System.",
+      "graphics": "system",
+      "src_file": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\system.pdf",
+      "image_path": "/static/viz/figures/system/system_p1.png?v=6bd89a9a0d",
+      "all_pages": [
+        "/static/viz/figures/system/system_p1.png?v=6bd89a9a0d"
+      ]
+    },
+    {
+      "order": 2,
+      "label": "model",
+      "caption": "\\small \\textbf{The Model.",
+      "graphics": "model",
+      "src_file": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\model.pdf",
+      "image_path": "/static/viz/figures/model/model_p1.png?v=0b6d90da55",
+      "all_pages": [
+        "/static/viz/figures/model/model_p1.png?v=0b6d90da55"
+      ]
+    },
+    {
+      "order": 3,
+      "label": "net",
+      "caption": "\\small \\textbf{The Architecture.",
+      "graphics": "net",
+      "src_file": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\net.pdf",
+      "image_path": "/static/viz/figures/net/net_p1.png?v=c1dfd7345f",
+      "all_pages": [
+        "/static/viz/figures/net/net_p1.png?v=c1dfd7345f",
+        "/static/viz/figures/net/net_p2.png?v=c1dfd7345f"
+      ]
+    },
+    {
+      "order": 4,
+      "label": "errors",
+      "caption": "\\small \\textbf{Error Analysis: Fast R-CNN vs. YOLO",
+      "graphics": "pie_compare",
+      "src_file": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\pie_compare.pdf",
+      "image_path": "/static/viz/figures/pie_compare/pie_compare_p1.png?v=bd9ee4363e",
+      "all_pages": [
+        "/static/viz/figures/pie_compare/pie_compare_p1.png?v=bd9ee4363e"
+      ]
+    },
+    {
+      "order": 5,
+      "label": "art",
+      "caption": "\\small Picasso Dataset precision-recall curves.",
+      "graphics": "cubist",
+      "src_file": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\cubist.pdf",
+      "image_path": "/static/viz/figures/cubist/cubist_p1.png?v=e1c55a9f47",
+      "all_pages": [
+        "/static/viz/figures/cubist/cubist_p1.png?v=e1c55a9f47"
+      ]
+    },
+    {
+      "order": 6,
+      "label": "images",
+      "caption": "\\small \\textbf{Qualitative Results.",
+      "graphics": "art.jpg",
+      "src_file": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source\\art.jpg",
+      "image_path": "/static/viz/figures/art/art.jpg?v=4444ccd327",
+      "all_pages": [
+        "/static/viz/figures/art/art.jpg?v=4444ccd327"
+      ]
+    }
+  ],
+  "metadata": {
+    "total_count": 6,
+    "generated_at": "auto",
+    "source_assets": "C:\\POLO\\POLO\\polo-system\\server\\data\\out\\source\\assets.jsonl",
+    "source_dir": "C:\\POLO\\POLO\\polo-system\\server\\data\\arxiv\\1506.02640\\source"
+  }
+}

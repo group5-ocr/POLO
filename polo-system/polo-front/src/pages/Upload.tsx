@@ -807,6 +807,43 @@ export default function Upload() {
         console.warn("⚠️ [PIPELINE] 통합 결과 로드 실패:", error);
       }
 
+      // 외부 시각화 API 호출 (arxiv_id가 있는 경우에만)
+      let targetArxivId = result?.arxiv_id;
+      
+      // 파일명에서 arxiv_id 추출 시도 (1506.02640v5 형태)
+      if (result?.filename) {
+        const filenameMatch = result.filename.match(/(\d{4}\.\d{4,5})(?:v\d+)?/);
+        if (filenameMatch) {
+          targetArxivId = filenameMatch[1];
+          console.log("📝 [VIZ API] 파일명에서 arxiv_id 추출:", targetArxivId);
+        }
+      }
+      
+      if (targetArxivId) {
+        console.log("🎨 [VIZ API] 외부 시각화 API 호출 중...", targetArxivId);
+        try {
+          const vizResponse = await fetch(`${apiBase}/api/external-viz-api`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              paper_id: paperId,
+              arxiv_id: targetArxivId 
+            }),
+          });
+
+          if (vizResponse.ok) {
+            const vizResult = await vizResponse.json();
+            console.log("✅ [VIZ API] 외부 시각화 API 성공:", vizResult);
+          } else {
+            console.warn("⚠️ [VIZ API] 외부 시각화 API 실패:", vizResponse.status);
+          }
+        } catch (error) {
+          console.warn("⚠️ [VIZ API] 외부 시각화 API 오류:", error);
+        }
+      } else {
+        console.log("ℹ️ [VIZ API] arxiv_id가 없어 외부 시각화 API를 건너뜁니다.");
+      }
+
       // 처리 완료
       console.log("🎉 [PIPELINE] 모든 처리 완료");
       updateProgress(100);
