@@ -20,6 +20,116 @@ from services import arxiv_client, preprocess_client
 
 router = APIRouter()
 
+# -------------------------------------
+# 통합 Math HTML 빌더 (MathJax + 이미지)
+# -------------------------------------
+def _build_integrated_math_html(easy_data: dict, figures_map: dict, *, paper_id: str) -> str:
+    """
+    easy_results.json과 figures_map.json을 이용해 통합 HTML 문자열을 생성한다.
+    - 문단 텍스트와 수식 문단을 순서대로 렌더
+    - 지정된 문단 뒤에 원본 이미지를 삽입
+    - 외부 시각화 이미지는 Appendix 섹션에 나열
+    """
+    # 원본 이미지 하드 매핑 (문단ID → 이미지 경로) - 수정된 매핑
+    original_images_by_paragraph = {
+        "easy_paragraph_2_3": "/static/viz/figures/art/art.jpg",
+        "easy_paragraph_3_2": "/static/viz/figures/net/net_p1.png",
+        "easy_paragraph_3_6": "/static/viz/figures/net/net_p1.png",
+        "easy_paragraph_3_7": "/static/viz/figures/system/system_p1.png",
+        "easy_paragraph_3_8": "/static/viz/figures/model/model_p1.png",
+        "easy_paragraph_4_2": "/static/viz/figures/pie_compare/pie_compare_p1.png",
+        "easy_paragraph_4_4": "/static/viz/figures/art/art.jpg",
+        "easy_paragraph_5_4": "/outputs/yolo_v1_analysis/viz/easy_section_8/easy_paragraph_8_2/00__activations_panel.png",
+        "easy_paragraph_12_1": "/static/viz/figures/cubist/cubist_p1.png"  # Real-Time Detection In The Wild
+    }
+
+    # 외부 시각화 이미지 목록(figures_map.json)
+    viz_items = []
+    for it in (figures_map or {}).get("figures", []):
+        viz_items.append({
+            "order": it.get("order"),
+            "label": it.get("label"),
+            "caption": it.get("caption"),
+            "image_path": it.get("image_path"),
+        })
+    viz_items.sort(key=lambda x: (x.get("order") or 0))
+
+    # HTML 헤더 및 MathJax 설정
+    head = (
+        "<!doctype html>\n"
+        "<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\" />\n"
+        f"<title>POLO – Integrated Math for {paper_id}</title>\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n"
+        "<style>\n"
+        "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,Helvetica,Arial,sans-serif;line-height:1.6;margin:0;background:#111;color:#eee}"
+        ".wrap{max-width:960px;margin:0 auto;padding:24px} h1,h2,h3{line-height:1.2} a{color:#66b3ff}"
+        ".card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;padding:18px;margin:16px 0}"
+        ".muted{color:#aaa} figure{margin:16px 0;text-align:center} figcaption{font-size:0.9em;color:#bbb;margin-top:6px}"
+        ".pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#2a2a2a;color:#ddd;font-size:12px;margin-left:8px}"
+        ".para-id{color:#888;font-size:12px;margin-left:8px} .math{margin:10px 0;padding:10px;border-left:3px solid #333;background:#151515}"
+        "</style>\n"
+        "<script>\n"
+        "window.MathJax={loader:{load:['[tex]/ams','[tex]/mathtools','[tex]/physics']},"
+        "tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']],"
+        "packages:{'[+]':['ams','mathtools','physics']},processEscapes:true,tags:'none',"
+        "macros:{mathlarger:['{\\\\large #1}',1],mathbbm:['{\\\\mathbb{#1}}',1],dfn:'{\\\\triangleq}'}};\n"
+        "</script>\n"
+        "<script defer src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js\"></script>\n"
+        "</head>\n<body><div class=\"wrap\">\n"
+        f"<h1>Integrated Math <span class=\"pill\">{paper_id}</span></h1>\n"
+    )
+
+    # 본문: 섹션/문단 순회 출력
+    body_parts = []
+    sections = (easy_data or {}).get("easy_sections", [])
+    for s in sections:
+        title = s.get("easy_section_title") or ""
+        body_parts.append(f"<div class=\"card\"><h2>{title}</h2>")
+        for p in s.get("easy_paragraphs", []):
+            pid = p.get("easy_paragraph_id") or ""
+            ptext = p.get("easy_paragraph_text") or ""
+            ptype = p.get("paragraph_type") or "text"
+            # 일반 문단
+            if ptype == "text":
+                body_parts.append(f"<p>{ptext} <span class=\"para-id\">[{pid}]</span></p>")
+                # 원본 이미지 삽입(있으면)
+                img_src = original_images_by_paragraph.get(pid)
+                if img_src:
+                    body_parts.append(
+                        f"<figure><img src=\"{img_src}\" alt=\"{pid}\" style=\"max-width:100%\"/>"
+                        f"<figcaption>Original image for {pid}</figcaption></figure>"
+                    )
+            # 수학 문단
+            elif ptype == "math_equation":
+                meq = p.get("math_equation", {})
+                eqidx = meq.get("equation_index") or ""
+                latex = meq.get("equation_latex") or ""
+                expl = meq.get("equation_explanation") or ""
+                body_parts.append(
+                    f"<div class=\"math\"><div><strong>Equation {eqidx}</strong></div>"
+                    f"<div class=\"mathjax\">$$\n{latex}\n$$</div>"
+                    f"<div class=\"muted\" style=\"margin-top:8px\">{expl}</div></div>"
+                )
+            else:
+                # 기타 타입은 텍스트로 처리
+                body_parts.append(f"<p>{ptext} <span class=\"para-id\">[{pid}]</span></p>")
+        body_parts.append("</div>")
+
+    # Appendix: 외부 시각화 이미지
+    body_parts.append('<div class="card"><h2>Appendix: Visualizations</h2>')
+    for it in viz_items:
+        label = it.get("label") or ""
+        cap = it.get("caption") or ""
+        src = it.get("image_path") or ""
+        body_parts.append(
+            f'<figure><img src="{src}" alt="{label}" style="max-width:100%"/>'
+            f'<figcaption>{cap}</figcaption></figure>'
+        )
+    body_parts.append('</div>')
+
+    tail = '<div class="muted" style="margin-top:24px">Rendered with MathJax • POLO</div></div></body></html>'
+    return head + "\n".join(body_parts) + tail
+
 # === TeX 섹션 파싱/매핑 유틸 ===
 SECTION_PATTERNS = [
     (re.compile(r"^\\section\{(?P<title>.+?)\}"), "section"),
@@ -619,6 +729,35 @@ async def download_math_html(paper_id: str):
         filename=f"{paper_id}_math_results.html",
         media_type="text/html"
     )
+
+@router.get("/upload/download/integrated-math-html/{paper_id}")
+async def download_integrated_math_html(paper_id: str):
+    """
+    통합 Math HTML 다운로드 (수식 + 원본 이미지 + 시각화 이미지)
+    """
+    try:
+        # HTML 생성기 임포트
+        from routes.generate_html import generate_integrated_html
+        
+        # HTML 생성
+        html_content = generate_integrated_html(paper_id)
+        
+        # HTML 파일 저장
+        current_file = Path(__file__).resolve()
+        server_dir = current_file.parent.parent  # polo-system/server
+        output_dir = server_dir / "data" / "outputs" / paper_id / "math_outputs"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        html_file = output_dir / f"integrated_math_{paper_id}.html"
+        html_file.write_text(html_content, encoding="utf-8")
+        
+        return FileResponse(
+            path=str(html_file),
+            filename=f"{paper_id}_integrated_math.html",
+            media_type="text/html"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HTML 생성 실패: {str(e)}")
 
 @router.get("/upload/math-status/{paper_id}")
 async def get_math_status(paper_id: str):
@@ -1296,14 +1435,38 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                                 "math_equation_env": equation.get("env", ""),
                                 "math_equation_line_start": equation.get("line_start", 0),
                                 "math_equation_line_end": equation.get("line_end", 0),
-                                "math_equation_variables": [],
+                                "math_equation_variables": equation.get("equation_variables", []) or equation.get("variables", []) or [],
                                 "math_equation_importance": "medium",
                                 "math_equation_difficulty": "intermediate"
                             }
+                            # [HARDCODE] 문단 매핑: 사용자가 지정한 6개 수식 → 특정 문단
+                            eq_id = converted_equation["math_equation_id"]
+                            paragraph_ref = None
+                            if eq_id == "math_equation_1":
+                                paragraph_ref = "easy_paragraph_3_3"
+                                converted_equation["math_equation_section_ref"] = "easy_section_3"
+                            elif eq_id == "math_equation_2":
+                                paragraph_ref = "easy_paragraph_3_5"
+                                converted_equation["math_equation_section_ref"] = "easy_section_3"
+                            elif eq_id == "math_equation_3":
+                                paragraph_ref = "easy_paragraph_3_6"
+                                converted_equation["math_equation_section_ref"] = "easy_section_3"
+                            elif eq_id == "math_equation_4":
+                                paragraph_ref = "easy_paragraph_5_4"
+                                converted_equation["math_equation_section_ref"] = "easy_section_5"
+                            elif eq_id == "math_equation_5":
+                                paragraph_ref = "easy_paragraph_5_4"
+                                converted_equation["math_equation_section_ref"] = "easy_section_5"
+                            elif eq_id == "math_equation_6":
+                                paragraph_ref = "easy_paragraph_5_6"
+                                converted_equation["math_equation_section_ref"] = "easy_section_5"
+                            if paragraph_ref:
+                                converted_equation["math_equation_paragraph_ref"] = paragraph_ref
                             converted_equations.append(converted_equation)
-                        
+                        # 하드코딩 순서 보존(이미 1..6) 보장: index 숫자 기준 정렬
+                        converted_equations.sort(key=lambda e: int(str(e.get("math_equation_index","(0)")).strip("()") or 0))
                         math_result["math_equations"] = converted_equations
-                        print(f"✅ [SERVER] Math 결과 변환 완료: {len(converted_equations)}개 수식")
+                        print(f"✅ [SERVER] Math 결과 변환 완료: {len(converted_equations)}개 수식 (하드코딩 문단 매핑 적용)")
                     
                     # Easy 결과와 Math 수식 통합
                     try:
@@ -1312,26 +1475,31 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                             with open(easy_json_path, 'r', encoding='utf-8') as f:
                                 easy_data = json.load(f)
                             
-                            # Math 수식을 Easy 문단에 통합
+                            # Math 수식을 Easy 문단에 통합 (하드코딩 문단 매핑 기반)
                             integrated_sections = []
+                            # 문단별로 삽입할 수식 목록 구성
+                            eqs_by_paragraph = {}
+                            for eq in math_result.get("math_equations", []):
+                                pref = eq.get("math_equation_paragraph_ref")
+                                if not pref:
+                                    continue
+                                eqs_by_paragraph.setdefault(pref, []).append(eq)
+                            # 각 문단 리스트에 대해, 해당 문단 뒤에만 수식 삽입
                             for section in easy_data.get("easy_sections", []):
                                 section_id = section.get("easy_section_id", "")
-                                
-                                # 해당 섹션의 Math 수식들 찾기
-                                section_equations = [
-                                    eq for eq in math_result.get("math_equations", [])
-                                    if eq.get("math_equation_section_ref") == section_id
-                                ]
-                                
-                                # 문단별로 수식 통합
                                 integrated_paragraphs = []
                                 for paragraph in section.get("easy_paragraphs", []):
-                                    # 문단 추가
                                     integrated_paragraphs.append(paragraph)
-                                    
-                                    # 해당 문단 다음에 수식들 추가
-                                    for equation in section_equations:
-                                        # 수식을 문단 형태로 변환
+                                    pid = paragraph.get("easy_paragraph_id")
+                                    attach_list = eqs_by_paragraph.get(pid, [])
+                                    if not attach_list:
+                                        continue
+                                    # 수식 인덱스 숫자 기준 안정 정렬
+                                    attach_list_sorted = sorted(
+                                        attach_list,
+                                        key=lambda e: int(str(e.get("math_equation_index","(0)")).strip("()") or 0)
+                                    )
+                                    for equation in attach_list_sorted:
                                         equation_paragraph = {
                                             "easy_paragraph_id": f"math_{equation.get('math_equation_id', '')}",
                                             "easy_paragraph_text": f"**{equation.get('math_equation_context', '수식')}**",
@@ -1348,12 +1516,7 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                                             "paragraph_type": "math_equation"
                                         }
                                         integrated_paragraphs.append(equation_paragraph)
-                                
-                                # 통합된 섹션 생성
-                                integrated_section = {
-                                    **section,
-                                    "easy_paragraphs": integrated_paragraphs
-                                }
+                                integrated_section = { **section, "easy_paragraphs": integrated_paragraphs }
                                 integrated_sections.append(integrated_section)
                             
                             # 통합된 Easy 결과 저장
@@ -1365,26 +1528,29 @@ async def send_to_math(request: ModelSendRequest, bg: BackgroundTasks):
                     except Exception as e:
                         print(f"⚠️ [SERVER] Math 수식 통합 실패: {e}")
                     
-                    # HTML 생성 (선택사항)
+                    # 통합 HTML 생성 (MathJax + 원본/시각화 이미지 포함)
                     try:
-                        html_response = await client.get(f"{math_url}/html/{str(tex_path)}")
-                        if html_response.status_code == 200:
-                            html_file = output_dir / f"math_results_{paper_id}.html"
-                            html_file.write_text(html_response.text, encoding="utf-8")
-                            print(f"✅ [SERVER] Math HTML 결과 생성 완료: {html_file}")
-                    except Exception as e:
-                        print(f"⚠️ [SERVER] Math HTML 생성 실패 (무시): {e}")
+                        # easy_results.json 로드 (통합된 문단/수식 포함)
+                        easy_json_path = output_dir / "easy_results.json"
+                        easy_data = {}
+                        if easy_json_path.exists():
+                            with open(easy_json_path, 'r', encoding='utf-8') as ef:
+                                easy_data = json.load(ef)
 
-                        # TeX 파일 복사 (math_build_dir 변수 정의 필요)
-                        try:
-                            math_build_dir = Path("/tmp/math_build")  # 임시 경로
-                            tex_file = math_build_dir / "yolo_math_report.tex"
-                            if tex_file.exists():
-                                import shutil
-                                shutil.copy2(tex_file, output_dir / "yolo_math_report.tex")
-                                print(f"✅ [SERVER] Math TeX 결과 복사 완료")
-                        except Exception as e:
-                            print(f"⚠️ [SERVER] Math TeX 복사 실패 (무시): {e}")
+                        # figures_map.json 로드 (시각화 이미지)
+                        server_dir = Path(__file__).resolve().parent.parent
+                        figures_map_path = server_dir / "data" / "outputs" / "viz" / "figures_map.json"
+                        figures_map = {}
+                        if figures_map_path.exists():
+                            with open(figures_map_path, 'r', encoding='utf-8') as vf:
+                                figures_map = json.load(vf)
+
+                        html_str = _build_integrated_math_html(easy_data, figures_map, paper_id=paper_id)
+                        integrated_html = output_dir / f"integrated_math_{paper_id}.html"
+                        integrated_html.write_text(html_str, encoding="utf-8")
+                        print(f"✅ [SERVER] 통합 Math HTML 생성 완료: {integrated_html}")
+                    except Exception as e:
+                        print(f"⚠️ [SERVER] 통합 Math HTML 생성 실패 (무시): {e}")
                         
                         # 처리 후 결과 파일을 DB에 기록(가능한 경우)
                         try:
@@ -1761,9 +1927,20 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
         # 4단계: 통합 결과 생성 (Easy 문단 + Math 수식 통합)
         print(f"🔗 [PIPELINE] 4단계: 통합 결과 생성")
         
-        # Math 결과 로드
-        with open(math_json_file, 'r', encoding='utf-8') as f:
-            math_data = json.load(f)
+        # Math 결과 로드 (캐시 파일 우선)
+        math_data = None
+        cache_path = server_dir / "data" / "db" / "yolo" / "math-1506.02640.json"
+        if cache_path.exists():
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    math_data = json.load(f)
+                print(f"✅ [PIPELINE] 캐시 파일에서 Math 결과 로드: {cache_path}")
+            except Exception as e:
+                print(f"⚠️ [PIPELINE] 캐시 파일 로드 실패, math_results.json 사용: {e}")
+        
+        if not math_data:
+            with open(math_json_file, 'r', encoding='utf-8') as f:
+                math_data = json.load(f)
         
         # Math 수식을 Easy 문단에 통합 (문단 기준 삽입: paragraph_id 매칭 우선, 섹션 기준은 말미에 1회)
         integrated_sections = []
@@ -1859,6 +2036,33 @@ async def run_all_models_sequentially(request: ModelSendRequest, bg: BackgroundT
         integrated_file = output_dir / "integrated_result.json"
         integrated_file.write_text(json.dumps(integrated_result, ensure_ascii=False, indent=2), encoding="utf-8")
         
+        # 통합 Math HTML 생성 (run-all-models 종료 시에도 생성)
+        try:
+            # easy_results.json 로드
+            easy_json_path = output_dir / "easy_results.json"
+            easy_for_html = {}
+            if easy_json_path.exists():
+                with open(easy_json_path, 'r', encoding='utf-8') as ef:
+                    easy_for_html = json.load(ef)
+
+            # figures_map.json 로드
+            figures_map_path = server_dir / "data" / "outputs" / "viz" / "figures_map.json"
+            figures_map = {}
+            if figures_map_path.exists():
+                with open(figures_map_path, 'r', encoding='utf-8') as vf:
+                    figures_map = json.load(vf)
+
+            # 출력 디렉토리 준비
+            math_outputs_dir = output_dir / "math_outputs"
+            math_outputs_dir.mkdir(parents=True, exist_ok=True)
+
+            html_str = _build_integrated_math_html(easy_for_html, figures_map, paper_id=paper_id)
+            integrated_html = math_outputs_dir / f"integrated_math_{paper_id}.html"
+            integrated_html.write_text(html_str, encoding="utf-8")
+            print(f"✅ [PIPELINE] 통합 Math HTML 생성 완료: {integrated_html}")
+        except Exception as e:
+            print(f"⚠️ [PIPELINE] 통합 Math HTML 생성 실패(무시): {e}")
+
         print(f"✅ [PIPELINE] 전체 파이프라인 완료")
         
         return {
@@ -2464,12 +2668,18 @@ async def get_integrated_result(paper_id: str):
         server_dir = current_file.parent.parent
         output_dir = server_dir / "data" / "outputs" / paper_id
         
-        # 0) 이미 생성된 통합 결과 파일이 있으면 그대로 반환 (파이프라인 산출물 우선)
+        # 0) 이미 생성된 통합 결과 파일이 있으면 확인 후 반환 (Math 결과가 있는 경우만)
         integrated_path = output_dir / "integrated_result.json"
         if integrated_path.exists():
             try:
                 with open(integrated_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    existing_data = json.load(f)
+                    # Math 결과가 있는 경우만 기존 파일 반환
+                    if existing_data.get("math_equations") and len(existing_data.get("math_equations", [])) > 0:
+                        print(f"✅ [INTEGRATED] 기존 통합 결과 반환 (Math 결과 포함)")
+                        return existing_data
+                    else:
+                        print(f"⚠️ [INTEGRATED] 기존 파일에 Math 결과 없음, 재구성 시도")
             except Exception as e:
                 print(f"⚠️ [INTEGRATED] 기존 통합 결과 로드 실패, 재구성 시도: {e}")
 
@@ -2488,20 +2698,28 @@ async def get_integrated_result(paper_id: str):
         except Exception as e:
             easy_error = f"Easy 결과 로드 실패: {str(e)}"
         
-        # Math 결과 로드 (우선순위: math_results.json > math_outputs/equations_explained.json)
+        # Math 결과 로드 (우선순위: 캐시 파일 > math_results.json > math_outputs/equations_explained.json)
         math_data = None
         math_error = None
         try:
-            math_results_path = output_dir / "math_results.json"
-            math_items_path = output_dir / "math_outputs" / "equations_explained.json"
-            if math_results_path.exists():
-                with open(math_results_path, 'r', encoding='utf-8') as f:
+            # 1차: 캐시 파일 우선 로드 (고정 파일명)
+            cache_path = server_dir / "data" / "db" / "yolo" / "math-1506.02640.json"
+            if cache_path.exists():
+                with open(cache_path, 'r', encoding='utf-8') as f:
                     math_data = json.load(f)
-            elif math_items_path.exists():
-                with open(math_items_path, 'r', encoding='utf-8') as f:
-                    math_data = json.load(f)
+                print(f"✅ [MATH] 캐시 파일에서 로드: {cache_path}")
             else:
-                math_error = "Math 결과 파일이 없습니다"
+                # 2차: 기존 파일들
+                math_results_path = output_dir / "math_results.json"
+                math_items_path = output_dir / "math_outputs" / "equations_explained.json"
+                if math_results_path.exists():
+                    with open(math_results_path, 'r', encoding='utf-8') as f:
+                        math_data = json.load(f)
+                elif math_items_path.exists():
+                    with open(math_items_path, 'r', encoding='utf-8') as f:
+                        math_data = json.load(f)
+                else:
+                    math_error = "Math 결과 파일이 없습니다"
         except Exception as e:
             math_error = f"Math 결과 로드 실패: {str(e)}"
         
@@ -2519,7 +2737,7 @@ async def get_integrated_result(paper_id: str):
         except Exception as e:
             print(f"⚠️ [VIZ] Viz 결과 로드 실패(무시): {e}")
 
-        # 통합 데이터 생성
+        # 통합 데이터 생성 (기본 구조)
         integrated_data = {
             "paper_info": {
                 "paper_id": paper_id,
@@ -2530,7 +2748,8 @@ async def get_integrated_result(paper_id: str):
                 "total_equations": len(math_data.get("items", [])) if math_data else 0
             },
             "easy_sections": easy_data.get("easy_sections", []) if easy_data else [],
-            "math_equations": [],
+            # Math 데이터 병합 (캐시 파일에서 로드된 데이터 사용)
+            "math_equations": math_data.get("math_equations", []) if math_data else [],
             "model_errors": {
                 "easy_model_error": easy_error,
                 "math_model_error": math_error,
@@ -2539,46 +2758,133 @@ async def get_integrated_result(paper_id: str):
             "processing_logs": []
         }
         
-        # Math 데이터 변환 및 Easy 섹션과 매핑
-        if math_data and "items" in math_data:
-            try:
-                easy_sections = easy_data.get("easy_sections", []) if easy_data else []
-                
-                for i, item in enumerate(math_data["items"]):
-                    try:
-                        # Math 수식이 어느 Easy 섹션에 속하는지 결정
-                        # 기본적으로 순서대로 매핑하되, 섹션 수를 초과하지 않도록 함
-                        section_index = i % len(easy_sections) if easy_sections else 0
-                        section_ref = easy_sections[section_index]["easy_section_id"] if easy_sections else f"easy_section_{i+1}"
-                        
-                        equation = {
-                            "math_equation_id": f"math_equation_{i+1}",
-                            "math_equation_index": f"({i+1})",
+        # Math 데이터 → 문단 삽입 방식으로 통합
+        try:
+            easy_sections = integrated_data.get("easy_sections", [])
+            if easy_sections:
+                # 문단 ID → 배열 인덱스 맵
+                paragraph_index = {}
+                for sec in easy_sections:
+                    for idx, p in enumerate(sec.get("easy_paragraphs", [])):
+                        paragraph_index[p.get("easy_paragraph_id")] = (sec, idx)
+
+                # 사용할 수식 목록 구성
+                equations: list = []
+                if math_data and "math_equations" in math_data:
+                    equations = math_data.get("math_equations", [])
+                    print(f"✅ [MATH] 캐시에서 {len(equations)}개 수식 로드")
+                elif math_data and "items" in math_data:
+                    # 구형(items) → 간이 변환
+                    for i, item in enumerate(math_data.get("items", []), start=1):
+                        equations.append({
+                            "math_equation_id": f"math_equation_{i}",
+                            "math_equation_index": f"({i})",
+                            "equation_id": f"math_equation_{i}",  # 호환
+                            "equation_index": f"({i})",
                             "math_equation_latex": item.get("equation", ""),
+                            "equation_latex": item.get("equation", ""),
                             "math_equation_explanation": item.get("explanation", ""),
-                            "math_equation_context": f"수식 {i+1}",
-                            "math_equation_section_ref": section_ref  # Easy 섹션 ID와 매핑
+                            "equation_explanation": item.get("explanation", ""),
+                            "math_equation_section_ref": item.get("section_ref"),
+                        })
+
+                # 하드코딩 문단 매핑 우선 적용
+                hard_map = {
+                    "math_equation_1": "easy_paragraph_3_3",
+                    "math_equation_2": "easy_paragraph_3_5",
+                    "math_equation_3": "easy_paragraph_3_6",
+                    "math_equation_4": "easy_paragraph_5_4",
+                    "math_equation_5": "easy_paragraph_5_4",
+                    "math_equation_6": "easy_paragraph_5_6",
+                }
+
+                # 수식 정렬 보장(인덱스 숫자)
+                def _idx_num(e):
+                    idx = e.get("math_equation_index") or e.get("equation_index") or "(0)"
+                    try:
+                        return int(str(idx).strip("()") or 0)
+                    except Exception:
+                        return 0
+                equations.sort(key=_idx_num)
+
+                # 각 수식을 해당 문단 뒤에 삽입
+                for e in equations:
+                    eq_id = e.get("math_equation_id") or e.get("equation_id")
+                    target_pid = e.get("math_equation_paragraph_ref") or hard_map.get(eq_id)
+                    # 문단을 못 찾으면 섹션 참조로 대체 삽입(첫 문단 뒤)
+                    if target_pid in paragraph_index:
+                        sec, idx = paragraph_index[target_pid]
+                        eq_para = {
+                            "easy_paragraph_id": f"math_{eq_id}",
+                            "easy_paragraph_text": f"**수식 {e.get('math_equation_index') or e.get('equation_index') or ''}**",
+                            "paragraph_type": "math_equation",
+                            "math_equation": {
+                                "equation_id": eq_id,
+                                "equation_index": e.get("math_equation_index") or e.get("equation_index"),
+                                "equation_latex": e.get("math_equation_latex") or e.get("equation_latex"),
+                                "equation_explanation": e.get("math_equation_explanation") or e.get("equation_explanation"),
+                                "equation_context": e.get("math_equation_context") or e.get("equation_context") or "수식",
+                                "equation_variables": e.get("math_equation_variables") or e.get("equation_variables") or [],
+                            }
                         }
-                        integrated_data["math_equations"].append(equation)
-                    except Exception as e:
-                        integrated_data["processing_logs"].append(f"수식 {i+1} 변환 실패: {str(e)}")
-                        # 에러가 발생해도 빈 수식으로 추가
-                        equation = {
-                            "math_equation_id": f"math_equation_{i+1}",
-                            "math_equation_index": f"({i+1})",
-                            "math_equation_latex": item.get("equation", ""),
-                            "math_equation_explanation": f"수식 변환 중 오류 발생: {str(e)}",
-                            "math_equation_context": f"수식 {i+1}",
-                            "math_equation_section_ref": f"easy_section_{i+1}"
+                        sec.setdefault("easy_paragraphs", [])
+                        sec["easy_paragraphs"].insert(idx + 1, eq_para)
+                        # 인덱스 맵 갱신(뒤쪽만 대략)
+                        for j in range(idx + 2, len(sec["easy_paragraphs"])):
+                            paragraph_index[sec["easy_paragraphs"][j]["easy_paragraph_id"]] = (sec, j)
+                    else:
+                        # 섹션 참조 기반(없으면 첫 섹션 첫 문단 뒤)
+                        sec_ref = e.get("math_equation_section_ref")
+                        sec_obj = next((s for s in easy_sections if s.get("easy_section_id") == sec_ref), None) or (easy_sections[0] if easy_sections else None)
+                        if not sec_obj:
+                            continue
+                        eq_para = {
+                            "easy_paragraph_id": f"math_{eq_id}",
+                            "easy_paragraph_text": f"**수식 {e.get('math_equation_index') or e.get('equation_index') or ''}**",
+                            "paragraph_type": "math_equation",
+                            "math_equation": {
+                                "equation_id": eq_id,
+                                "equation_index": e.get("math_equation_index") or e.get("equation_index"),
+                                "equation_latex": e.get("math_equation_latex") or e.get("equation_latex"),
+                                "equation_explanation": e.get("math_equation_explanation") or e.get("equation_explanation"),
+                                "equation_context": e.get("math_equation_context") or e.get("equation_context") or "수식",
+                                "equation_variables": e.get("math_equation_variables") or e.get("equation_variables") or [],
+                            }
                         }
-                        integrated_data["math_equations"].append(equation)
-            except Exception as e:
-                integrated_data["processing_logs"].append(f"Math 데이터 변환 실패: {str(e)}")
-        elif math_data and "math_equations" in math_data:
-            # 이미 서버 형식으로 변환된 math_results.json인 경우 그대로 삽입
-            integrated_data["math_equations"] = math_data.get("math_equations", [])
-        else:
-            integrated_data["processing_logs"].append("Math 데이터가 없거나 형식이 올바르지 않습니다")
+                        sec_obj.setdefault("easy_paragraphs", [])
+                        insert_pos = 1 if sec_obj["easy_paragraphs"] else 0
+                        sec_obj["easy_paragraphs"].insert(insert_pos, eq_para)
+        except Exception as e:
+            integrated_data["processing_logs"].append(f"문단 삽입 실패: {str(e)}")
+
+        # 원본 이미지 삽입(문단별 1장) - 수정된 매핑
+        try:
+            img_map = {
+                "easy_paragraph_2_3": "/static/viz/figures/art/art.jpg",
+                "easy_paragraph_3_2": "/static/viz/figures/net/net_p1.png", 
+                "easy_paragraph_3_6": "/static/viz/figures/net/net_p1.png",
+                "easy_paragraph_3_7": "/static/viz/figures/system/system_p1.png",
+                "easy_paragraph_3_8": "/static/viz/figures/model/model_p1.png",
+                "easy_paragraph_4_2": "/static/viz/figures/pie_compare/pie_compare_p1.png",
+                "easy_paragraph_4_4": "/static/viz/figures/art/art.jpg",
+                "easy_paragraph_5_4": "/outputs/yolo_v1_analysis/viz/easy_section_8/easy_paragraph_8_2/00__activations_panel.png",
+                "easy_paragraph_12_1": "/static/viz/figures/cubist/cubist_p1.png"  # Real-Time Detection In The Wild
+            }
+            
+            # Real-Time Detection In The Wild 섹션에 두 이미지 모두 추가
+            for sec in integrated_data.get("easy_sections", []):
+                for p in sec.get("easy_paragraphs", []):
+                    pid = p.get("easy_paragraph_id")
+                    if pid == "easy_paragraph_12_1":
+                        # visualizations 배열로 두 이미지 추가
+                        p["visualizations"] = [
+                            {"image_path": "/static/viz/figures/cubist/cubist_p1.png", "image_type": "original"},
+                            {"image_path": "/static/viz/figures/art/art.jpg", "image_type": "original"}
+                        ]
+                    elif pid in img_map:
+                        p["visualization"] = {"image_path": img_map[pid], "image_type": "original"}
+        except Exception as e:
+            integrated_data["processing_logs"].append(f"원본 이미지 삽입 실패(무시): {str(e)}")
 
         # Viz 데이터 → easy_sections에 주입 (섹션 단위)
         try:

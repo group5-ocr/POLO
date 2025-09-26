@@ -140,46 +140,20 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 .toc-pill:hover { background: #f9fafb; }
 .toc-pill.active { background: #f59e0b; color: #fff; border-color: #f59e0b; }
 
-/* 2-컬럼 레이아웃 */
+/* 단일 컬럼 레이아웃 (목차 제거됨) */
 .result-main{
-  display:grid;
-  grid-template-columns: 340px 1fr;   /* 좌:목차 고정 (320px + 여유), 우:본문 */
-  column-gap:24px;
-  align-items:start;
-  justify-content:center;
+  display: block;
+  max-width: 1000px;  /* 본문 width 크게 조정 */
+  margin: 0 auto;     /* 중앙 배치 */
+  padding: 20px;
 }
 
-/* 좌측 목차 카드 */
-.sidebar{ position:sticky; top:20px; height:fit-content; }
-.table-of-contents{
-  background:#fff; border:1px solid #e5e7eb; border-radius:10px;
-  padding:12px;
-  max-height: calc(100vh - 100px); /* 화면 높이에 맞춰 최대 높이 설정 */
-  overflow-y: auto;           /* 세로 스크롤 활성화 */
-  overflow-x: hidden;         /* 가로 스크롤 숨김 */
-  /* 커스텀 스크롤바 스타일링 */
-  scrollbar-width: thin;      /* Firefox */
-  scrollbar-color: #d1d5db #f9fafb; /* Firefox */
+/* 본문 폭 크게 조정 */
+.content{ 
+  max-width: 100%;    /* 전체 width 사용 */
+  width: 100%; 
+  margin: 0 auto; 
 }
-.toc-title{ margin:0 0 8px; font-size:1rem; font-weight:700; }
-.toc-sections{ list-style:none; margin:0; padding:0; display:grid; gap:6px; }
-.toc-link{
-  display:block; padding:6px 8px; border-radius:6px;
-  color:#374151; text-decoration:none; font-size:.92rem;
-  /* 수정: 긴 텍스트는 다음 줄로 넘어가도록 */
-  white-space: normal;
-  word-wrap: break-word;
-  word-break: keep-all;
-  overflow-wrap: break-word;
-  box-sizing: border-box;
-  max-width: 100%;
-  line-height: 1.4;
-}
-.toc-link:hover{ background:#f3f4f6; }
-.toc-link.active{ background:#f59e0b; color:#fff; }
-
-/* 본문 폭 유지 */
-.content{ max-width:72ch; width:100%; margin:0 auto; }
 
 /* Easy 본문(마크다운) 타이포/여백 */
 .easy-md h3{ font-size:1.05rem; margin:16px 0 8px; font-weight:700; }
@@ -206,13 +180,49 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
   color: #374151;
 }
 /* Main layout */
-.result-main { display: flex; gap: 20px; max-width: 1400px; margin: 0 auto; padding: 20px; }
-.content { flex: 1; max-width: 72ch; }
+.result-main { display: block; max-width: 1000px; margin: 0 auto; padding: 20px; }
+.content { width: 100%; max-width: 100%; }
 .easy-content { padding: 24px; }
 
 /* Easy 본문 MathJax 영향 차단 */
 .easy-content.no-mathjax * { 
   font-feature-settings: "tnum" 0, "lnum" 0; 
+}
+
+/* 설명 컨텐츠 MathJax 렌더링 보장 */
+.explanation-content {
+  white-space: normal !important;  /* 줄바꿈 \\가 이상하게 보이는 것 방지 */
+}
+
+/* 한국어 핵심 단어 형광펜 하이라이트 효과 - 강제 적용 */
+.keyword-highlight {
+  background: #ffeb3b !important;  /* 밝은 노란색 형광펜 */
+  color: #000000 !important;       /* 검은색 텍스트 */
+  padding: 3px 6px !important;     /* 더 큰 패딩 */
+  border-radius: 4px !important;   /* 둥근 모서리 */
+  font-weight: 700 !important;     /* 굵게 */
+  box-shadow: 0 2px 4px rgba(255, 235, 59, 0.5) !important;  /* 노란색 그림자 */
+  border: 2px solid #ffc107 !important;  /* 노란색 테두리 */
+  display: inline-block !important;      /* 인라인 블록 */
+  text-decoration: none !important;      /* 밑줄 제거 */
+  font-size: inherit !important;         /* 폰트 크기 상속 */
+  line-height: inherit !important;       /* 줄 높이 상속 */
+}
+
+.keyword-highlight:hover {
+  background: #fef3c7;  /* 호버 시 더 밝은 노란색 */
+  transform: translateY(-1px);  /* 살짝 위로 이동 */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);  /* 더 진한 그림자 */
+}
+
+/* 다크모드에서의 형광펜 효과 */
+.dark-mode .keyword-highlight {
+  background: #fbbf24;  /* 다크모드에서 주황색 형광펜 */
+  color: #1f2937;       /* 진한 회색 텍스트 */
+}
+
+.dark-mode .keyword-highlight:hover {
+  background: #f59e0b;  /* 다크모드 호버 시 더 진한 주황색 */
 }
 
 /* Figure 스타일링 */
@@ -653,13 +663,12 @@ html, body, .container, .paper-section, .paper-subsection, .easy-content, .table
 /* Result.tsx 스타일 - 기존 HTML 구조 유지 */
 
 .container {
-  display: flex;
-  max-width: 1200px;
+  display: block;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 20px;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   line-height: 1.6;
-  gap: 30px;
 }
 
 /* 사이드바 스타일 */
